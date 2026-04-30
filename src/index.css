@@ -1,0 +1,98 @@
+@import url("https://fonts.googleapis.com/css2?family=Fredoka:wght@400;500;600;700&family=Nunito:wght@400;500;600;700;800&display=swap");
+@import "tailwindcss";
+@import "@heroui/styles";
+
+:root {
+  --blue-700: #1570b8;
+  --blue-600: #2492da;
+  --blue-500: #48b1ec;
+  --blue-100: #eef9ff;
+  --gold-deep: #c7851d;
+  --gold-soft: #fff2cf;
+  --text-strong: #15344d;
+  --text-soft: #5f7b91;
+  --surface: #ffffff;
+  --surface-muted: #f8fcff;
+  --line: rgba(66, 149, 220, 0.12);
+
+  --font-display: "Fredoka", "Trebuchet MS", "Segoe UI", sans-serif;
+  --font-body: "Nunito", "Trebuchet MS", "Segoe UI", sans-serif;
+
+  font-family: var(--font-body);
+  line-height: 1.5;
+  font-weight: 400;
+  color: var(--text-strong);
+  background: linear-gradient(180deg, #f4fbff 0%, #fffaf0 100%);
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  height: 100%;
+  background: linear-gradient(180deg, #f4fbff 0%, #fffaf0 100%);
+}
+
+body {
+  margin: 0;
+  min-height: 100%;
+  min-width: 320px;
+  overflow: hidden;
+}
+
+body,
+input,
+button,
+textarea,
+select {
+  font-family: var(--font-body);
+}
+
+img {
+  max-width: 100%;
+}
+
+a {
+  color: inherit;
+}
+
+h1,
+h2,
+h3,
+p {
+  margin-top: 0;
+}
+
+h1,
+h2,
+h3 {
+  font-family: var(--font-display);
+  line-height: 1.05;
+  letter-spacing: -0.03em;
+}
+
+h1 {
+  font-size: clamp(2.8rem, 6vw, 5.2rem);
+}
+
+h2 {
+  font-size: clamp(1.7rem, 3vw, 2.4rem);
+}
+
+h3 {
+  font-size: clamp(1.35rem, 2.2vw, 1.8rem);
+}
+
+p {
+  font-size: 1rem;
+}
+
+#root {
+  min-height: 100vh;
+  height: 100vh;
+}
