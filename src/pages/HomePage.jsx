@@ -1184,7 +1184,14 @@ function WorkbookReferenceSkeleton({ title = 'Workbook Coverage', chips = 6 }) {
 
 function ModalShell({ kicker, title, subtitle, stat, onClose, children, cardClassName = '', headerAside = null, layer = 60 }) {
   return (
-    <div className="sales-modal-backdrop" role="presentation" onClick={onClose} style={{ zIndex: layer }}>
+    <div
+      className="sales-modal-backdrop"
+      role="presentation"
+      onClick={event => {
+        if (event.target === event.currentTarget) onClose()
+      }}
+      style={{ zIndex: layer }}
+    >
       <article className={`account-feature-card sales-form-card sales-modal-card ${cardClassName}`.trim()} role="dialog" aria-modal="true" onClick={e => e.stopPropagation()}>
         <div className="account-feature-body">
           <span className="sales-modal-sheet-handle" aria-hidden="true" />

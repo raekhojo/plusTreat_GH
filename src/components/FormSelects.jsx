@@ -37,7 +37,7 @@ export function AppSelect({
       placeholder={placeholder}
       selectedKey={normalizeSelectedKey(value)}
       variant="secondary"
-      onChange={key => onChange?.(key == null ? '' : String(key))}
+      onSelectionChange={key => onChange?.(key == null ? '' : String(key))}
     >
       <Select.Trigger>
         <Select.Value />
@@ -74,7 +74,7 @@ export function AppAutocomplete({
       placeholder={placeholder}
       selectedKey={normalizeSelectedKey(value)}
       variant="secondary"
-      onChange={key => onChange?.(key == null ? '' : String(key))}
+      onSelectionChange={key => onChange?.(key == null ? '' : String(key))}
       onClear={() => onChange?.('')}
     >
       <Autocomplete.Trigger>
