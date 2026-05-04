@@ -3372,6 +3372,7 @@
   background: #ffffff;
   color: #111111;
   box-shadow: none;
+  cursor: pointer;
   transition: border-color 160ms ease, box-shadow 160ms ease, background-color 160ms ease;
 }
 
@@ -3385,16 +3386,22 @@
 .app-form-select [data-slot="value"] {
   color: #111111;
   font: inherit;
+  pointer-events: none;
 }
 
 .app-form-select [data-slot="input"] {
   font: inherit;
   color: #111111;
+  pointer-events: none;
 }
 
 .app-form-select [data-slot="selector-icon"],
 .app-form-select [data-slot="clear-button"] {
   color: #5f7b91;
+}
+
+.app-form-select [data-slot="trigger"] > *:not([data-slot="clear-button"]):not([data-slot="selector-icon"]) {
+  pointer-events: none;
 }
 
 .app-form-select [data-slot="content"] {
