@@ -101,7 +101,6 @@ function MobileSelectModal({
         <div className="mobile-select-modal-handle" aria-hidden="true" />
         <div className="mobile-select-modal-header">
           <div>
-            <span className="mobile-select-modal-kicker">Select Option</span>
             <h3>{title || placeholder}</h3>
           </div>
           <button type="button" className="mobile-select-modal-close" onClick={onClose}>
@@ -147,7 +146,7 @@ function MobileSelectModal({
                     onClose?.()
                   }}
                 >
-                  <span>{option.label}</span>
+                  <span className="mobile-select-modal-option-label">{option.label}</span>
                   {option.meta ? <small>{option.meta}</small> : null}
                 </button>
               )
