@@ -39,10 +39,9 @@ export function AppSelect({
       variant="secondary"
       onSelectionChange={key => onChange?.(key == null ? '' : String(key))}
     >
-      <Select.Trigger>
-        <Select.Value />
-        <Select.Indicator />
-      </Select.Trigger>
+      <Select.Trigger />
+      <Select.Value />
+      <Select.Indicator />
       <Select.Popover>
         <ListBox items={options}>
           {renderOption}
