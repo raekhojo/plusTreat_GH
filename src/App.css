@@ -3364,6 +3364,211 @@
   width: 100%;
 }
 
+.mobile-select-trigger {
+  width: 100%;
+  min-height: 44px;
+  padding: 11px 13px;
+  border: 1px solid rgba(226, 232, 240, 0.95);
+  border-radius: 14px;
+  background: #ffffff;
+  color: #111111;
+  font: inherit;
+  text-align: left;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  cursor: pointer;
+  transition: border-color 160ms ease, box-shadow 160ms ease, background-color 160ms ease;
+}
+
+.mobile-select-trigger:focus,
+.mobile-select-trigger:hover {
+  outline: none;
+  border-color: rgba(226, 181, 104, 0.9);
+  box-shadow: 0 0 0 4px rgba(255, 223, 167, 0.45);
+}
+
+.mobile-select-trigger:disabled {
+  cursor: not-allowed;
+  opacity: 0.65;
+}
+
+.mobile-select-trigger-value {
+  color: #6b7280;
+  text-transform: uppercase;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.mobile-select-trigger-value.has-value {
+  color: #111111;
+  text-transform: none;
+  font-weight: 600;
+  letter-spacing: 0;
+}
+
+.mobile-select-trigger-icon {
+  color: #5f7b91;
+  flex-shrink: 0;
+}
+
+.mobile-select-inline-clear {
+  margin-top: 8px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #1570b8;
+  font: inherit;
+  font-size: 0.88rem;
+  font-weight: 700;
+  text-align: left;
+  cursor: pointer;
+}
+
+.mobile-select-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 120;
+  display: flex;
+  align-items: flex-end;
+  background: rgba(15, 23, 42, 0.38);
+  backdrop-filter: blur(4px);
+}
+
+.mobile-select-modal-sheet {
+  width: 100%;
+  max-height: min(78dvh, 680px);
+  padding: 14px 18px 20px;
+  border-radius: 24px 24px 0 0;
+  background: linear-gradient(180deg, #ffffff 0%, #f8fcff 100%);
+  box-shadow: 0 -18px 50px rgba(15, 23, 42, 0.18);
+  display: grid;
+  gap: 14px;
+}
+
+.mobile-select-modal-handle {
+  width: 58px;
+  height: 5px;
+  border-radius: 999px;
+  background: rgba(148, 163, 184, 0.55);
+  justify-self: center;
+}
+
+.mobile-select-modal-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.mobile-select-modal-kicker {
+  display: block;
+  margin-bottom: 6px;
+  color: #5f7b91;
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.mobile-select-modal-header h3 {
+  margin: 0;
+  font-size: 1.15rem;
+  color: #15344d;
+}
+
+.mobile-select-modal-close {
+  border: 0;
+  background: transparent;
+  color: #1570b8;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.mobile-select-modal-search {
+  display: grid;
+  gap: 8px;
+}
+
+.mobile-select-modal-search span {
+  font-size: 0.8rem;
+  font-weight: 800;
+  letter-spacing: 0.03em;
+  color: #5b6673;
+  text-transform: uppercase;
+}
+
+.mobile-select-modal-search input {
+  width: 100%;
+  min-height: 46px;
+  padding: 12px 14px;
+  border: 1px solid rgba(226, 232, 240, 0.95);
+  border-radius: 14px;
+  background: #ffffff;
+  color: #111111;
+  font: inherit;
+}
+
+.mobile-select-modal-search input:focus {
+  outline: none;
+  border-color: rgba(226, 181, 104, 0.9);
+  box-shadow: 0 0 0 4px rgba(255, 223, 167, 0.45);
+}
+
+.mobile-select-modal-clear {
+  justify-self: flex-start;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #1570b8;
+  font: inherit;
+  font-size: 0.9rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.mobile-select-modal-options {
+  min-height: 0;
+  overflow-y: auto;
+  display: grid;
+  gap: 10px;
+  padding-right: 2px;
+}
+
+.mobile-select-modal-option {
+  width: 100%;
+  padding: 14px 15px;
+  border: 1px solid rgba(216, 226, 236, 0.95);
+  border-radius: 16px;
+  background: #ffffff;
+  color: #15344d;
+  text-align: left;
+  display: grid;
+  gap: 4px;
+  font: inherit;
+  cursor: pointer;
+}
+
+.mobile-select-modal-option.is-selected {
+  border-color: rgba(36, 146, 218, 0.55);
+  background: linear-gradient(180deg, #f3fbff 0%, #ffffff 100%);
+  box-shadow: 0 10px 24px rgba(72, 177, 236, 0.12);
+}
+
+.mobile-select-modal-option small {
+  color: #64748b;
+  font-size: 0.8rem;
+}
+
+.mobile-select-modal-empty {
+  margin: 0;
+  padding: 18px 4px;
+  color: #64748b;
+  text-align: center;
+}
+
 .app-form-select [data-slot="trigger"] {
   width: 100%;
   min-height: 44px;
