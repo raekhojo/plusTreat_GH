@@ -5255,17 +5255,42 @@
 
   .sales-form-grid-two,
   .sales-line-row-wide,
-  .sales-line-row-sale,
   .sales-payment-row,
   .workspace-table-head,
   .workspace-table-row {
     grid-template-columns: 1fr;
   }
 
-  .sales-line-row-sale,
   .sales-payment-row {
-    gap: 12px;
-    padding: 14px;
+    width: 100%;
+    min-width: 0;
+    grid-template-columns: 38px minmax(0, 1fr);
+    gap: 10px 12px;
+    padding: 14px 0 16px;
+    align-items: start;
+    border: 0;
+    border-bottom: 1px solid #e4ebf0;
+    border-radius: 0;
+    background: transparent;
+  }
+
+  .sales-lines {
+    gap: 10px;
+    overflow-x: visible;
+    padding-bottom: 0;
+  }
+
+  .sales-line-row-sale {
+    width: 100%;
+    min-width: 0;
+    grid-template-columns: 38px minmax(0, 1fr);
+    gap: 10px 12px;
+    padding: 14px 0 16px;
+    align-items: start;
+    border: 0;
+    border-bottom: 1px solid #e4ebf0;
+    border-radius: 0;
+    background: transparent;
   }
 
   .sales-line-row-sale .sales-line-index,
@@ -5274,8 +5299,135 @@
     height: 38px;
   }
 
+  .sales-payment-row .sales-field,
+  .sales-payment-row .sales-line-remove {
+    grid-column: 2;
+  }
+
+  .sales-payment-row .sales-field {
+    gap: 4px;
+  }
+
+  .sales-payment-row .sales-field span {
+    font-size: 0.68rem;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    color: #7a8c9e;
+  }
+
+  .sales-payment-row .sales-field input,
+  .sales-payment-row .sales-field select {
+    min-height: 40px;
+    padding: 8px 0 6px;
+    border: 0;
+    border-bottom: 1px solid #d8e1e8;
+    border-radius: 0;
+    background: transparent;
+    box-shadow: none;
+  }
+
+  .sales-payment-row .sales-field input:focus,
+  .sales-payment-row .sales-field select:focus {
+    border-color: #7fb0d7;
+    background: transparent;
+    box-shadow: none;
+  }
+
+  .sales-line-row-sale .sales-field,
+  .sales-line-row-sale .sales-inline-stock,
+  .sales-line-row-sale .sale-line-total,
+  .sales-line-row-sale .sales-line-remove {
+    grid-column: 2;
+  }
+
+  .sales-line-row-sale .sales-field {
+    gap: 4px;
+  }
+
+  .sales-line-row-sale .sales-field span,
+  .sales-line-row-sale .sales-inline-stock span {
+    font-size: 0.68rem;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    color: #7a8c9e;
+  }
+
+  .sales-line-row-sale .sales-field input,
+  .sales-line-row-sale .sales-field select {
+    min-height: 40px;
+    padding: 8px 0 6px;
+    border: 0;
+    border-bottom: 1px solid #d8e1e8;
+    border-radius: 0;
+    background: transparent;
+    box-shadow: none;
+  }
+
+  .sales-line-row-sale .sales-field input:focus,
+  .sales-line-row-sale .sales-field select:focus {
+    border-color: #7fb0d7;
+    background: transparent;
+    box-shadow: none;
+  }
+
   .sales-line-row-sale .sale-line-total {
     width: fit-content;
+    min-height: 0;
+    display: inline-flex;
+    align-items: center;
+    padding: 0;
+    font-size: 0.9rem;
+  }
+
+  .sales-line-row-sale .sales-inline-stock {
+    gap: 3px;
+  }
+
+  .sales-line-row-sale .sales-inline-stock strong {
+    font-size: 0.78rem;
+    line-height: 1.35;
+  }
+
+  .sales-line-row-sale .sales-line-remove {
+    justify-self: start;
+    min-height: 36px;
+    padding: 0 12px;
+    border-radius: 999px;
+  }
+
+  .sales-payment-row .sales-line-remove {
+    justify-self: start;
+    min-height: 36px;
+    padding: 0 12px;
+    border-radius: 999px;
+  }
+
+  .sales-line-row-sale:last-child {
+    border-bottom: 0;
+    padding-bottom: 6px;
+  }
+
+  .sales-payment-row:last-child {
+    border-bottom: 0;
+    padding-bottom: 6px;
+  }
+
+  .sales-lines-panel .sales-form-grid-primary .sales-field input,
+  .sales-lines-panel .sales-form-grid-primary .sales-field select {
+    min-height: 40px;
+    padding: 8px 0 6px;
+    border: 0 !important;
+    border-bottom: 1px solid #d8e1e8 !important;
+    border-radius: 0 !important;
+    background: transparent !important;
+    box-shadow: none !important;
+  }
+
+  .sales-lines-panel .sales-form-grid-primary .sales-field input:focus,
+  .sales-lines-panel .sales-form-grid-primary .sales-field select:focus {
+    border-color: #7fb0d7 !important;
+    background: transparent !important;
+    box-shadow: none !important;
   }
 
   .sales-form-summary-cards {
@@ -7580,6 +7732,35 @@
     gap: 12px;
   }
 
+  .sales-add-line-button {
+    background: #f4aa29;
+    color: #111827;
+    border: 1px solid #f4aa29;
+  }
+
+  .sales-form-summary {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+    padding: 10px 0 0;
+  }
+
+  .sales-form-summary span {
+    min-width: 0;
+    display: grid;
+    gap: 2px;
+    padding: 8px 10px;
+    border-radius: 12px;
+    background: #f8fafb;
+    border: 1px solid #e4ebf0;
+    line-height: 1.3;
+  }
+
+  .sales-form-summary strong {
+    font-size: 0.96rem;
+    line-height: 1.2;
+  }
+
   .sales-form-hero,
   .sales-form-grid,
   .sales-form-grid-two,
@@ -7624,6 +7805,59 @@
     background: #ffffff;
   }
 
+  .sales-lines-panel {
+    padding: 14px;
+  }
+
+  .sales-lines {
+    padding-inline: 4px;
+  }
+
+  .sales-form .sales-field {
+    gap: 4px;
+  }
+
+  .sales-form .sales-field span {
+    font-size: 0.68rem;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    color: #7a8c9e;
+  }
+
+  .purchase-lines-head,
+  .production-compact-head,
+  .production-output-head {
+    display: none;
+  }
+
+  .purchase-line-row,
+  .purchase-payment-row,
+  .batch-usage-row,
+  .production-compact-row,
+  .production-output-row,
+  .purchase-line-row-new-rm {
+    width: 100%;
+    min-width: 0;
+    grid-template-columns: 1fr !important;
+    gap: 10px;
+    padding: 14px 0 16px;
+    align-items: start;
+    border: 0;
+    border-bottom: 1px solid #e4ebf0;
+    border-radius: 0;
+    background: transparent;
+  }
+
+  .purchase-line-row:last-child,
+  .purchase-payment-row:last-child,
+  .batch-usage-row:last-child,
+  .production-compact-row:last-child,
+  .production-output-row:last-child,
+  .purchase-line-row-new-rm:last-child {
+    border-bottom: 0;
+    padding-bottom: 6px;
+  }
+
   .sales-line-row-sale .sales-line-index,
   .sales-payment-row .sales-line-index {
     background: #eef3f7;
@@ -7636,6 +7870,17 @@
     border-radius: 12px;
   }
 
+  .purchase-line-row .sales-line-remove,
+  .purchase-payment-row .sales-line-remove,
+  .batch-usage-row .sales-line-remove,
+  .production-compact-row .sales-line-remove,
+  .purchase-line-row-new-rm .sales-line-remove {
+    justify-self: start;
+    min-height: 36px;
+    padding: 0 12px;
+    border-radius: 999px;
+  }
+
   .purchase-lines-subtotal,
   .purchase-payment-total,
   .purchase-outstanding-badge,
@@ -7645,6 +7890,63 @@
     border: 1px solid #e4ebf0;
     border-radius: 14px;
     background: #f8fafb;
+  }
+
+  .sales-line-row-sale .sales-field input,
+  .sales-line-row-sale .sales-field select,
+  .sales-payment-row .sales-field input,
+  .sales-payment-row .sales-field select,
+  .purchase-line-row .sales-field input,
+  .purchase-line-row .sales-field select,
+  .purchase-payment-row .sales-field input,
+  .purchase-payment-row .sales-field select,
+  .batch-usage-row .sales-field input,
+  .batch-usage-row .purchase-rm-cell select,
+  .production-compact-row .sales-field input,
+  .production-compact-row .sales-field select,
+  .production-output-row .sales-field input,
+  .purchase-line-row-new-rm .sales-field input,
+  .purchase-line-row-new-rm .sales-field select,
+  .purchase-new-rm-fields .sales-field input,
+  .purchase-new-rm-fields .sales-field select,
+  .purchase-new-rm-pricing .sales-field input,
+  .purchase-new-rm-pricing .sales-field select,
+  .sales-lines-panel .sales-form-grid-primary .sales-field input,
+  .sales-lines-panel .sales-form-grid-primary .sales-field select {
+    min-height: 40px;
+    padding: 8px 0 6px;
+    border: 0 !important;
+    border-bottom: 1px solid #d8e1e8 !important;
+    border-radius: 0 !important;
+    background: transparent !important;
+    box-shadow: none !important;
+  }
+
+  .sales-line-row-sale .sales-field input:focus,
+  .sales-line-row-sale .sales-field select:focus,
+  .sales-line-row-sale .sales-field input[readonly],
+  .sales-payment-row .sales-field input:focus,
+  .sales-payment-row .sales-field select:focus,
+  .purchase-line-row .sales-field input:focus,
+  .purchase-line-row .sales-field select:focus,
+  .purchase-payment-row .sales-field input:focus,
+  .purchase-payment-row .sales-field select:focus,
+  .batch-usage-row .sales-field input:focus,
+  .batch-usage-row .purchase-rm-cell select:focus,
+  .production-compact-row .sales-field input:focus,
+  .production-compact-row .sales-field select:focus,
+  .production-output-row .sales-field input:focus,
+  .purchase-line-row-new-rm .sales-field input:focus,
+  .purchase-line-row-new-rm .sales-field select:focus,
+  .purchase-new-rm-fields .sales-field input:focus,
+  .purchase-new-rm-fields .sales-field select:focus,
+  .purchase-new-rm-pricing .sales-field input:focus,
+  .purchase-new-rm-pricing .sales-field select:focus,
+  .sales-lines-panel .sales-form-grid-primary .sales-field input:focus,
+  .sales-lines-panel .sales-form-grid-primary .sales-field select:focus {
+    border-radius: 0 !important;
+    background: transparent !important;
+    box-shadow: none !important;
   }
 
   .sales-modal-backdrop,

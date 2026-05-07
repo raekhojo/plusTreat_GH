@@ -1,4 +1,4 @@
-import { Children, useEffect, useMemo, useRef, useState } from 'react'
+import { Children, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import plusLogo from '../assets/plusLogo.png'
@@ -1447,6 +1447,7 @@ function HomePage() {
   const navigate = useNavigate()
   const { user, logout } = useAuth()
   const mobileMenuRef = useRef(null)
+  const accountContentRef = useRef(null)
 
   const [activeSection,    setActiveSection]    = useState('dashboard')
   const [activeAccountsTab,setActiveAccountsTab]= useState('entries')
@@ -1526,6 +1527,29 @@ function HomePage() {
       document.removeEventListener('keydown', handleKeyDown)
     }
   }, [])
+
+  useLayoutEffect(() => {
+    function scrollAllTargets() {
+      const node = accountContentRef.current
+      if (node) {
+        node.scrollTo({ top: 0, behavior: 'smooth' })
+      }
+      if (typeof window !== 'undefined') {
+        window.scrollTo({ top: 0, behavior: 'smooth' })
+      }
+      if (typeof document !== 'undefined') {
+        document.documentElement.scrollTo({ top: 0, behavior: 'smooth' })
+        document.body.scrollTo({ top: 0, behavior: 'smooth' })
+      }
+    }
+
+    scrollAllTargets()
+    const frame = requestAnimationFrame(() => {
+      scrollAllTargets()
+    })
+
+    return () => cancelAnimationFrame(frame)
+  }, [activeSection, activeAccountsTab, sectionTabs])
 
   async function refreshData() {
     try {
@@ -3611,7 +3635,7 @@ function HomePage() {
             ))}
           </nav>
         </aside>
-        <section className="account-content">
+        <section ref={accountContentRef} className="account-content">
           <header className={`account-content-header section-${activeSection}`}>
             <h1>{activeContent.label}</h1>
             <p>{activeContent.subtitle}</p>
@@ -3809,7 +3833,7 @@ function HomePage() {
                     )}
                   </h3>
                 </div>
-                <button type="button" className="account-alert-button account-alert-button-light" onClick={() => setSaleForm(c => ({ ...c, lines: [...c.lines, mkSaleLine()] }))}>Add Line</button>
+                <button type="button" className="account-alert-button account-alert-button-light sales-add-line-button" onClick={() => setSaleForm(c => ({ ...c, lines: [...c.lines, mkSaleLine()] }))}>Add Line</button>
               </div>
               <div className="sales-lines">
                 {saleForm.lines.map((line, idx) => {
