@@ -435,6 +435,7 @@ function NavIcon({ type }) {
     customers:  <><circle cx="9" cy="9" r="3" /><path d="M4.5 18c1.1-2.2 7-2.2 8.9 0" /><circle cx="17" cy="10" r="2.2" /><path d="M14.8 17.2c.7-1.4 4.2-1.4 5.2 0" /></>,
     suppliers:  <><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/><line x1="12" y1="12" x2="12" y2="16"/><line x1="10" y1="14" x2="14" y2="14"/></>,
     home:       <><path d="M4 10.5L12 4l8 6.5V20h-5v-5H9v5H4z" /></>,
+    menu:       <><path d="M5 7h14" /><path d="M5 12h14" /><path d="M5 17h14" /></>,
   }
   return <svg viewBox="0 0 24 24" aria-hidden="true">{icons[type] || icons.home}</svg>
 }
@@ -971,6 +972,24 @@ function TableCard({
                 return (
                   <article
                     key={`mobile-${row.key}`}
+                    className={`workspace-mobile-card workspace-mobile-card-production-list${onRowClick ? ' workspace-mobile-card-clickable' : ''}`}
+                    onClick={() => onRowClick && onRowClick(row.key)}
+                  >
+                    <div className="workspace-mobile-sales-top">
+                      <strong className="workspace-mobile-sales-invoice">{batchNumber}</strong>
+                      <span className="workspace-mobile-sales-date">{date}</span>
+                    </div>
+                    <div className="workspace-mobile-sales-bottom">
+                      <div className="workspace-mobile-production-list-copy">
+                        <span className="workspace-mobile-sales-customer">{outputs} outputs</span>
+                        <span className="workspace-mobile-production-list-meta">Expiry {expiryDate}</span>
+                      </div>
+                    </div>
+                  </article>
+                )
+                return (
+                  <article
+                    key={`mobile-${row.key}`}
                     className={`workspace-mobile-card workspace-mobile-card-production${onRowClick ? ' workspace-mobile-card-clickable' : ''}`}
                     onClick={() => onRowClick && onRowClick(row.key)}
                   >
@@ -998,6 +1017,125 @@ function TableCard({
                         <span>Profit</span>
                         <strong>{profit}</strong>
                       </div>
+                    </div>
+                  </article>
+                )
+              }
+
+              if (mobileVariant === 'customers-list') {
+                const [customer, phone, invoices, paid, outstanding] = row.cells
+                return (
+                  <article
+                    key={`mobile-${row.key}`}
+                    className={`workspace-mobile-card workspace-mobile-card-customer${onRowClick ? ' workspace-mobile-card-clickable' : ''}`}
+                    onClick={() => onRowClick && onRowClick(row.key)}
+                  >
+                    <div className="workspace-mobile-sales-top">
+                      <strong className="workspace-mobile-sales-customer">{customer}</strong>
+                      <span className="workspace-mobile-sales-date">{outstanding}</span>
+                    </div>
+                    <div className="workspace-mobile-sales-bottom">
+                      <div className="workspace-mobile-production-list-copy">
+                        <span className="workspace-mobile-production-list-meta">{phone}</span>
+                        <span className="workspace-mobile-production-list-meta">{invoices} invoices · Paid {paid}</span>
+                      </div>
+                    </div>
+                  </article>
+                )
+              }
+
+              if (mobileVariant === 'suppliers-list') {
+                const [supplier, itemCategory, purchases, paid, outstanding] = row.cells
+                return (
+                  <article
+                    key={`mobile-${row.key}`}
+                    className={`workspace-mobile-card workspace-mobile-card-supplier${onRowClick ? ' workspace-mobile-card-clickable' : ''}`}
+                    onClick={() => onRowClick && onRowClick(row.key)}
+                  >
+                    <div className="workspace-mobile-sales-top">
+                      <strong className="workspace-mobile-sales-customer">{supplier}</strong>
+                      <span className="workspace-mobile-sales-date">{outstanding}</span>
+                    </div>
+                    <div className="workspace-mobile-sales-bottom">
+                      <div className="workspace-mobile-production-list-copy">
+                        <span className="workspace-mobile-production-list-meta">{itemCategory}</span>
+                        <span className="workspace-mobile-production-list-meta">{purchases} purchases · Paid {paid}</span>
+                      </div>
+                    </div>
+                  </article>
+                )
+              }
+
+              if (mobileVariant === 'accounts-list') {
+                const [date, transactionId, _entryType, category, amount] = row.cells
+                return (
+                  <article
+                    key={`mobile-${row.key}`}
+                    className={`workspace-mobile-card workspace-mobile-card-account${onRowClick ? ' workspace-mobile-card-clickable' : ''}`}
+                    onClick={() => onRowClick && onRowClick(row.key)}
+                  >
+                    <div className="workspace-mobile-sales-top">
+                      <strong className="workspace-mobile-sales-invoice">{transactionId}</strong>
+                      <span className="workspace-mobile-sales-date">{date}</span>
+                    </div>
+                    <div className="workspace-mobile-sales-bottom">
+                      <span className="workspace-mobile-sales-customer">{category}</span>
+                      <strong className="workspace-mobile-supply-amount">{amount}</strong>
+                    </div>
+                  </article>
+                )
+              }
+
+              if (mobileVariant === 'purchases-list') {
+                const [date, purchaseId, supplier, category, status, paid, outstanding] = row.cells
+                return (
+                  <article
+                    key={`mobile-${row.key}`}
+                    className={`workspace-mobile-card workspace-mobile-card-supply${onRowClick ? ' workspace-mobile-card-clickable' : ''}`}
+                    onClick={() => onRowClick && onRowClick(row.key)}
+                  >
+                    <div className="workspace-mobile-sales-top">
+                      <span className="workspace-mobile-sales-invoice">{purchaseId}</span>
+                      <span className="workspace-mobile-sales-date">{date}</span>
+                    </div>
+                    <div className="workspace-mobile-sales-bottom">
+                      <span className="workspace-mobile-sales-customer">{supplier}</span>
+                      <strong className="workspace-mobile-supply-amount">{outstanding}</strong>
+                    </div>
+                    <div className="workspace-mobile-sales-bottom">
+                      <div className="workspace-mobile-production-list-copy">
+                        <div className="workspace-mobile-supply-tags">
+                          <span className="workspace-mobile-supply-tag">{category}</span>
+                          <span className="workspace-mobile-supply-tag workspace-mobile-supply-tag-soft">{status}</span>
+                        </div>
+                        <span className="workspace-mobile-production-list-meta">Paid {paid}</span>
+                      </div>
+                    </div>
+                  </article>
+                )
+              }
+
+              if (mobileVariant === 'materials-list') {
+                const [material, category, unit, opening, stockIn, available, reorder, status] = row.cells
+                return (
+                  <article
+                    key={`mobile-${row.key}`}
+                    className={`workspace-mobile-card workspace-mobile-card-supply${onRowClick ? ' workspace-mobile-card-clickable' : ''}`}
+                    onClick={() => onRowClick && onRowClick(row.key)}
+                  >
+                    <div className="workspace-mobile-sales-top">
+                      <strong className="workspace-mobile-sales-customer">{material}</strong>
+                      <strong className="workspace-mobile-supply-amount">{available}</strong>
+                    </div>
+                    <div className="workspace-mobile-sales-bottom">
+                      <div className="workspace-mobile-production-list-copy">
+                        <div className="workspace-mobile-supply-tags">
+                          <span className="workspace-mobile-supply-tag">{category}</span>
+                          <span className="workspace-mobile-supply-tag workspace-mobile-supply-tag-soft">{unit}</span>
+                        </div>
+                        <span className="workspace-mobile-production-list-meta">Opening {opening} · In {stockIn} · Reorder {reorder}</span>
+                      </div>
+                      <span className="workspace-mobile-supply-status">{status}</span>
                     </div>
                   </article>
                 )
@@ -1096,47 +1234,136 @@ function TableCardSkeleton({ title, subtitle, columns = 5, rows = 5 }) {
   )
 }
 
-function WorkspaceToolbar({ title, subtitle, actions }) {
+function WorkspaceToolbar({ title, subtitle, actions, className = '' }) {
   return (
-    <section className="workspace-toolbar">
-      <div><h2>{title}</h2><p className="account-feature-sheets">{subtitle}</p></div>
+    <section className={`workspace-toolbar ${className}`.trim()}>
+      {title || subtitle ? (
+        <div><h2>{title}</h2><p className="account-feature-sheets">{subtitle}</p></div>
+      ) : null}
       <div className="workspace-toolbar-actions">{actions}</div>
     </section>
   )
 }
 
-function DateFilterControl({ range, onOpen, onClear, onPresetSelect, activePreset = '' }) {
+function DateFilterControl({ range, onOpen, onClear, onPresetSelect, activePreset = '', inlineTitle = '' }) {
   const active = hasDateRange(range)
+  const presetsRef = useRef(null)
+
+  function scrollPresets(direction) {
+    const node = presetsRef.current
+    if (!node) return
+    node.scrollBy({ left: direction * 160, behavior: 'smooth' })
+  }
 
   return (
     <section className="workspace-filter-row" aria-label="Section filters">
-      <button type="button" className="account-alert-button account-alert-button-light workspace-date-range-button" onClick={onOpen}>
-        <svg viewBox="0 0 24 24" aria-hidden="true">
-          <rect x="3" y="5" width="18" height="16" rx="3" />
-          <path d="M8 3v4" />
-          <path d="M16 3v4" />
-          <path d="M3 10h18" />
-        </svg>
-        Date Range
+      {inlineTitle ? (
+        <div className="workspace-filter-header-row">
+          <h1>{inlineTitle}</h1>
+          <button type="button" className="account-alert-button account-alert-button-light workspace-date-range-button" onClick={onOpen}>
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <rect x="3" y="5" width="18" height="16" rx="3" />
+              <path d="M8 3v4" />
+              <path d="M16 3v4" />
+              <path d="M3 10h18" />
+            </svg>
+            Date Range
+          </button>
+        </div>
+      ) : (
+        <button type="button" className="account-alert-button account-alert-button-light workspace-date-range-button" onClick={onOpen}>
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <rect x="3" y="5" width="18" height="16" rx="3" />
+            <path d="M8 3v4" />
+            <path d="M16 3v4" />
+            <path d="M3 10h18" />
+          </svg>
+          Date Range
+        </button>
+      )}
+      <div className="workspace-filter-presets-wrap">
+        <button
+          type="button"
+          className="workspace-filter-arrow"
+          aria-label="Scroll date filters left"
+          onClick={() => scrollPresets(-1)}
+        >
+          ‹
+        </button>
+        <div ref={presetsRef} className="workspace-filter-presets" aria-label="Quick date filters">
+          {DATE_FILTER_PRESETS.map(preset => (
+            <button
+              key={preset.key}
+              type="button"
+              className={`workspace-filter-preset${activePreset === preset.key ? ' active' : ''}`}
+              onClick={() => onPresetSelect && onPresetSelect(preset.key)}
+            >
+              {preset.label}
+            </button>
+          ))}
+        </div>
+        <button
+          type="button"
+          className="workspace-filter-arrow"
+          aria-label="Scroll date filters right"
+          onClick={() => scrollPresets(1)}
+        >
+          ›
+        </button>
+      </div>
+      {active ? (
+        <div className="workspace-filter-active-row">
+          <span className="workspace-filter-pill">{summarizeDateRange(range)}</span>
+          <button type="button" className="workspace-filter-clear" onClick={onClear}>
+            Clear
+          </button>
+        </div>
+      ) : null}
+    </section>
+  )
+}
+
+function ScrollableTabsControl({ tabs = [], activeKey = '', onSelect, ariaLabel = 'Section tabs' }) {
+  const tabsRef = useRef(null)
+
+  function scrollTabs(direction) {
+    const node = tabsRef.current
+    if (!node) return
+    node.scrollBy({ left: direction * 160, behavior: 'smooth' })
+  }
+
+  return (
+    <section className="workspace-inline-tabs-wrap" role="presentation">
+      <button
+        type="button"
+        className="workspace-filter-arrow workspace-inline-tabs-arrow"
+        aria-label="Scroll tabs left"
+        onClick={() => scrollTabs(-1)}
+      >
+        â€¹
       </button>
-      <div className="workspace-filter-presets" aria-label="Quick date filters">
-        {DATE_FILTER_PRESETS.map(preset => (
+      <section ref={tabsRef} className="workspace-inline-tabs" role="tablist" aria-label={ariaLabel}>
+        {tabs.map(tab => (
           <button
-            key={preset.key}
+            key={tab.key}
             type="button"
-            className={`workspace-filter-preset${activePreset === preset.key ? ' active' : ''}`}
-            onClick={() => onPresetSelect && onPresetSelect(preset.key)}
+            role="tab"
+            aria-selected={tab.key === activeKey}
+            className={`workspace-inline-tab ${tab.key === activeKey ? 'active' : ''}`}
+            onClick={() => onSelect && onSelect(tab.key)}
           >
-            {preset.label}
+            {tab.label}
           </button>
         ))}
-      </div>
-      {active ? <span className="workspace-filter-pill">{summarizeDateRange(range)}</span> : null}
-      {active ? (
-        <button type="button" className="workspace-filter-clear" onClick={onClear}>
-          Clear
-        </button>
-      ) : null}
+      </section>
+      <button
+        type="button"
+        className="workspace-filter-arrow workspace-inline-tabs-arrow"
+        aria-label="Scroll tabs right"
+        onClick={() => scrollTabs(1)}
+      >
+        â€º
+      </button>
     </section>
   )
 }
@@ -2897,7 +3124,7 @@ function HomePage() {
 
     if (activeSection === 'dashboard') return (
       <>
-        <DateFilterControl range={dashboardDateFilter} onOpen={openDateFilter} onClear={() => clearDateFilter('dashboard')} onPresetSelect={preset => applyQuickDatePreset('dashboard', preset)} activePreset={sectionDatePresets.dashboard || ''} />
+        <DateFilterControl range={dashboardDateFilter} onOpen={openDateFilter} onClear={() => clearDateFilter('dashboard')} onPresetSelect={preset => applyQuickDatePreset('dashboard', preset)} activePreset={sectionDatePresets.dashboard || ''} inlineTitle="Dashboard" />
         <SummaryGrid items={dashboardContent.metrics} />
         <section className="dashboard-snippet-grid dashboard-snippet-grid-hero">
           <TrendChartCard
@@ -2955,16 +3182,18 @@ function HomePage() {
 
     if (activeSection === 'sales_hub') return (
       <>
+        <DateFilterControl range={salesDateFilter} onOpen={openDateFilter} onClear={() => clearDateFilter('sales_hub')} onPresetSelect={preset => applyQuickDatePreset('sales_hub', preset)} activePreset={sectionDatePresets.sales_hub || ''} inlineTitle="Sales Hub" />
         <WorkspaceToolbar
-          title="Sales Workflow"
-          subtitle="Record invoice lines then collect receipts against outstanding balances."
+          className="workspace-toolbar-sales"
+          title=""
+          subtitle=""
           actions={<>
             <button type="button" className="account-alert-button account-alert-button-dark"  onClick={() => openModal('sale')}>Add Sale</button>
             <button type="button" className="account-alert-button account-alert-button-light" onClick={() => openModal('receipt')}>Add Receipt</button>
           </>}
         />
-        <DateFilterControl range={salesDateFilter} onOpen={openDateFilter} onClear={() => clearDateFilter('sales_hub')} onPresetSelect={preset => applyQuickDatePreset('sales_hub', preset)} activePreset={sectionDatePresets.sales_hub || ''} />
         <FilterSelectRow
+          className="sales-mobile-filters"
           filters={salesFilterOptions}
           values={activeSalesFilters}
           onChange={(key, value) => setScopedFilter(activeSalesFilterScope, key, value)}
@@ -3009,15 +3238,16 @@ function HomePage() {
 
     if (activeSection === 'production_ops') return (
       <>
+        <DateFilterControl range={productionDateFilter} onOpen={openDateFilter} onClear={() => clearDateFilter('production_ops')} onPresetSelect={preset => applyQuickDatePreset('production_ops', preset)} activePreset={sectionDatePresets.production_ops || ''} inlineTitle="Production Ops" />
         <WorkspaceToolbar
-          title="Production Control"
-          subtitle="Create batch headers + raw material usage first, then record finished goods against a batch number."
+          className="workspace-toolbar-production"
+          title=""
+          subtitle=""
           actions={<>
             <button type="button" className="account-alert-button account-alert-button-dark"  onClick={() => openModal('batch')}>Add Batch</button>
             <button type="button" className="account-alert-button account-alert-button-light" onClick={() => openModal('finished_goods')}>Finished Goods Produced</button>
           </>}
         />
-        <DateFilterControl range={productionDateFilter} onOpen={openDateFilter} onClear={() => clearDateFilter('production_ops')} onPresetSelect={preset => applyQuickDatePreset('production_ops', preset)} activePreset={sectionDatePresets.production_ops || ''} />
         <div className="production-summary-offset">
           <SummaryGrid items={productionSummary} />
         </div>
@@ -3064,37 +3294,32 @@ function HomePage() {
 
     if (activeSection === 'supplies_stock') return (
       <>
-        <DateFilterControl range={suppliesDateFilter} onOpen={openDateFilter} onClear={() => clearDateFilter('supplies_stock')} onPresetSelect={preset => applyQuickDatePreset('supplies_stock', preset)} activePreset={sectionDatePresets.supplies_stock || ''} />
+        <DateFilterControl range={suppliesDateFilter} onOpen={openDateFilter} onClear={() => clearDateFilter('supplies_stock')} onPresetSelect={preset => applyQuickDatePreset('supplies_stock', preset)} activePreset={sectionDatePresets.supplies_stock || ''} inlineTitle="Supplies & Stock" />
         <SummaryGrid items={suppliesSummary} />
         <WorkspaceToolbar
-          title="Supply Chain Workspace"
-          subtitle="Supplier, raw material, purchase, and payment APIs mapped to workbook purchase sheets."
+          className="workspace-toolbar-supplies"
+          title=""
+          subtitle=""
           actions={<>
             <button type="button" className="account-alert-button account-alert-button-dark"  onClick={() => openModal('purchase')}>Add Purchase</button>
             <button type="button" className="account-alert-button account-alert-button-light" onClick={() => openModal('pur_pay')}>Record Supplier Payment</button>
             <button type="button" className="account-alert-button account-alert-button-light" onClick={() => openModal('raw_mat')}>Add Raw Material</button>
           </>}
         />
-        <section className="workspace-inline-tabs" role="tablist" aria-label="Supplies page tabs">
-          {SECTION_TABS.supplies_stock.map(tab => (
-            <button
-              key={tab.key}
-              type="button"
-              role="tab"
-              aria-selected={tab.key === getSectionTab('supplies_stock')}
-              className={`workspace-inline-tab ${tab.key === getSectionTab('supplies_stock') ? 'active' : ''}`}
-              onClick={() => setSectionTab('supplies_stock', tab.key)}
-            >
-              {tab.label}
-            </button>
-          ))}
-        </section>
+        <ScrollableTabsControl
+          tabs={SECTION_TABS.supplies_stock}
+          activeKey={getSectionTab('supplies_stock')}
+          onSelect={tabKey => setSectionTab('supplies_stock', tabKey)}
+          ariaLabel="Supplies page tabs"
+        />
         {getSectionTab('supplies_stock') === 'purchases' && (
           <TableCard
+            className="supplies-purchases-card"
             title="Purchase Register"
             subtitle="Click a row to view full details and payments."
             columns={['Date', '#', 'Supplier', 'Category', 'Status', 'Paid', 'Outstanding']}
             rows={purchaseRows}
+            mobileVariant="purchases-list"
             search={searchTerms.supplies_stock}
             onSearch={v => setSearch('supplies_stock', v)}
             onRowClick={id => setSelectedPurchase(data.purchases.find(p => p.id === id) || null)}
@@ -3102,10 +3327,12 @@ function HomePage() {
         )}
         {getSectionTab('supplies_stock') === 'materials' && (
           <TableCard
+            className="supplies-materials-card"
             title="Raw Materials"
             subtitle="Stock levels (RawMaterials sheet). Click a row for full details."
             columns={['Material', 'Category', 'Unit', 'Opening', 'Stock In', 'Available', 'Reorder', 'Status', '']}
             rows={materialRows}
+            mobileVariant="materials-list"
             onRowClick={id => setSelectedRawMaterial(data.rawMaterials.find(m => m.id === id) || null)}
           />
         )}
@@ -3120,11 +3347,12 @@ function HomePage() {
 
     if (activeSection === 'customers') return (
       <>
-        <DateFilterControl range={customersDateFilter} onOpen={openDateFilter} onClear={() => clearDateFilter('customers')} onPresetSelect={preset => applyQuickDatePreset('customers', preset)} activePreset={sectionDatePresets.customers || ''} />
+        <DateFilterControl range={customersDateFilter} onOpen={openDateFilter} onClear={() => clearDateFilter('customers')} onPresetSelect={preset => applyQuickDatePreset('customers', preset)} activePreset={sectionDatePresets.customers || ''} inlineTitle="Customers" />
         <SummaryGrid items={customersSummary} />
         <WorkspaceToolbar
-          title="Customer Records"
-          subtitle="Customer balances, invoice history, and receipts."
+          className="workspace-toolbar-customers"
+          title=""
+          subtitle=""
           actions={<button type="button" className="account-alert-button account-alert-button-dark" onClick={() => openModal('customer')}>Add Customer</button>}
         />
         <section className="workspace-inline-tabs" role="tablist" aria-label="Customers page tabs">
@@ -3147,6 +3375,7 @@ function HomePage() {
             subtitle="Click a row to view full history. Click Edit to update."
             columns={['Customer', 'Phone', 'Invoices', 'Paid', 'Outstanding', '']}
             rows={customerRows}
+            mobileVariant="customers-list"
             search={searchTerms.customers}
             onSearch={v => setSearch('customers', v)}
             onRowClick={id => setSelectedCustomer(customerLedger.find(c => c.id === id) || null)}
@@ -3163,11 +3392,12 @@ function HomePage() {
 
     if (activeSection === 'suppliers') return (
       <>
-        <DateFilterControl range={suppliersDateFilter} onOpen={openDateFilter} onClear={() => clearDateFilter('suppliers')} onPresetSelect={preset => applyQuickDatePreset('suppliers', preset)} activePreset={sectionDatePresets.suppliers || ''} />
+        <DateFilterControl range={suppliersDateFilter} onOpen={openDateFilter} onClear={() => clearDateFilter('suppliers')} onPresetSelect={preset => applyQuickDatePreset('suppliers', preset)} activePreset={sectionDatePresets.suppliers || ''} inlineTitle="Suppliers" />
         <SummaryGrid items={suppliersSummary} />
         <WorkspaceToolbar
-          title="Supplier Records"
-          subtitle="Supplier balances, purchases, and outstanding payables."
+          className="workspace-toolbar-suppliers"
+          title=""
+          subtitle=""
           actions={<button type="button" className="account-alert-button account-alert-button-dark" onClick={() => openModal('supplier')}>Add Supplier</button>}
         />
         <section className="workspace-inline-tabs" role="tablist" aria-label="Suppliers page tabs">
@@ -3190,6 +3420,7 @@ function HomePage() {
             subtitle="Balances and purchase history. Click Edit to update."
             columns={['Supplier', 'Item Category', 'Purchases', 'Paid', 'Outstanding', '']}
             rows={supplierRows}
+            mobileVariant="suppliers-list"
             onRowClick={id => {
               const supplier = supplierLedger.find(s => s.id === id)
               setSelectedSupplier(supplier ? { ...supplier, item_category: resolveSupplierItemCategory(supplier, data.purchases, data.rawMaterials) } : null)
@@ -3210,11 +3441,12 @@ function HomePage() {
     // accounts_pricing
     return (
       <>
-        <DateFilterControl range={accountsDateFilter} onOpen={openDateFilter} onClear={() => clearDateFilter('accounts_pricing')} onPresetSelect={preset => applyQuickDatePreset('accounts_pricing', preset)} activePreset={sectionDatePresets.accounts_pricing || ''} />
+        <DateFilterControl range={accountsDateFilter} onOpen={openDateFilter} onClear={() => clearDateFilter('accounts_pricing')} onPresetSelect={preset => applyQuickDatePreset('accounts_pricing', preset)} activePreset={sectionDatePresets.accounts_pricing || ''} inlineTitle="Accounts & Pricing" />
         <SummaryGrid items={accountsSummary} />
         <WorkspaceToolbar
-          title="Accounts, Pricing, and Control"
-          subtitle="Accounts_Entry, Accounts_Dtls, Trial Balance, and Pricing."
+          className="workspace-toolbar-accounts"
+          title=""
+          subtitle=""
           actions={<>
             <button type="button" className="account-alert-button account-alert-button-dark"  onClick={() => openModal('account')}>Add Account Entry</button>
             <button type="button" className="account-alert-button account-alert-button-light" onClick={() => openModal('pricing')}>Add Pricing Rule</button>
@@ -3243,6 +3475,7 @@ function HomePage() {
             columns={['Date', 'Transaction ID', 'Type', 'Category', 'Amount']}
             colWidths={['150px', '220px', '140px', 'minmax(280px, 1.5fr)', '180px']}
             rows={accountRows}
+            mobileVariant="accounts-list"
             search={searchTerms.accounts}
             onSearch={v => setSearch('accounts', v)}
             onRowClick={key => { const e = data.accountTransactions.find(t => String(t.id) === String(key)); if (e) setSelectedAccountEntry(e) }}
@@ -3357,7 +3590,7 @@ function HomePage() {
           </div>
         </div>
 
-        {activeSection !== 'sales_hub' && activeSection !== 'production_ops' ? (
+        {activeSection !== 'sales_hub' && activeSection !== 'production_ops' && activeSection !== 'dashboard' && activeSection !== 'customers' && activeSection !== 'supplies_stock' && activeSection !== 'suppliers' && activeSection !== 'accounts_pricing' ? (
           <article className="mobile-section-hero-card">
             <div className="mobile-section-hero-copy">
               <span className="mobile-section-hero-kicker">{activeContent.label}</span>
@@ -3379,7 +3612,7 @@ function HomePage() {
           </nav>
         </aside>
         <section className="account-content">
-          <header className="account-content-header">
+          <header className={`account-content-header section-${activeSection}`}>
             <h1>{activeContent.label}</h1>
             <p>{activeContent.subtitle}</p>
           </header>
@@ -3411,7 +3644,7 @@ function HomePage() {
           onClick={() => setIsMobileNavOpen(true)}
           aria-label="Open all sections"
         >
-          <span className="mobile-bottom-dock-icon">+</span>
+          <span className="mobile-bottom-dock-icon"><NavIcon type="menu" /></span>
           <span>More</span>
         </button>
       </nav>
