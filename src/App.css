@@ -5306,6 +5306,14 @@
 
   .sales-payment-row .sales-field {
     gap: 4px;
+    width: 100%;
+    min-width: 0;
+    justify-self: stretch;
+  }
+
+  .sales-payment-row .sales-field > * {
+    width: 100%;
+    min-width: 0;
   }
 
   .sales-payment-row .sales-field span {
@@ -5317,6 +5325,8 @@
 
   .sales-payment-row .sales-field input,
   .sales-payment-row .sales-field select {
+    width: 100%;
+    display: block;
     min-height: 40px;
     padding: 8px 0 6px;
     border: 0;
@@ -5324,6 +5334,14 @@
     border-radius: 0;
     background: transparent;
     box-shadow: none;
+  }
+
+  .sales-payment-row .app-form-select,
+  .sales-payment-row .mobile-select-trigger,
+  .sales-payment-row .app-form-select [data-slot="trigger"] {
+    width: 100% !important;
+    min-width: 0;
+    max-width: none !important;
   }
 
   .sales-payment-row .sales-field input:focus,
@@ -7733,9 +7751,9 @@
   }
 
   .sales-add-line-button {
-    background: #f4aa29;
-    color: #111827;
-    border: 1px solid #f4aa29;
+    background: #e7f2ff !important;
+    color: #163248 !important;
+    border: 1px solid #c9def5 !important;
   }
 
   .sales-form-summary {
@@ -7813,6 +7831,29 @@
     padding-inline: 4px;
   }
 
+  .sales-payment-list {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .sale-discount-block {
+    margin-bottom: 12px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid #e4ebf0;
+  }
+
+  .sale-payment-block {
+    padding-top: 2px;
+  }
+
+  .sale-add-payment-button {
+    width: fit-content;
+    justify-self: start;
+    background: #fde7a6 !important;
+    color: #111827 !important;
+    border: 1px solid #f3d67a !important;
+  }
+
   .sales-form .sales-field {
     gap: 4px;
   }
@@ -7822,6 +7863,12 @@
     letter-spacing: 0.05em;
     text-transform: uppercase;
     color: #7a8c9e;
+  }
+
+  .sales-payment-row {
+    width: 100%;
+    max-width: 100%;
+    justify-self: stretch;
   }
 
   .purchase-lines-head,
@@ -7966,6 +8013,18 @@
   .sales-modal-content {
     padding-right: 0;
     margin-right: 0;
+  }
+
+  .sales-modal-close {
+    min-width: 38px;
+    width: 38px;
+    min-height: 38px;
+    padding: 0;
+    border-radius: 999px;
+    background: #f8fafb;
+    color: #4b5563;
+    font-size: 1.15rem;
+    line-height: 1;
   }
 
   .mobile-select-modal-sheet,

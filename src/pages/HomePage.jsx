@@ -1431,7 +1431,7 @@ function ModalShell({ kicker, title, subtitle, stat, onClose, children, cardClas
             <div className="sales-modal-actions">
               {stat ? <span className="sales-modal-stat">{stat}</span> : null}
               {headerAside}
-              <button type="button" className="sales-modal-close" onClick={onClose}>Close</button>
+              <button type="button" className="sales-modal-close" onClick={onClose} aria-label="Close dialog">×</button>
             </div>
           </div>
           <div className="sales-modal-content">{children}</div>
@@ -3879,15 +3879,15 @@ function HomePage() {
                   <span className="sales-form-eyebrow">Adjustments</span>
                   <h3>Discount and payment methods</h3>
                 </div>
-                <button type="button" className="account-alert-button account-alert-button-light" onClick={() => setSaleForm(c => ({ ...c, payments: [...c.payments, mkSalePayment()] }))}>Add Payment</button>
               </div>
-              <div className="sales-form-grid sales-form-grid-primary">
+              <div className="sales-form-grid sales-form-grid-primary sale-discount-block">
                 <label className="sales-field">
                   <span>Discount</span>
                   <input type="number" min="0" step="0.01" value={saleForm.discountAmount} onChange={e => setSaleForm(c => ({ ...c, discountAmount: e.target.value }))} />
                 </label>
+                <button type="button" className="account-alert-button account-alert-button-light sale-add-payment-button" onClick={() => setSaleForm(c => ({ ...c, payments: [...c.payments, mkSalePayment()] }))}>Add Payment</button>
               </div>
-              <div className="sales-payment-list">
+              <div className="sales-payment-list sale-payment-block">
                 {saleForm.payments.map((payment, idx) => (
                   <div key={idx} className="sales-payment-row">
                     <div className="sales-line-index">{idx + 1}</div>
