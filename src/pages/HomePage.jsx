@@ -284,9 +284,9 @@ function resolveSupplierItemCategory(supplier, purchases = [], rawMaterials = []
 function buildCustomerLedger(customers, invoices) {
   return customers.map(c => {
     const invs = invoices.filter(inv => String(inv.customer) === String(c.id))
-    const total = sumBy(invs, inv => inv.total_amount)
+    const paid = sumBy(invs, inv => getInvoicePaidAmount(inv))
     const outstanding = sumBy(invs, inv => getInvoiceOutstanding(inv))
-    return { ...c, invoiceCount: invs.length, paid: total - outstanding, outstanding }
+    return { ...c, invoiceCount: invs.length, paid, outstanding }
   }).sort((a, b) => b.outstanding - a.outstanding)
 }
 function buildSupplierLedger(suppliers, purchases) {

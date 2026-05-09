@@ -2498,6 +2498,12 @@
   color: #374151;
 }
 
+.account-content-header.section-customers,
+.account-content-header.section-suppliers,
+.account-content-header.section-accounts_pricing {
+  display: none;
+}
+
 .account-feature-card {
   margin-top: 20px;
   border-radius: 16px;
