@@ -6,7 +6,7 @@ import { AppAutocomplete, AppSelect } from '../components/FormSelects'
 import {
   createAccountTransaction, createCustomer, createInvoice, createPayment,
   createPricingRule, createProductionBatch, createProductionOutput, createPurchase, createSupplier,
-  createPurchasePayment, createProduct, createRawMaterial,
+  createPurchasePayment, createProduct, createRawMaterial, createItemCategory,
   updateCustomer, deleteCustomer,
   updateSupplier, deleteSupplier,
   updateAccountTransaction, deleteAccountTransaction,
@@ -32,7 +32,7 @@ const INITIAL_DATA = {
   invoices: [], payments: [], products: [], suppliers: [], purchases: [],
   purchasePayments: [], productionBatches: [], rawMaterials: [],
   accountTransactions: [], pricingRules: [], customers: [], staffProfiles: [],
-  pricingCategories: [], customerCategories: [],
+  pricingCategories: [], customerCategories: [], itemCategories: [],
 }
 
 const PRODUCTION_RAW_MATERIAL_TEMPLATES = [
@@ -135,8 +135,20 @@ function truncateText(value, maxLength = 12) {
 function normalizeFilterValue(value) {
   return String(value || '').trim().toLowerCase()
 }
+function nonNegativeAmount(value) {
+  return Math.max(0, toNumber(value))
+}
+function getInvoiceOutstanding(invoice) {
+  return nonNegativeAmount(invoice?.outstanding_balance)
+}
+function getPurchaseOutstanding(purchase) {
+  return nonNegativeAmount(purchase?.outstanding_amount)
+}
+function getInvoicePaidAmount(invoice) {
+  return Math.max(0, toNumber(invoice?.previous_balance) + toNumber(invoice?.total_amount) - getInvoiceOutstanding(invoice))
+}
 function getInvoiceCollectionState(invoice) {
-  const outstanding = toNumber(invoice?.outstanding_balance)
+  const outstanding = getInvoiceOutstanding(invoice)
   const total = toNumber(invoice?.total_amount)
   const paidAmount = total - outstanding
   if (outstanding <= 0 && total > 0) return 'paid'
@@ -249,6 +261,9 @@ function isNumericCategoryValue(value) {
   return /^\d+$/.test(normalizeCategoryValue(value))
 }
 function resolveSupplierItemCategory(supplier, purchases = [], rawMaterials = []) {
+  const directNamedCategory = normalizeCategoryValue(supplier?.item_category_name)
+  if (directNamedCategory && !isNumericCategoryValue(directNamedCategory)) return directNamedCategory
+
   const directCategory = normalizeCategoryValue(supplier?.item_category)
   if (directCategory && !isNumericCategoryValue(directCategory)) return directCategory
 
@@ -270,14 +285,14 @@ function buildCustomerLedger(customers, invoices) {
   return customers.map(c => {
     const invs = invoices.filter(inv => String(inv.customer) === String(c.id))
     const total = sumBy(invs, inv => inv.total_amount)
-    const outstanding = sumBy(invs, inv => inv.outstanding_balance)
+    const outstanding = sumBy(invs, inv => getInvoiceOutstanding(inv))
     return { ...c, invoiceCount: invs.length, paid: total - outstanding, outstanding }
   }).sort((a, b) => b.outstanding - a.outstanding)
 }
 function buildSupplierLedger(suppliers, purchases) {
   return suppliers.map(s => {
     const purch = purchases.filter(p => String(p.supplier) === String(s.id))
-    return { ...s, purchaseCount: purch.length, paid: sumBy(purch, p => p.total_paid), outstanding: sumBy(purch, p => p.outstanding_amount) }
+    return { ...s, purchaseCount: purch.length, paid: sumBy(purch, p => p.total_paid), outstanding: sumBy(purch, p => getPurchaseOutstanding(p)) }
   }).sort((a, b) => b.outstanding - a.outstanding)
 }
 function normalizeSizeKey(v) {
@@ -322,6 +337,9 @@ const ACCOUNT_TRANS_TYPE_OPTIONS = [
   { value: 'expense', label: 'Expenses' },
   { value: 'income', label: 'Income' },
   { value: 'transfers', label: 'Transfers' },
+  { value: 'asset', label: 'Assets' },
+  { value: 'liability', label: 'Liabilities' },
+  { value: 'equity', label: 'Equity' },
 ]
 
 const ACCOUNT_SUB_ACCOUNTS_BY_TYPE = {
@@ -353,6 +371,31 @@ const ACCOUNT_SUB_ACCOUNTS_BY_TYPE = {
     'Miscellaneous Expenses',
   ],
   income: ['Other Income', 'Other Sales'],
+  asset: [
+    'Cash',
+    'MoMo Wallet',
+    'CalBank',
+    'GhanaPay',
+    'Inventory',
+    'Raw Materials',
+    'Finished Goods',
+    'Equipment',
+    'PPE',
+    'Other Receivables',
+  ],
+  liability: [
+    'Trade Payables',
+    'Other Payables',
+    'Taxes and Levies',
+    'Loans',
+    'Accrued Expenses',
+  ],
+  equity: [
+    'Owner Capital',
+    'Equity',
+    'Retained Profit',
+    'Drawings',
+  ],
 }
 
 const ACCOUNT_PAYMENT_RECEIPT_OPTIONS = [
@@ -1570,7 +1613,9 @@ function HomePage() {
     [data.rawMaterials]
   )
   const pricingRuleMap = useMemo(() => new Map(data.pricingRules.map(r => [String(r.id), r])), [data.pricingRules])
-  const invoiceOptions = useMemo(() => data.invoices.filter(inv => toNumber(inv.outstanding_balance) > 0).map(inv => ({ id: inv.id, label: `${fmtInv(inv.id)} — ${inv.customer_name || 'Customer'}`, outstanding: inv.outstanding_balance })), [data.invoices])
+  const invoiceOptions = useMemo(() => data.invoices
+    .filter(inv => getInvoiceOutstanding(inv) > 0)
+    .map(inv => ({ id: inv.id, label: `${fmtInv(inv.id)} — ${inv.customer_name || 'Customer'}`, outstanding: getInvoiceOutstanding(inv) })), [data.invoices])
   const openPurchases  = useMemo(() => data.purchases.filter(p => p.status === 'open' || p.status === 'partially_paid'), [data.purchases])
   const accountSubAccountOptions = useMemo(
     () => ACCOUNT_SUB_ACCOUNTS_BY_TYPE[accountForm.entry_type] || [],
@@ -1585,15 +1630,22 @@ function HomePage() {
   // Shared item-category suggestions across raw materials, purchases, and suppliers
   const itemCategories = useMemo(() => {
     const all = [
+      ...data.itemCategories.map(category => category.name),
       ...data.rawMaterials.map(m => m.category),
       ...data.purchases.map(p => p.category),
-      ...data.suppliers.map(s => s.item_category),
+      ...data.suppliers.map(s => s.item_category_name || s.item_category),
     ]
     return [...new Set([
       ...all.map(normalizeCategoryValue).filter(category => category && !isNumericCategoryValue(category)),
       ...customItemCategories.map(normalizeCategoryValue).filter(category => category && !isNumericCategoryValue(category)),
     ])].sort((a, b) => a.localeCompare(b))
-  }, [customItemCategories, data.rawMaterials, data.purchases, data.suppliers])
+  }, [customItemCategories, data.itemCategories, data.rawMaterials, data.purchases, data.suppliers])
+  const supplierItemCategoryOptions = useMemo(
+    () => data.itemCategories
+      .map(category => ({ value: String(category.id), label: category.name }))
+      .sort((a, b) => a.label.localeCompare(b.label)),
+    [data.itemCategories]
+  )
   const customerSelectOptions = useMemo(
     () => data.customers
       .map(customer => ({ value: String(customer.id), label: customer.name, meta: customer.phone || customer.customer_category_name || '' }))
@@ -1630,7 +1682,7 @@ function HomePage() {
     () => openPurchases.map(purchase => ({
       value: String(purchase.id),
       label: `#${purchase.id} — ${purchase.supplier_name || 'Supplier'}`,
-      meta: fmt(purchase.outstanding_amount),
+      meta: fmt(getPurchaseOutstanding(purchase)),
     })),
     [openPurchases]
   )
@@ -1793,13 +1845,13 @@ function HomePage() {
     const ytdAcct  = dashboardAccounts.filter(e => isThisYear(e.transaction_date))
 
     const totalSales       = sumBy(ytdInv, inv => inv.total_amount)
-    const outstanding      = sumBy(dashboardInvoices, inv => inv.outstanding_balance)
+    const outstanding      = sumBy(dashboardInvoices, inv => getInvoiceOutstanding(inv))
     const totalCost        = sumBy(ytdBatch, b => b.total_cost)
     const receiptsTotal    = sumBy(dashboardPayments, p => p.amount)
     const expenseTotal     = sumBy(ytdAcct.filter(e => e.entry_type === 'expense'), e => e.amount)
     const grossProfit      = totalSales - totalCost
     const netProfit        = grossProfit - expenseTotal
-    const openInvoices     = dashboardInvoices.filter(inv => toNumber(inv.outstanding_balance) > 0)
+    const openInvoices     = dashboardInvoices.filter(inv => getInvoiceOutstanding(inv) > 0)
     const avgInvoiceValue  = ytdInv.length ? totalSales / ytdInv.length : 0
     const collectionRate   = ratioPct(receiptsTotal, Math.max(totalSales, receiptsTotal))
     const grossMarginPct   = ratioPct(grossProfit, totalSales)
@@ -1808,7 +1860,7 @@ function HomePage() {
 
     const custSales = data.customers.map(c => {
       const invs = dashboardInvoices.filter(inv => String(inv.customer) === String(c.id))
-      return { id: c.id, title: c.name, meta: `${invs.length} invoices`, salesValue: sumBy(invs, inv => inv.total_amount), outstanding: sumBy(invs, inv => inv.outstanding_balance) }
+      return { id: c.id, title: c.name, meta: `${invs.length} invoices`, salesValue: sumBy(invs, inv => inv.total_amount), outstanding: sumBy(invs, inv => getInvoiceOutstanding(inv)) }
     }).sort((a, b) => b.salesValue - a.salesValue)
 
     const prodMap = new Map()
@@ -1853,31 +1905,31 @@ function HomePage() {
     const invoiceStatusSegments = [
       {
         label: 'Collected',
-        value: sumBy(dashboardInvoices.filter(inv => toNumber(inv.outstanding_balance) <= 0), inv => inv.total_amount),
-        meta: `${dashboardInvoices.filter(inv => toNumber(inv.outstanding_balance) <= 0).length} invoices settled`,
+        value: sumBy(dashboardInvoices.filter(inv => getInvoiceOutstanding(inv) <= 0), inv => inv.total_amount),
+        meta: `${dashboardInvoices.filter(inv => getInvoiceOutstanding(inv) <= 0).length} invoices settled`,
         color: '#2492da',
       },
       {
         label: 'Partially Paid',
         value: sumBy(dashboardInvoices.filter(inv => {
-          const paidAmount = toNumber(inv.previous_balance) + toNumber(inv.total_amount) - toNumber(inv.outstanding_balance)
-          return toNumber(inv.outstanding_balance) > 0 && paidAmount > 0
-        }), inv => inv.outstanding_balance),
+          const paidAmount = getInvoicePaidAmount(inv)
+          return getInvoiceOutstanding(inv) > 0 && paidAmount > 0
+        }), inv => getInvoiceOutstanding(inv)),
         meta: `${dashboardInvoices.filter(inv => {
-          const paidAmount = toNumber(inv.previous_balance) + toNumber(inv.total_amount) - toNumber(inv.outstanding_balance)
-          return toNumber(inv.outstanding_balance) > 0 && paidAmount > 0
+          const paidAmount = getInvoicePaidAmount(inv)
+          return getInvoiceOutstanding(inv) > 0 && paidAmount > 0
         }).length} invoices still collecting`,
         color: '#f2b13a',
       },
       {
         label: 'Unpaid',
         value: sumBy(dashboardInvoices.filter(inv => {
-          const paidAmount = toNumber(inv.previous_balance) + toNumber(inv.total_amount) - toNumber(inv.outstanding_balance)
-          return toNumber(inv.outstanding_balance) > 0 && paidAmount <= 0
-        }), inv => inv.outstanding_balance),
+          const paidAmount = getInvoicePaidAmount(inv)
+          return getInvoiceOutstanding(inv) > 0 && paidAmount <= 0
+        }), inv => getInvoiceOutstanding(inv)),
         meta: `${dashboardInvoices.filter(inv => {
-          const paidAmount = toNumber(inv.previous_balance) + toNumber(inv.total_amount) - toNumber(inv.outstanding_balance)
-          return toNumber(inv.outstanding_balance) > 0 && paidAmount <= 0
+          const paidAmount = getInvoicePaidAmount(inv)
+          return getInvoiceOutstanding(inv) > 0 && paidAmount <= 0
         }).length} invoices untouched`,
         color: '#ef4444',
       },
@@ -1935,7 +1987,7 @@ function HomePage() {
     return {
       metrics: [
         { label: 'Total Sales (YTD)',         value: fmt(totalSales),    note: `${ytdInv.length} invoices this year` },
-        { label: 'Outstanding Receivables',   value: fmt(outstanding),   note: `${dashboardInvoices.filter(inv => toNumber(inv.outstanding_balance) > 0).length} open invoices` },
+        { label: 'Outstanding Receivables',   value: fmt(outstanding),   note: `${dashboardInvoices.filter(inv => getInvoiceOutstanding(inv) > 0).length} open invoices` },
         { label: 'Production Batches (YTD)',  value: fmtQ(ytdBatch.length), note: 'Batches recorded this year' },
         { label: 'Production Cost (YTD)',     value: fmt(totalCost),     note: 'Sum of batch costs' },
         { label: 'Gross Profit (YTD)',        value: fmt(grossProfit),   note: 'Sales minus production cost' },
@@ -1958,7 +2010,7 @@ function HomePage() {
         { id: 'net',       title: 'Net Profit / Loss',    meta: 'Gross profit minus expenses', value: fmt(netProfit) },
       ],
       receivables:    clampRows(custSales.filter(c => c.outstanding > 0)).map(c => ({ id: c.id, title: c.title, meta: 'Amount outstanding', value: fmt(c.outstanding) })),
-      openInvoices:   clampRows(openInvoices).map(inv => ({ id: inv.id, title: fmtInv(inv.id), meta: inv.customer_name || 'Customer', value: fmt(inv.outstanding_balance) })),
+      openInvoices:   clampRows(openInvoices).map(inv => ({ id: inv.id, title: fmtInv(inv.id), meta: inv.customer_name || 'Customer', value: fmt(getInvoiceOutstanding(inv)) })),
     }
   }, [dashboardAccounts, dashboardBatches, dashboardInvoices, dashboardPayments, data.customers, data.products, data.rawMaterials.length, lowStockRows])
 
@@ -2009,10 +2061,26 @@ function HomePage() {
     e.preventDefault()
     const value = normalizeCategoryValue(categoryDraft)
     if (!value) return
-    setCustomItemCategories(current => current.includes(value) ? current : [...current, value])
     if (categoryModalTarget === 'supplier') {
-      setSupplierForm(current => ({ ...current, item_category: value }))
+      ;(async () => {
+        try {
+          const existing = data.itemCategories.find(category => normalizeCategoryValue(category.name) === value)
+          const nextCategory = existing || await createItemCategory({ name: value })
+          setData(current => ({
+            ...current,
+            itemCategories: existing
+              ? current.itemCategories
+              : [...current.itemCategories, nextCategory].sort((a, b) => String(a.name || '').localeCompare(String(b.name || ''))),
+          }))
+          setSupplierForm(current => ({ ...current, item_category: String(nextCategory.id) }))
+          closeCategoryModal()
+        } catch (err) {
+          setLoadError(err.message || 'Item category could not be created.')
+        }
+      })()
+      return
     }
+    setCustomItemCategories(current => current.includes(value) ? current : [...current, value])
     if (categoryModalTarget === 'purchase') {
       setPurchaseForm(current => ({ ...current, category: value }))
     }
@@ -2074,7 +2142,7 @@ function HomePage() {
     if (type === 'purchase')    setPurchaseForm(mkPurchaseForm())
     if (type === 'pur_pay')     setPurPayForm(mkPurPayForm())
     if (type === 'customer')    setCustomerForm(entity ? { ...mkCustomerForm(), ...entity, pricing_category: entity.pricing_category_id || '', previousBalance: entity.previous_balance || '0', _editId: entity.id } : mkCustomerForm())
-    if (type === 'supplier')    setSupplierForm(entity ? { ...entity, item_category: resolveSupplierItemCategory(entity, data.purchases, data.rawMaterials), delivery_package: Boolean(entity.delivery_package), _editId: entity.id } : mkSupplierForm())
+    if (type === 'supplier')    setSupplierForm(entity ? { ...entity, item_category: entity.item_category ? String(entity.item_category) : '', delivery_package: Boolean(entity.delivery_package), _editId: entity.id } : mkSupplierForm())
     if (type === 'product')     setProductForm(entity ? { ...entity, _editId: entity.id } : mkProductForm())
     if (type === 'raw_mat')     setRawMatForm(entity ? {
       ...mkRawMatForm(),
@@ -2198,7 +2266,7 @@ function HomePage() {
         }))
       if (!receiptForm.invoice || !validPayments.length) throw new Error('Choose an invoice and enter at least one payment amount received.')
       const selectedInvoice = data.invoices.find(inv => String(inv.id) === String(receiptForm.invoice))
-      const outstandingBalance = toNumber(selectedInvoice?.outstanding_balance)
+      const outstandingBalance = getInvoiceOutstanding(selectedInvoice)
       const totalReceived = sumBy(validPayments, payment => payment.amount)
       if (selectedInvoice && totalReceived > outstandingBalance) {
         throw new Error(`Amount received exceeds the outstanding balance of ${fmt(outstandingBalance)}.`)
@@ -2359,7 +2427,13 @@ function HomePage() {
     setSub('supplier', true); setFB('supplier', '')
     try {
       if (!supplierForm.name) throw new Error('Supplier name is required.')
-      const { _editId, ...supplierPayload } = supplierForm
+      const supplierPayload = {
+        name: supplierForm.name,
+        item_category: supplierForm.item_category || null,
+        delivery_package: supplierForm.delivery_package,
+        phone: supplierForm.phone,
+        notes: supplierForm.notes,
+      }
       supplierForm._editId ? await updateSupplier(supplierForm._editId, supplierPayload) : await createSupplier(supplierPayload)
       await refreshData(); setFB('supplier', `Supplier ${supplierForm._editId ? 'updated' : 'created'}.`); setActiveModal('')
     } catch (err) { setFB('supplier', err.message || 'Supplier could not be saved.') }
@@ -2537,14 +2611,14 @@ function HomePage() {
   // ── Row data ──────────────────────────────────────────────────────────────
 
   const salesSummary      = [
-    { label: 'Invoices',    value: String(filteredSalesInvoices.length),                                       note: `${filteredSalesInvoices.filter(i => i.status === 'issued').length} open` },
-    { label: 'Total Billed',value: fmt(sumBy(filteredSalesInvoices, inv => inv.total_amount)),                note: `${filteredSalesInvoices.length} invoices` },
-    { label: 'Total Paid',  value: fmt(sumBy(filteredSalesPayments, p => p.amount)),                          note: `${filteredSalesPayments.length} receipts` },
-    { label: 'Outstanding', value: fmt(sumBy(filteredSalesInvoices, inv => inv.outstanding_balance)),         note: `${filteredSalesInvoices.filter(i => toNumber(i.outstanding_balance) > 0).length} unpaid` },
+    { label: 'Invoices',    value: String(filteredSalesInvoices.length),                                  note: `${filteredSalesInvoices.filter(i => i.status === 'issued').length} open` },
+    { label: 'Total Billed',value: fmt(sumBy(filteredSalesInvoices, inv => inv.total_amount)),           note: `${filteredSalesInvoices.length} invoices` },
+    { label: 'Total Paid',  value: fmt(sumBy(filteredSalesPayments, p => p.amount)),                     note: `${filteredSalesPayments.length} receipts` },
+    { label: 'Outstanding', value: fmt(sumBy(filteredSalesInvoices, inv => getInvoiceOutstanding(inv))), note: `${filteredSalesInvoices.filter(i => getInvoiceOutstanding(i) > 0).length} unpaid` },
   ]
   const productionSummary = [{ label: 'Batches', value: String(productionBatchesFiltered.length), note: 'Production_Dtls' }, { label: 'RM Cost', value: fmt(sumBy(productionBatchesFiltered, b => b.total_raw_material_cost)), note: 'Material usage' }, { label: 'Profit', value: fmt(sumBy(productionBatchesFiltered, b => b.profit)), note: 'Batch value less cost' }, { label: 'Stock Units', value: fmtQ(sumBy(data.products, p => p.stock_quantity)), note: 'Finished goods on hand' }]
-  const suppliesSummary   = [{ label: 'Suppliers', value: String(data.suppliers.length), note: 'Supplier_Dtls' }, { label: 'Raw Materials', value: String(data.rawMaterials.length), note: 'RawMaterials tracked' }, { label: 'Purchases', value: fmt(sumBy(purchasesFiltered, p => p.total_amount)), note: `${purchasesFiltered.length} records` }, { label: 'Supplier Due', value: fmt(sumBy(purchasesFiltered, p => p.outstanding_amount)), note: 'Open balances' }]
-  const customersSummary  = [{ label: 'Customers', value: String(data.customers.length), note: `${filteredCustomerLedger.filter(c => c.invoiceCount > 0).length} already billed` }, { label: 'Outstanding', value: fmt(sumBy(filteredCustomerLedger, c => c.outstanding)), note: 'Total receivables due' }, { label: 'Receipts', value: fmt(sumBy(customerPaymentsFiltered, p => p.amount)), note: 'Total collected' }, { label: 'Open Invoices', value: String(customerInvoicesFiltered.filter(inv => toNumber(inv.outstanding_balance) > 0).length), note: 'Invoices with balance' }]
+  const suppliesSummary   = [{ label: 'Suppliers', value: String(data.suppliers.length), note: 'Supplier_Dtls' }, { label: 'Raw Materials', value: String(data.rawMaterials.length), note: 'RawMaterials tracked' }, { label: 'Purchases', value: fmt(sumBy(purchasesFiltered, p => p.total_amount)), note: `${purchasesFiltered.length} records` }, { label: 'Supplier Due', value: fmt(sumBy(purchasesFiltered, p => getPurchaseOutstanding(p))), note: 'Open balances' }]
+  const customersSummary  = [{ label: 'Customers', value: String(data.customers.length), note: `${filteredCustomerLedger.filter(c => c.invoiceCount > 0).length} already billed` }, { label: 'Outstanding', value: fmt(sumBy(filteredCustomerLedger, c => c.outstanding)), note: 'Total receivables due' }, { label: 'Receipts', value: fmt(sumBy(customerPaymentsFiltered, p => p.amount)), note: 'Total collected' }, { label: 'Open Invoices', value: String(customerInvoicesFiltered.filter(inv => getInvoiceOutstanding(inv) > 0).length), note: 'Invoices with balance' }]
   const suppliersSummary  = [{ label: 'Suppliers', value: String(data.suppliers.length), note: 'Vendor records' }, { label: 'Purchases', value: fmt(sumBy(supplierPurchasesFiltered, p => p.total_amount)), note: `${supplierPurchasesFiltered.length} purchase records` }, { label: 'Paid', value: fmt(sumBy(supplierPurchasesFiltered, p => p.total_paid)), note: 'Total paid to suppliers' }, { label: 'Due', value: fmt(sumBy(filteredSupplierLedger, s => s.outstanding)), note: 'Outstanding payables' }]
   const accountsSummary   = [{ label: 'Entries', value: String(accountTransactionsFiltered.length), note: 'Accounts_Dtls rows' }, { label: 'Income', value: fmt(sumBy(accountTransactionsFiltered.filter(e => e.entry_type === 'income'), e => e.amount)), note: 'Income rows' }, { label: 'Expenses', value: fmt(sumBy(accountTransactionsFiltered.filter(e => e.entry_type === 'expense'), e => e.amount)), note: 'Expense rows' }, { label: 'Pricing Rules', value: String(filteredPricingRules.length), note: 'Filtered pricing sheet' }]
   const mobilePrimarySections = ['dashboard', 'sales_hub', 'production_ops', 'customers']
@@ -2579,12 +2653,12 @@ function HomePage() {
       fmtInv(inv.id),
       inv.customer_name || '—',
       fmt(inv.total_amount),
-      fmt(toNumber(inv.total_amount) - toNumber(inv.outstanding_balance)),
-      fmt(inv.outstanding_balance),
+      fmt(getInvoicePaidAmount(inv)),
+      fmt(getInvoiceOutstanding(inv)),
     ],
   }))
   const batchRows    = productionBatchesFiltered.map(b => ({ key: b.id, emphasisIndex: 5, cells: [fmtD(b.production_date), b.batch_number || `#${b.id}`, fmtD(b.expiry_date), String(b.outputs?.length || 0), fmt(b.total_cost), fmt(b.profit)] }))
-  const purchaseRows = purchasesFiltered.map(p => ({ key: p.id, emphasisIndex: 6, cells: [fmtD(p.purchase_date), `#${p.id}`, p.supplier_name || 'Supplier', fmtStatus(p.category || 'other'), fmtStatus(p.status), fmt(p.total_paid), fmt(p.outstanding_amount)] }))
+  const purchaseRows = purchasesFiltered.map(p => ({ key: p.id, emphasisIndex: 6, cells: [fmtD(p.purchase_date), `#${p.id}`, p.supplier_name || 'Supplier', fmtStatus(p.category || 'other'), fmtStatus(p.status), fmt(p.total_paid), fmt(getPurchaseOutstanding(p))] }))
   const inventoryRows = inventoryLedger.map(item => ({
     key: item.size,
     emphasisIndex: 2,
@@ -2776,8 +2850,8 @@ function HomePage() {
     uniqueDatesSorted(
       data.invoices
         .filter(inv => {
-          if (onlyOutstanding === true) return toNumber(inv.outstanding_balance) > 0
-          if (onlyOutstanding === false) return toNumber(inv.outstanding_balance) <= 0
+          if (onlyOutstanding === true) return getInvoiceOutstanding(inv) > 0
+          if (onlyOutstanding === false) return getInvoiceOutstanding(inv) <= 0
           return true
         })
         .map(inv => inv.invoice_date)
@@ -2925,8 +2999,8 @@ function HomePage() {
     - sumPurchasePayments({ accountName, startTs, beforeStart })
   )
 
-  const incomeCreditSalesMovement = sumBy(data.invoices.filter(inv => toNumber(inv.outstanding_balance) > 0), inv => inv.total_amount)
-  const incomeCashSalesMovement = sumBy(data.invoices.filter(inv => toNumber(inv.outstanding_balance) <= 0), inv => inv.total_amount)
+  const incomeCreditSalesMovement = sumBy(data.invoices.filter(inv => getInvoiceOutstanding(inv) > 0), inv => inv.total_amount)
+  const incomeCashSalesMovement = sumBy(data.invoices.filter(inv => getInvoiceOutstanding(inv) <= 0), inv => inv.total_amount)
   const otherIncomeMovement = sumAccountEntries({ entryType: 'income', category: 'Other Income', startTs: expenseStartTs })
 
   const productionMovement = sumProductionOutputs({ startTs: periodStartTs })
@@ -3948,7 +4022,7 @@ function HomePage() {
       {/* ── RECEIPT MODAL ── */}
       {activeModal === 'receipt' && (() => {
           const selectedInvoice = data.invoices.find(inv => String(inv.id) === String(receiptForm.invoice))
-          const outstandingBalance = toNumber(selectedInvoice?.outstanding_balance)
+          const outstandingBalance = getInvoiceOutstanding(selectedInvoice)
           const paidNow = sumBy(receiptForm.payments, payment => payment.amount)
           const balanceAfterPayments = Math.max(0, outstandingBalance - paidNow)
           return (
@@ -4478,9 +4552,9 @@ function HomePage() {
               <label className="sales-field"><span>Item Category</span>
                 <AppSelect
                   ariaLabel="Supplier item category"
-                  options={itemCategoryOptions}
+                  options={supplierItemCategoryOptions}
                   placeholder="Select category"
-                  value={normalizeCategoryValue(supplierForm.item_category)}
+                  value={supplierForm.item_category ? String(supplierForm.item_category) : ''}
                   onChange={value => setSupplierForm(c => ({ ...c, item_category: value }))}
                 />
               </label>
@@ -4730,8 +4804,8 @@ function HomePage() {
                 <h3>Invoice Summary</h3>
                 <div className="detail-modal-totals">
                   <span>Invoice Total: <strong>{fmt(inv.total_amount)}</strong></span>
-                  <span>Previously Paid: <strong>{fmt(toNumber(inv.total_amount) - toNumber(inv.outstanding_balance))}</strong></span>
-                  <span>Remaining Balance: <strong style={{ color: toNumber(inv.outstanding_balance) > 0 ? '#dc2626' : '#16a34a' }}>{fmt(inv.outstanding_balance)}</strong></span>
+                  <span>Previously Paid: <strong>{fmt(getInvoicePaidAmount(inv))}</strong></span>
+                  <span>Remaining Balance: <strong style={{ color: getInvoiceOutstanding(inv) > 0 ? '#dc2626' : '#16a34a' }}>{fmt(getInvoiceOutstanding(inv))}</strong></span>
                 </div>
               </div>
             )}
@@ -4742,8 +4816,8 @@ function HomePage() {
       {/* ── INVOICE DETAIL MODAL ── */}
       {selectedInvoice && (() => {
         const inv = selectedInvoice
-        const totalPaid = toNumber(inv.total_amount) - toNumber(inv.outstanding_balance)
-        const outstanding = toNumber(inv.outstanding_balance)
+        const totalPaid = getInvoicePaidAmount(inv)
+        const outstanding = getInvoiceOutstanding(inv)
         return (
           <ModalShell
             kicker="Invoice Detail"
@@ -5066,7 +5140,7 @@ function HomePage() {
       {/* ── PURCHASE DETAIL MODAL ── */}
       {selectedPurchase && (() => {
         const p = selectedPurchase
-        const outstanding = toNumber(p.outstanding_amount)
+        const outstanding = getPurchaseOutstanding(p)
         return (
           <ModalShell
             kicker="Purchase Detail"
@@ -5162,7 +5236,7 @@ function HomePage() {
         ).sort((a, b) => new Date(b.payment_date) - new Date(a.payment_date))
         const totalAmount  = sumBy(supplierPurchases, p => p.total_amount)
         const totalPaid    = sumBy(supplierPurchases, p => p.total_paid)
-        const outstanding  = sumBy(supplierPurchases, p => p.outstanding_amount)
+        const outstanding  = sumBy(supplierPurchases, p => getPurchaseOutstanding(p))
         // Raw materials linked to this supplier
         const supplierMaterials = data.rawMaterials.filter(m => String(m.supplier) === String(s.id))
         return (
@@ -5458,7 +5532,7 @@ function HomePage() {
         const custPayments = data.payments.filter(p => custInvoiceIds.has(String(p.invoice)))
         const totalBilled = sumBy(custInvoices, inv => inv.total_amount)
         const totalPaid = sumBy(custPayments, p => p.amount)
-        const outstanding = sumBy(custInvoices, inv => inv.outstanding_balance)
+        const outstanding = sumBy(custInvoices, inv => getInvoiceOutstanding(inv))
         return (
           <ModalShell
             kicker="Customer Profile"
@@ -5493,7 +5567,7 @@ function HomePage() {
                       <span>{fmtInv(inv.id)}</span>
                       <span>{(inv.lines || []).length} line{(inv.lines || []).length !== 1 ? 's' : ''}</span>
                       <span>{fmt(inv.total_amount)}</span>
-                      <span style={{ color: toNumber(inv.outstanding_balance) > 0 ? '#dc2626' : '#16a34a' }}>{fmt(inv.outstanding_balance)}</span>
+                      <span style={{ color: getInvoiceOutstanding(inv) > 0 ? '#dc2626' : '#16a34a' }}>{fmt(getInvoiceOutstanding(inv))}</span>
                     </div>
                   ))}
                 </div>

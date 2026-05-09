@@ -290,6 +290,16 @@ export function createCustomerCategory(payload) {
   return request('/customer-categories/', { method: 'POST', body: JSON.stringify(payload) })
 }
 
+// Item Categories
+
+export function getItemCategories() {
+  return request('/item-categories/')
+}
+
+export function createItemCategory(payload) {
+  return request('/item-categories/', { method: 'POST', body: JSON.stringify(payload) })
+}
+
 // ─── Staff ───────────────────────────────────────────────────────────────────
 
 export function getStaffProfiles() {
@@ -314,11 +324,12 @@ export function getAnalyticsSummary() {
     getStaffProfiles(),
     getPricingCategories(),
     getCustomerCategories(),
+    getItemCategories(),
   ]).then(([
     invoices, payments, products, suppliers, purchases,
     purchasePayments, productionBatches, rawMaterials,
     accountTransactions, pricingRules, customers, staffProfiles,
-    pricingCategories, customerCategories,
+    pricingCategories, customerCategories, itemCategories,
   ]) => ({
     invoices: asCollection(invoices),
     payments: asCollection(payments),
@@ -334,5 +345,6 @@ export function getAnalyticsSummary() {
     staffProfiles: Array.isArray(staffProfiles) ? staffProfiles : [],
     pricingCategories: asCollection(pricingCategories),
     customerCategories: asCollection(customerCategories),
+    itemCategories: asCollection(itemCategories),
   }))
 }
