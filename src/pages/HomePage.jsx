@@ -2,7 +2,7 @@ import { Children, useEffect, useLayoutEffect, useMemo, useRef, useState } from 
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import plusLogo from '../assets/plusLogo.png'
-import { AppAutocomplete, AppSelect } from '../components/FormSelects'
+import { AppAutocomplete, AppFilterPicker, AppSelect } from '../components/FormSelects'
 import {
   createAccountTransaction, createCustomer, createInvoice, createPayment,
   createPricingRule, createProductionBatch, createProductionOutput, createPurchase, createSupplier,
@@ -13,19 +13,21 @@ import {
   updatePricingRule, deletePricingRule,
   updateProduct, deleteProduct,
   updateRawMaterial, deleteRawMaterial,
+  createStaffProfile, updateStaffProfile,
   getAnalyticsSummary,
 } from '../lib/api'
 
 // ─── Section config ───────────────────────────────────────────────────────────
 
 const SECTIONS = [
-  { key: 'dashboard',       label: 'Dashboard',          icon: 'home',      subtitle: 'Live summary pulled from Dashboard and Financials workbook logic.',                                          sheets: ['Dashboard', 'Financials'] },
-  { key: 'sales_hub',       label: 'Sales Hub',          icon: 'sales',     subtitle: 'Sales entry, invoices, receipts, and customer collections.',                                                sheets: ['Sales_Entry', 'Sales_Dtls', 'Invoice', 'SalesReceipt_Entry', 'SalesReceipt_Dtls', 'Sales'] },
-  { key: 'production_ops',  label: 'Production Ops',     icon: 'production',subtitle: 'Batch production, finished stock, and raw material usage.',                                                sheets: ['Production_Entry', 'Production_Dtls', 'Inventory', 'RM_Usage_Dtls', 'Prod Planner'] },
-  { key: 'supplies_stock',  label: 'Supplies & Stock',   icon: 'inventory', subtitle: 'Purchases, suppliers, raw materials, and stock control.',                                                   sheets: ['RMPurchases_Entry', 'Purchase_Dtls', 'PurchasePmt_Dtls', 'RawMaterials'] },
-  { key: 'customers',       label: 'Customers',          icon: 'customers', subtitle: 'Customer records, invoice history, and outstanding balances.',                                          sheets: ['Customers_Dtls', 'Customers'] },
-  { key: 'suppliers',       label: 'Suppliers',          icon: 'suppliers', subtitle: 'Supplier records, purchases, and payable balances.',                                                       sheets: ['Supplier_Dtls'] },
-  { key: 'accounts_pricing',label: 'Accounts & Pricing', icon: 'finance',   subtitle: 'Accounts entries, pricing rules, trial balance, and configuration.',                                       sheets: ['Accounts_Entry', 'Accounts_Dtls', 'Trial Balance', 'Pricing'] },
+  { key: 'dashboard',       label: 'Dashboard',          icon: 'home',      roles: ['admin', 'sales', 'accounts'], subtitle: 'Live summary pulled from Dashboard and Financials workbook logic.',                                          sheets: ['Dashboard', 'Financials'] },
+  { key: 'sales_hub',       label: 'Sales Hub',          icon: 'sales',     roles: ['admin', 'sales'],             subtitle: 'Sales entry, invoices, receipts, and customer collections.',                                                sheets: ['Sales_Entry', 'Sales_Dtls', 'Invoice', 'SalesReceipt_Entry', 'SalesReceipt_Dtls', 'Sales'] },
+  { key: 'production_ops',  label: 'Production Ops',     icon: 'production',roles: ['admin'],                      subtitle: 'Batch production, finished stock, and raw material usage.',                                                sheets: ['Production_Entry', 'Production_Dtls', 'Inventory', 'RM_Usage_Dtls', 'Prod Planner'] },
+  { key: 'supplies_stock',  label: 'Supplies & Stock',   icon: 'inventory', roles: ['admin'],                      subtitle: 'Purchases, suppliers, raw materials, and stock control.',                                                   sheets: ['RMPurchases_Entry', 'Purchase_Dtls', 'PurchasePmt_Dtls', 'RawMaterials'] },
+  { key: 'customers',       label: 'Customers',          icon: 'customers', roles: ['admin', 'sales'],             subtitle: 'Customer records, invoice history, and outstanding balances.',                                          sheets: ['Customers_Dtls', 'Customers'] },
+  { key: 'suppliers',       label: 'Suppliers',          icon: 'suppliers', roles: ['admin', 'accounts'],          subtitle: 'Supplier records, purchases, and payable balances.',                                                       sheets: ['Supplier_Dtls'] },
+  { key: 'accounts_pricing',label: 'Accounts & Pricing', icon: 'finance',   roles: ['admin', 'accounts'],          subtitle: 'Accounts entries, pricing rules, trial balance, and configuration.',                                       sheets: ['Accounts_Entry', 'Accounts_Dtls', 'Trial Balance', 'Pricing'] },
+  { key: 'user_mgmt',       label: 'User Management',    icon: 'suppliers', roles: ['admin'],                      subtitle: 'Create and manage staff accounts and role assignments.',                                                    sheets: [] },
 ]
 
 const INITIAL_DATA = {
@@ -926,19 +928,16 @@ function TableCard({
 
   const normalizeColWidth = (width) => {
     const raw = String(width || '').trim()
-    if (!raw) return 'max-content'
-    if (raw.includes('fr')) {
-      const px = parseInt(raw, 10)
-      return `minmax(${Number.isFinite(px) && px > 0 ? px : 120}px, max-content)`
-    }
-    if (raw.includes('minmax(') || raw.includes('max-content')) return raw
-    return `minmax(${raw}, max-content)`
+    if (!raw) return '160px'
+    if (raw.includes('minmax(') || raw.includes('clamp(')) return raw
+    if (raw.includes('fr')) return `minmax(0, ${raw})`
+    return raw
   }
 
   const hasCustomWidths = Array.isArray(colWidths) && colWidths.length > 0
   const colTemplate = colWidths
     ? colWidths.map(normalizeColWidth).join(' ')
-    : columns.map(col => col === '' ? '72px' : 'minmax(160px, 1fr)').join(' ')
+    : columns.map(col => col === '' ? '72px' : '160px').join(' ')
   const mobileColumns = columns.map((col, index) => ({
     key: `${col || 'action'}-${index}`,
     label: col || 'Action',
@@ -1486,13 +1485,210 @@ function ModalShell({ kicker, title, subtitle, stat, onClose, children, cardClas
 
 // ─── HomePage ─────────────────────────────────────────────────────────────────
 
-function HomePage() {
+const ROLES = ['admin', 'sales', 'accounts']
+const mkUserForm = () => ({ first_name: '', last_name: '', username: '', email: '', password: '', role: 'sales', phone: '', is_active: true })
+
+function UserManagement({ staffProfiles, onSaved }) {
+  const [form, setForm] = useState(mkUserForm())
+  const [editing, setEditing] = useState(null)
+  const [saving, setSaving] = useState(false)
+  const [formError, setFormError] = useState('')
+
+  function startCreate() {
+    setEditing('new')
+    setForm(mkUserForm())
+    setFormError('')
+  }
+
+  function startEdit(profile) {
+    setEditing(profile.id)
+    setForm({
+      first_name: profile.user?.first_name || '',
+      last_name: profile.user?.last_name || '',
+      username: profile.user?.username || '',
+      email: profile.user?.email || '',
+      password: '',
+      role: profile.role || 'sales',
+      phone: profile.phone || '',
+      is_active: profile.user?.is_active !== false,
+    })
+    setFormError('')
+  }
+
+  function cancelEdit() {
+    setEditing(null)
+    setForm(mkUserForm())
+    setFormError('')
+  }
+
+  async function handleSave(event) {
+    event.preventDefault()
+    if (!form.username.trim()) {
+      setFormError('Username is required.')
+      return
+    }
+    if (editing === 'new' && !form.password.trim()) {
+      setFormError('Password is required for new staff.')
+      return
+    }
+
+    setSaving(true)
+    setFormError('')
+
+    try {
+      const payload = {
+        user: {
+          first_name: form.first_name.trim(),
+          last_name: form.last_name.trim(),
+          username: form.username.trim(),
+          email: form.email.trim(),
+          is_active: form.is_active,
+          ...(form.password ? { password: form.password } : {}),
+        },
+        role: form.role,
+        phone: form.phone.trim(),
+      }
+      await onSaved(editing === 'new' ? null : editing, payload)
+      cancelEdit()
+    } catch (error) {
+      setFormError(error.message || 'Failed to save staff account.')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <>
+      <WorkspaceToolbar
+        title="Staff Accounts"
+        subtitle="Create staff logins and assign admin, sales, or accounts access."
+        actions={<button type="button" className="account-alert-button account-alert-button-dark" onClick={startCreate}>Add Staff</button>}
+      />
+
+      {editing ? (
+        <ModalShell
+          kicker="User Management"
+          title={editing === 'new' ? 'Add Staff Account' : 'Edit Staff Account'}
+          subtitle="Create staff logins and manage role assignments."
+          onClose={cancelEdit}
+          cardClassName="staff-modal-card"
+        >
+          <form onSubmit={handleSave} className="sales-form sales-form-redesign staff-modal-form">
+            <section className="sales-form-hero staff-modal-hero">
+              <div className="sales-form-hero-copy">
+                <span className="sales-form-eyebrow">Account Setup</span>
+                <h3>{editing === 'new' ? 'New Team Member' : 'Update Team Member'}</h3>
+                <p>Fill in the essentials below, then choose role and status to control access.</p>
+              </div>
+              <div className="sales-form-hero-meta">
+                <div>
+                  <span>Role</span>
+                  <strong>{fmtStatus(form.role)}</strong>
+                </div>
+                <div>
+                  <span>Status</span>
+                  <strong>{form.is_active ? 'Active' : 'Inactive'}</strong>
+                </div>
+              </div>
+            </section>
+
+            <section className="sales-lines-panel staff-modal-panel">
+              <div className="sales-lines-panel-header">
+                <div>
+                  <span className="sales-form-eyebrow">Identity</span>
+                  <h3>Profile Details</h3>
+                </div>
+              </div>
+              <div className="sales-form-grid-two">
+                <label className="sales-field">
+                  <span>First Name</span>
+                  <input value={form.first_name} onChange={event => setForm(current => ({ ...current, first_name: event.target.value }))} placeholder="e.g. Rachel" />
+                </label>
+                <label className="sales-field">
+                  <span>Last Name</span>
+                  <input value={form.last_name} onChange={event => setForm(current => ({ ...current, last_name: event.target.value }))} placeholder="e.g. Mensah" />
+                </label>
+                <label className="sales-field">
+                  <span>Username *</span>
+                  <input value={form.username} onChange={event => setForm(current => ({ ...current, username: event.target.value }))} placeholder="staff username" />
+                </label>
+                <label className="sales-field">
+                  <span>Email</span>
+                  <input type="email" value={form.email} onChange={event => setForm(current => ({ ...current, email: event.target.value }))} placeholder="name@plustreat.com" />
+                </label>
+                <label className="sales-field">
+                  <span>{editing === 'new' ? 'Password *' : 'New Password'}</span>
+                  <input type="password" value={form.password} onChange={event => setForm(current => ({ ...current, password: event.target.value }))} placeholder={editing === 'new' ? 'Create a password' : 'Leave blank to keep current password'} />
+                </label>
+                <label className="sales-field">
+                  <span>Phone</span>
+                  <input value={form.phone} onChange={event => setForm(current => ({ ...current, phone: event.target.value }))} placeholder="Mobile number" />
+                </label>
+              </div>
+            </section>
+
+            <section className="sales-lines-panel staff-modal-panel">
+              <div className="sales-lines-panel-header">
+                <div>
+                  <span className="sales-form-eyebrow">Permissions</span>
+                  <h3>Access Controls</h3>
+                </div>
+              </div>
+              <div className="sales-form-grid-two">
+                <label className="sales-field">
+                  <span>Role</span>
+                  <select value={form.role} onChange={event => setForm(current => ({ ...current, role: event.target.value }))}>
+                    {ROLES.map(role => <option key={role} value={role}>{fmtStatus(role)}</option>)}
+                  </select>
+                </label>
+                <label className="sales-field">
+                  <span>Status</span>
+                  <select value={form.is_active ? 'active' : 'inactive'} onChange={event => setForm(current => ({ ...current, is_active: event.target.value === 'active' }))}>
+                    <option value="active">Active</option>
+                    <option value="inactive">Inactive</option>
+                  </select>
+                </label>
+              </div>
+            </section>
+
+            {formError ? <p className="login-error staff-modal-error">{formError}</p> : null}
+
+            <div className="sales-form-actions staff-modal-actions">
+              <button type="submit" className="account-alert-button account-alert-button-dark" disabled={saving}>{saving ? 'Saving...' : 'Save Staff'}</button>
+              <button type="button" className="account-alert-button account-alert-button-light" onClick={cancelEdit}>Cancel</button>
+            </div>
+          </form>
+        </ModalShell>
+      ) : null}
+
+      <TableCard
+        title="Staff Directory"
+        subtitle="Manage login details and role assignments for each staff member."
+        columns={['Name', 'Username', 'Role', 'Email', 'Status', '']}
+        rows={staffProfiles.map(profile => ({
+          key: profile.id,
+          cells: [
+            `${profile.user?.first_name || ''} ${profile.user?.last_name || ''}`.trim() || profile.user?.username || 'Staff',
+            `@${profile.user?.username || 'user'}`,
+            fmtStatus(profile.role),
+            profile.user?.email || profile.phone || '—',
+            profile.user?.is_active === false ? 'Inactive' : 'Active',
+            <button key={`edit-${profile.id}`} type="button" className="workspace-action-btn" onClick={event => { event.stopPropagation(); startEdit(profile) }}>Edit</button>,
+          ],
+        }))}
+        mobileVariant="customers-list"
+      />
+    </>
+  )
+}
+
+function HomePage({ initialSection = 'dashboard', allowedSections = null, standaloneMode = false }) {
   const navigate = useNavigate()
   const { user, logout } = useAuth()
   const mobileMenuRef = useRef(null)
   const accountContentRef = useRef(null)
 
-  const [activeSection,    setActiveSection]    = useState('dashboard')
+  const [activeSection,    setActiveSection]    = useState(initialSection)
   const [activeAccountsTab,setActiveAccountsTab]= useState('entries')
   const [isMobileNavOpen,  setIsMobileNavOpen]  = useState(false)
   const [isMobileProfileOpen, setIsMobileProfileOpen] = useState(false)
@@ -1536,6 +1732,14 @@ function HomePage() {
   const [selectedAccountEntry,  setSelectedAccountEntry]  = useState(null)
   const batchUsageTailRef = useRef(null)
   const purchaseItemsTailRef = useRef(null)
+  const normalizedRole = String(user?.role || 'sales').toLowerCase()
+  const availableSections = useMemo(() => {
+    const visible = SECTIONS
+      .filter(section => !section.roles || section.roles.includes(normalizedRole))
+      .filter(section => !allowedSections || allowedSections.includes(section.key))
+    return visible.length ? visible : [SECTIONS[0]]
+  }, [allowedSections, normalizedRole])
+  const isStandaloneView = standaloneMode || availableSections.length === 1
 
   // ── Data loading ──────────────────────────────────────────────────────────
 
@@ -1603,6 +1807,12 @@ function HomePage() {
       setLoadError('Data refresh failed. Your view may be stale.')
     }
   }
+
+  useEffect(() => {
+    if (!availableSections.some(section => section.key === activeSection)) {
+      setActiveSection(availableSections[0]?.key || 'dashboard')
+    }
+  }, [activeSection, availableSections])
 
   // ── Derived maps ──────────────────────────────────────────────────────────
 
@@ -2621,8 +2831,10 @@ function HomePage() {
   const customersSummary  = [{ label: 'Customers', value: String(data.customers.length), note: `${filteredCustomerLedger.filter(c => c.invoiceCount > 0).length} already billed` }, { label: 'Outstanding', value: fmt(sumBy(filteredCustomerLedger, c => c.outstanding)), note: 'Total receivables due' }, { label: 'Receipts', value: fmt(sumBy(customerPaymentsFiltered, p => p.amount)), note: 'Total collected' }, { label: 'Open Invoices', value: String(customerInvoicesFiltered.filter(inv => getInvoiceOutstanding(inv) > 0).length), note: 'Invoices with balance' }]
   const suppliersSummary  = [{ label: 'Suppliers', value: String(data.suppliers.length), note: 'Vendor records' }, { label: 'Purchases', value: fmt(sumBy(supplierPurchasesFiltered, p => p.total_amount)), note: `${supplierPurchasesFiltered.length} purchase records` }, { label: 'Paid', value: fmt(sumBy(supplierPurchasesFiltered, p => p.total_paid)), note: 'Total paid to suppliers' }, { label: 'Due', value: fmt(sumBy(filteredSupplierLedger, s => s.outstanding)), note: 'Outstanding payables' }]
   const accountsSummary   = [{ label: 'Entries', value: String(accountTransactionsFiltered.length), note: 'Accounts_Dtls rows' }, { label: 'Income', value: fmt(sumBy(accountTransactionsFiltered.filter(e => e.entry_type === 'income'), e => e.amount)), note: 'Income rows' }, { label: 'Expenses', value: fmt(sumBy(accountTransactionsFiltered.filter(e => e.entry_type === 'expense'), e => e.amount)), note: 'Expense rows' }, { label: 'Pricing Rules', value: String(filteredPricingRules.length), note: 'Filtered pricing sheet' }]
-  const mobilePrimarySections = ['dashboard', 'sales_hub', 'production_ops', 'customers']
-  const mobileExtraSections = SECTIONS.filter(section => !mobilePrimarySections.includes(section.key))
+  const mobilePrimarySections = availableSections
+    .filter(section => ['dashboard', 'sales_hub', 'production_ops', 'customers'].includes(section.key))
+    .map(section => section.key)
+  const mobileExtraSections = availableSections.filter(section => !mobilePrimarySections.includes(section.key))
   const mobileHeroStatsBySection = {
     dashboard: dashboardContent.metrics.slice(0, 2),
     sales_hub: salesSummary.slice(0, 2),
@@ -2694,13 +2906,17 @@ function HomePage() {
   const supplierRows = filteredSupplierLedger.map(s => ({ key: s.id, emphasisIndex: 4, cells: [s.name, resolveSupplierItemCategory(s, data.purchases, data.rawMaterials), String(s.purchaseCount), fmt(s.paid), fmt(s.outstanding), <button key="edit" type="button" className="workspace-action-btn" onClick={e => { e.stopPropagation(); openModal('supplier', s) }}>Edit</button>] }))
   const accountRows  = accountTransactionsFiltered.map(e => ({
     key: e.id,
-    emphasisIndex: 4,
+    emphasisIndex: 5,
     cells: [
       fmtD(e.transaction_date),
       e.transaction_id || '—',
       fmtStatus(e.entry_type),
-      truncateText(e.category, 12),
+      e.category || '—',
+      e.description || '—',
       fmt(e.amount),
+      e.payment_method ? fmtStatus(e.payment_method) : '—',
+      e.comments || '—',
+      <button key="edit" type="button" className="workspace-action-btn" onClick={event => { event.stopPropagation(); openModal('account', e) }}>Edit</button>,
     ],
   }))
   const pricingRows  = filteredPricingRules.map(r => ({ key: r.id, emphasisIndex: 3, cells: [r.product_name || r.size || '—', r.size, r.pricing_category_name || '—', fmt(r.price), <button key="edit" type="button" className="workspace-action-btn" onClick={e => { e.stopPropagation(); openModal('pricing', r) }}>Edit</button>] }))
@@ -2712,6 +2928,7 @@ function HomePage() {
           key: 'customer',
           label: 'Customer',
           placeholder: 'All customers',
+          searchPlaceholder: 'Search customers...',
           options: buildSelectOptions(salesPayments.map(payment => payment.customer_name || `Invoice ${fmtInv(payment.invoice)}`)),
         },
         {
@@ -2727,12 +2944,14 @@ function HomePage() {
         key: 'customer',
         label: 'Customer',
         placeholder: 'All customers',
+        searchPlaceholder: 'Search customers...',
         options: buildSelectOptions(salesInvoices.map(invoice => invoice.customer_name)),
       },
       {
         key: 'status',
         label: 'Collection State',
         placeholder: 'All states',
+        searchPlaceholder: 'Search states...',
         options: [
           { value: 'paid', label: 'Collected' },
           { value: 'partial', label: 'Partially Paid' },
@@ -3108,10 +3327,12 @@ function HomePage() {
     .map(row => {
       const opening = toNumber(row.opening)
       const movement = toNumber(row.movement)
-      const total = opening + movement
+      const acctIn = movement > 0 ? movement : 0
+      const acctOut = movement < 0 ? Math.abs(movement) : 0
+      const available = opening + acctIn - acctOut
       return {
         key: row.accountId,
-        emphasisIndex: 7,
+        emphasisIndex: 9,
         cells: [
           row.accountId,
           row.accountType,
@@ -3120,25 +3341,29 @@ function HomePage() {
           row.description,
           formatDateRange(row.dates),
           fmt(opening),
-          fmt(movement),
-          fmt(total),
+          fmt(acctIn),
+          fmt(acctOut),
+          fmt(available),
         ],
       }
     })
 
-  const activeContent = useMemo(() => SECTIONS.find(s => s.key === activeSection) || SECTIONS[0], [activeSection])
+  const activeContent = useMemo(() => availableSections.find(s => s.key === activeSection) || availableSections[0], [activeSection, availableSections])
   const getSectionTab = (sectionKey) => sectionTabs[sectionKey] || SECTION_DEFAULT_TABS[sectionKey]
   const setSectionTab = (sectionKey, tabKey) => setSectionTabs(cur => ({ ...cur, [sectionKey]: tabKey }))
   const activeSalesFilterScope = `sales_hub:${getSectionTab('sales_hub')}`
   const activeSalesFilters = getScopedFilters(activeSalesFilterScope)
   const activePricingFilterScope = `accounts_pricing:${activeAccountsTab}`
   const activePricingFilters = getScopedFilters(activePricingFilterScope)
+  const canAccessSection = (sectionKey) => availableSections.some(section => section.key === sectionKey)
   const jumpToSection = (sectionKey, tabKey = null) => {
+    if (!canAccessSection(sectionKey)) return
     setActiveSection(sectionKey)
     setIsMobileNavOpen(false)
     if (tabKey) setSectionTab(sectionKey, tabKey)
   }
   const handleSectionSelect = (sectionKey) => {
+    if (!canAccessSection(sectionKey)) return
     setActiveSection(sectionKey)
     setIsMobileNavOpen(false)
   }
@@ -3204,6 +3429,12 @@ function HomePage() {
           {getSectionTab('suppliers') === 'balances' && <SnippetCardSkeleton title="Open Balances" rows={5} />}
         </>
       )
+      if (activeSection === 'user_mgmt') return (
+        <>
+          <WorkspaceToolbarSkeleton />
+          <TableCardSkeleton title="Staff Directory" columns={6} rows={5} />
+        </>
+      )
       return (
         <>
           <SummaryGridSkeleton />
@@ -3213,9 +3444,9 @@ function HomePage() {
               <span key={tab.key} className={`workspace-inline-tab ${tab.key === activeAccountsTab ? 'active' : ''}`}>{tab.label}</span>
             ))}
           </section>
-          {activeAccountsTab === 'entries' && <TableCardSkeleton title="Account Entries" columns={5} rows={6} />}
+          {activeAccountsTab === 'entries' && <TableCardSkeleton title="Account Entries" columns={9} rows={6} />}
           {activeAccountsTab === 'pricing' && <TableCardSkeleton title="Pricing Rules" columns={5} rows={6} />}
-          {activeAccountsTab === 'trial_balance' && <TableCardSkeleton title="Trial Balance" columns={9} rows={10} />}
+          {activeAccountsTab === 'trial_balance' && <TableCardSkeleton title="Trial Balance" columns={10} rows={10} />}
         </>
       )
     }
@@ -3536,6 +3767,17 @@ function HomePage() {
       </>
     )
 
+    if (activeSection === 'user_mgmt') return (
+      <UserManagement
+        staffProfiles={data.staffProfiles}
+        onSaved={async (id, payload) => {
+          if (id) await updateStaffProfile(id, payload)
+          else await createStaffProfile(payload)
+          await refreshData()
+        }}
+      />
+    )
+
     // accounts_pricing
     return (
       <>
@@ -3569,9 +3811,9 @@ function HomePage() {
           <TableCard
             className="account-entries-table-card"
             title="Account Entries"
-            subtitle="Simple transaction summary table. Click a row to view the full account entry details."
-            columns={['Date', 'Transaction ID', 'Type', 'Category', 'Amount']}
-            colWidths={['150px', '220px', '140px', 'minmax(280px, 1.5fr)', '180px']}
+            subtitle="Detailed transaction register with payment account and comments. Click a row to view the full entry."
+            columns={['Date', 'Transaction ID', 'Type', 'Category', 'Description', 'Amount', 'Payment Account', 'Comments', '']}
+            colWidths={['130px', '190px', '110px', '150px', '220px', '120px', '170px', '180px', '88px']}
             rows={accountRows}
             mobileVariant="accounts-list"
             search={searchTerms.accounts}
@@ -3607,8 +3849,8 @@ function HomePage() {
           <TableCard
             title="Trial Balance"
             subtitle={`Workbook column structure reproduced with period logic from ${TRIAL_BALANCE_PERIOD_START} (expenses baseline ${TRIAL_BALANCE_EXPENSE_START}).`}
-            columns={['Account ID', 'Account Type', 'Account Class', 'Sub-Accounts', 'Account Description', 'Date', 'Opening Bal', 'Movement', 'Total']}
-            colWidths={['140px', '170px', '150px', '170px', '280px', '200px', '140px', '140px', '140px']}
+            columns={['Account ID', 'Account Type', 'Account Class', 'Sub-Accounts', 'Account Description', 'Date', 'Opening Bal', 'Acct In', 'Acct Out', 'Available']}
+            colWidths={['140px', '170px', '150px', '170px', '280px', '200px', '140px', '140px', '140px', '140px']}
             rows={trialBalanceRows}
             search={searchTerms.trial_balance}
             onSearch={v => setSearch('trial_balance', v)}
@@ -3698,19 +3940,21 @@ function HomePage() {
         ) : null}
       </section>
 
-      <section className="account-page-layout">
-        <aside className="account-side-nav">
-          <nav className="account-nav-list" aria-label="Workbook sections">
-            {SECTIONS.map(s => (
-              <button key={s.key} type="button" className={`account-nav-item ${s.key === activeSection ? 'active' : ''}`} onClick={() => handleSectionSelect(s.key)}>
-                <span className="account-nav-icon"><NavIcon type={s.icon} /></span>
-                <span>{s.label}</span>
-              </button>
-            ))}
-          </nav>
-        </aside>
-        <section ref={accountContentRef} className="account-content">
-          <header className={`account-content-header section-${activeSection}`}>
+      <section className={`account-page-layout${isStandaloneView ? ' account-page-layout-standalone' : ''}`}>
+        {!isStandaloneView ? (
+          <aside className="account-side-nav">
+            <nav className="account-nav-list" aria-label="Workbook sections">
+              {availableSections.map(s => (
+                <button key={s.key} type="button" className={`account-nav-item ${s.key === activeSection ? 'active' : ''}`} onClick={() => handleSectionSelect(s.key)}>
+                  <span className="account-nav-icon"><NavIcon type={s.icon} /></span>
+                  <span>{s.label}</span>
+                </button>
+              ))}
+            </nav>
+          </aside>
+        ) : null}
+        <section ref={accountContentRef} className={`account-content${isStandaloneView ? ' account-content-standalone' : ''}`}>
+          <header className={`account-content-header section-${activeSection}${isStandaloneView ? ' account-content-header-standalone' : ''}`}>
             <h1>{activeContent.label}</h1>
             <p>{activeContent.subtitle}</p>
           </header>
@@ -3720,9 +3964,9 @@ function HomePage() {
       </section>
 
       {/* ── SALE MODAL ── */}
-      <nav className="mobile-bottom-dock" aria-label="Mobile primary navigation">
+      {!isStandaloneView ? <nav className="mobile-bottom-dock" aria-label="Mobile primary navigation">
         {mobilePrimarySections.map((sectionKey) => {
-          const section = SECTIONS.find((entry) => entry.key === sectionKey)
+          const section = availableSections.find((entry) => entry.key === sectionKey)
           if (!section) return null
           return (
             <button
@@ -3745,9 +3989,9 @@ function HomePage() {
           <span className="mobile-bottom-dock-icon"><NavIcon type="menu" /></span>
           <span>More</span>
         </button>
-      </nav>
+      </nav> : null}
 
-      {isMobileNavOpen ? (
+      {!isStandaloneView && isMobileNavOpen ? (
         <div className="mobile-section-sheet-backdrop" role="presentation" onClick={() => setIsMobileNavOpen(false)}>
           <section
             className="mobile-section-sheet"
@@ -3764,10 +4008,10 @@ function HomePage() {
               </div>
             </div>
             <nav className="mobile-section-sheet-list" aria-label="Mobile workbook sections">
-              {mobileExtraSections.map(s => (
-                <button
-                  key={s.key}
-                  type="button"
+                {mobileExtraSections.map(s => (
+                  <button
+                    key={s.key}
+                    type="button"
                   className={`mobile-section-sheet-item ${s.key === activeSection ? 'active' : ''}`}
                   onClick={() => handleSectionSelect(s.key)}
                 >
@@ -5631,10 +5875,14 @@ function FilterSelectRow({ filters = [], values = {}, onChange, onClear, classNa
       {filters.map(filter => (
         <label key={filter.key} className="workspace-filter-select">
           <span>{filter.label}</span>
-          <select value={values?.[filter.key] || ''} onChange={e => onChange(filter.key, e.target.value)}>
-            <option value="">{filter.placeholder || `All ${filter.label}`}</option>
-            {filter.options.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
-          </select>
+          <AppFilterPicker
+            value={values?.[filter.key] || ''}
+            onChange={value => onChange(filter.key, value)}
+            options={filter.options}
+            placeholder={filter.placeholder || `All ${filter.label}`}
+            searchPlaceholder={filter.searchPlaceholder || `Search ${String(filter.label || 'options').toLowerCase()}...`}
+            ariaLabel={filter.label}
+          />
         </label>
       ))}
       {hasActive ? <button type="button" className="workspace-filter-clear" onClick={onClear}>Reset Filters</button> : null}

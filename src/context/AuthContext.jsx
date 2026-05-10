@@ -39,6 +39,11 @@ export function AuthProvider({ children }) {
     user,
     isReady,
     isAuthenticated: Boolean(user),
+    updateSession(data) {
+      const nextUser = buildSessionUser(data)
+      setUser(nextUser)
+      return nextUser
+    },
     async login(identifier, password) {
       const data = await loginUser(identifier, password)
       setStoredToken(data.token)

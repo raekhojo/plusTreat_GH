@@ -216,6 +216,191 @@ function MobileSelectField({
   )
 }
 
+function DesktopFilterModal({
+  open,
+  title,
+  placeholder,
+  searchPlaceholder,
+  options,
+  value,
+  onChange,
+  onClose,
+  allowClear = false,
+}) {
+  const [search, setSearch] = useState('')
+
+  useEffect(() => {
+    if (!open) {
+      setSearch('')
+      return
+    }
+
+    function handleKeyDown(event) {
+      if (event.key === 'Escape') onClose?.()
+    }
+
+    document.addEventListener('keydown', handleKeyDown)
+    return () => document.removeEventListener('keydown', handleKeyDown)
+  }, [open, onClose])
+
+  const filteredOptions = useMemo(() => {
+    const query = search.trim().toLowerCase()
+    if (!query) return options
+    return options.filter((option) => {
+      const haystack = [
+        option.label,
+        option.meta,
+        option.searchText,
+        option.value,
+      ]
+        .filter(Boolean)
+        .join(' ')
+        .toLowerCase()
+      return haystack.includes(query)
+    })
+  }, [options, search])
+
+  if (!open || typeof document === 'undefined') return null
+
+  return createPortal(
+    <div
+      className="filter-picker-modal-backdrop"
+      role="presentation"
+      onClick={(event) => {
+        if (event.target === event.currentTarget) onClose?.()
+      }}
+    >
+      <article
+        className="filter-picker-modal-card"
+        role="dialog"
+        aria-modal="true"
+        aria-label={title || placeholder}
+      >
+        <div className="filter-picker-modal-header">
+          <div>
+            <span className="filter-picker-modal-kicker">Filter</span>
+            <h3>{title || placeholder}</h3>
+          </div>
+          <button type="button" className="filter-picker-modal-close" onClick={onClose} aria-label="Close filter picker">
+            ×
+          </button>
+        </div>
+
+        <label className="filter-picker-modal-search">
+          <span>Search</span>
+          <input
+            type="text"
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+            placeholder={searchPlaceholder}
+            autoFocus
+          />
+        </label>
+
+        {allowClear && value ? (
+          <button
+            type="button"
+            className="filter-picker-modal-clear"
+            onClick={() => {
+              onChange?.('')
+              onClose?.()
+            }}
+          >
+            Clear selection
+          </button>
+        ) : null}
+
+        <div className="filter-picker-modal-options">
+          {filteredOptions.length ? (
+            filteredOptions.map((option) => {
+              const isSelected = String(option.value) === String(value || '')
+              return (
+                <button
+                  key={option.value}
+                  type="button"
+                  className={`filter-picker-modal-option${isSelected ? ' is-selected' : ''}`}
+                  onClick={() => {
+                    onChange?.(String(option.value))
+                    onClose?.()
+                  }}
+                >
+                  <span className="filter-picker-modal-option-label">{option.label}</span>
+                  {option.meta ? <small>{option.meta}</small> : null}
+                </button>
+              )
+            })
+          ) : (
+            <p className="filter-picker-modal-empty">No matching options found.</p>
+          )}
+        </div>
+      </article>
+    </div>,
+    document.body,
+  )
+}
+
+export function AppFilterPicker({
+  value,
+  onChange,
+  options = [],
+  placeholder = 'Select',
+  searchPlaceholder = 'Search...',
+  ariaLabel,
+  isDisabled = false,
+  className = '',
+  allowClear = true,
+}) {
+  const isMobile = useIsMobilePicker()
+  const [open, setOpen] = useState(false)
+  const selectedOption = options.find((option) => String(option.value) === String(value || ''))
+
+  return (
+    <>
+      <button
+        type="button"
+        aria-label={ariaLabel || placeholder}
+        className={`filter-picker-trigger ${className}`.trim()}
+        disabled={isDisabled}
+        onClick={() => setOpen(true)}
+      >
+        <span className="filter-picker-trigger-copy">
+          <span className={`filter-picker-trigger-value${selectedOption ? ' has-value' : ''}`}>
+            {selectedOption?.label || placeholder}
+          </span>
+        </span>
+        <span className="filter-picker-trigger-icon" aria-hidden="true">
+          ▾
+        </span>
+      </button>
+      {isMobile ? (
+        <MobileSelectModal
+          open={open}
+          title={ariaLabel || placeholder}
+          placeholder={placeholder}
+          searchPlaceholder={searchPlaceholder}
+          options={options}
+          value={value}
+          onChange={onChange}
+          onClose={() => setOpen(false)}
+          allowClear={allowClear}
+        />
+      ) : (
+        <DesktopFilterModal
+          open={open}
+          title={ariaLabel || placeholder}
+          placeholder={placeholder}
+          searchPlaceholder={searchPlaceholder}
+          options={options}
+          value={value}
+          onChange={onChange}
+          onClose={() => setOpen(false)}
+          allowClear={allowClear}
+        />
+      )}
+    </>
+  )
+}
+
 export function AppSelect({
   value,
   onChange,

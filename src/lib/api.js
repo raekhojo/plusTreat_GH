@@ -306,6 +306,21 @@ export function getStaffProfiles() {
   return request('/staff/').then(asCollection)
 }
 
+export function updateMyProfile(payload) {
+  return request('/auth/profile/', { method: 'PATCH', body: JSON.stringify(payload) })
+}
+export function createStaffProfile(payload) {
+  return request('/staff/', { method: 'POST', body: JSON.stringify(payload) })
+}
+
+export function updateStaffProfile(id, payload) {
+  return request(`/staff/${id}/`, { method: 'PATCH', body: JSON.stringify(payload) })
+}
+
+export function deleteStaffProfile(id) {
+  return request(`/staff/${id}/`, { method: 'DELETE' })
+}
+
 // ─── Composite loaders ───────────────────────────────────────────────────────
 
 export function getAnalyticsSummary() {

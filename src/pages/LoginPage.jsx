@@ -3,10 +3,17 @@ import { useLocation, useNavigate } from 'react-router-dom'
 import plusLogo from '../assets/plusLogo.png'
 import { useAuth } from '../context/AuthContext'
 
+function getDefaultAppPath(user) {
+  const role = String(user?.role || '').toLowerCase()
+  if (role === 'sales') return '/app/sales'
+  if (role === 'accounts') return '/app/accounts'
+  return '/app'
+}
+
 function LoginPage() {
   const navigate = useNavigate()
   const location = useLocation()
-  const { login, isAuthenticated } = useAuth()
+  const { login, isAuthenticated, user } = useAuth()
   const [identifier, setIdentifier] = useState('')
   const [password, setPassword] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
@@ -14,10 +21,10 @@ function LoginPage() {
 
   useEffect(() => {
     if (isAuthenticated) {
-      const nextPath = location.state?.from?.pathname || '/app'
+      const nextPath = location.state?.from?.pathname || getDefaultAppPath(user)
       navigate(nextPath, { replace: true })
     }
-  }, [isAuthenticated, location.state, navigate])
+  }, [isAuthenticated, location.state, navigate, user])
 
   async function handleSubmit(event) {
     event.preventDefault()
@@ -30,8 +37,9 @@ function LoginPage() {
 
     setIsSubmitting(true)
     try {
-      await login(identifier.trim(), password)
-      navigate('/app', { replace: true })
+      const nextUser = await login(identifier.trim(), password)
+      const nextPath = location.state?.from?.pathname || getDefaultAppPath(nextUser)
+      navigate(nextPath, { replace: true })
     } catch (error) {
       setErrorMessage(error.message || 'Invalid credentials. Please try again.')
     } finally {
