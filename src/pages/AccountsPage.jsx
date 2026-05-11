@@ -1,7 +1,7 @@
 import HomePage from './HomePage'
 
 function AccountsPage() {
-  return <HomePage initialSection="accounts_pricing" allowedSections={['accounts_pricing']} standaloneMode />
+  return <HomePage initialSection="accounts_pricing" />
 }
 
 export default AccountsPage

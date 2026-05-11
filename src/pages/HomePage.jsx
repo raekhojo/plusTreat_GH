@@ -1287,7 +1287,7 @@ function WorkspaceToolbar({ title, subtitle, actions, className = '' }) {
   )
 }
 
-function DateFilterControl({ range, onOpen, onClear, onPresetSelect, activePreset = '', inlineTitle = '' }) {
+function DateFilterControl({ range, onOpen, onClear, onPresetSelect, activePreset = '', inlineTitle = '', hideInlineTitle = false }) {
   const active = hasDateRange(range)
   const presetsRef = useRef(null)
 
@@ -1299,7 +1299,7 @@ function DateFilterControl({ range, onOpen, onClear, onPresetSelect, activePrese
 
   return (
     <section className="workspace-filter-row" aria-label="Section filters">
-      {inlineTitle ? (
+      {inlineTitle && !hideInlineTitle ? (
         <div className="workspace-filter-header-row">
           <h1>{inlineTitle}</h1>
           <button type="button" className="account-alert-button account-alert-button-light workspace-date-range-button" onClick={onOpen}>
@@ -1928,12 +1928,26 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
     []
   )
   const accountSubAccountSelectOptions = useMemo(
-    () => accountSubAccountOptions.map(option => ({ value: option, label: option })),
-    [accountSubAccountOptions]
+    () => {
+      const optionValues = new Set(accountSubAccountOptions)
+      const options = accountSubAccountOptions.map(option => ({ value: option, label: option }))
+      if (accountForm.category && !optionValues.has(accountForm.category)) {
+        options.unshift({ value: accountForm.category, label: `${accountForm.category} (current)` })
+      }
+      return options
+    },
+    [accountForm.category, accountSubAccountOptions]
   )
   const accountPaymentOptions = useMemo(
-    () => ACCOUNT_PAYMENT_RECEIPT_OPTIONS.map(option => ({ value: option, label: option })),
-    []
+    () => {
+      const optionValues = new Set(ACCOUNT_PAYMENT_RECEIPT_OPTIONS)
+      const options = ACCOUNT_PAYMENT_RECEIPT_OPTIONS.map(option => ({ value: option, label: option }))
+      if (accountForm.payment_method && !optionValues.has(accountForm.payment_method)) {
+        options.unshift({ value: accountForm.payment_method, label: `${accountForm.payment_method} (current)` })
+      }
+      return options
+    },
+    [accountForm.payment_method]
   )
 
   const customerLedger = useMemo(() => buildCustomerLedger(data.customers, data.invoices), [data.customers, data.invoices])
@@ -2371,13 +2385,11 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
         const normalizedType = ACCOUNT_TRANS_TYPE_OPTIONS.some(option => option.value === legacyType)
           ? legacyType
           : 'expense'
-        const subAccounts = ACCOUNT_SUB_ACCOUNTS_BY_TYPE[normalizedType] || []
-        const normalizedCategory = subAccounts.includes(entity.category) ? entity.category : ''
         setAccountForm({
           ...mkAccountForm(),
           ...entity,
           entry_type: normalizedType,
-          category: normalizedCategory,
+          category: entity.category || '',
           payment_method: entity.payment_method || '',
           _editId: entity.id,
         })
@@ -3355,6 +3367,15 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
   const activeSalesFilters = getScopedFilters(activeSalesFilterScope)
   const activePricingFilterScope = `accounts_pricing:${activeAccountsTab}`
   const activePricingFilters = getScopedFilters(activePricingFilterScope)
+  const sectionsWithInlineHeader = new Set([
+    'dashboard',
+    'sales_hub',
+    'production_ops',
+    'supplies_stock',
+    'customers',
+    'suppliers',
+    'accounts_pricing',
+  ])
   const canAccessSection = (sectionKey) => availableSections.some(section => section.key === sectionKey)
   const jumpToSection = (sectionKey, tabKey = null) => {
     if (!canAccessSection(sectionKey)) return
@@ -3453,7 +3474,7 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
 
     if (activeSection === 'dashboard') return (
       <>
-        <DateFilterControl range={dashboardDateFilter} onOpen={openDateFilter} onClear={() => clearDateFilter('dashboard')} onPresetSelect={preset => applyQuickDatePreset('dashboard', preset)} activePreset={sectionDatePresets.dashboard || ''} inlineTitle="Dashboard" />
+        <DateFilterControl range={dashboardDateFilter} onOpen={openDateFilter} onClear={() => clearDateFilter('dashboard')} onPresetSelect={preset => applyQuickDatePreset('dashboard', preset)} activePreset={sectionDatePresets.dashboard || ''} inlineTitle="Dashboard" hideInlineTitle={isStandaloneView} />
         <SummaryGrid items={dashboardContent.metrics} />
         <section className="dashboard-snippet-grid dashboard-snippet-grid-hero">
           <TrendChartCard
@@ -3511,7 +3532,7 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
 
     if (activeSection === 'sales_hub') return (
       <>
-        <DateFilterControl range={salesDateFilter} onOpen={openDateFilter} onClear={() => clearDateFilter('sales_hub')} onPresetSelect={preset => applyQuickDatePreset('sales_hub', preset)} activePreset={sectionDatePresets.sales_hub || ''} inlineTitle="Sales Hub" />
+        <DateFilterControl range={salesDateFilter} onOpen={openDateFilter} onClear={() => clearDateFilter('sales_hub')} onPresetSelect={preset => applyQuickDatePreset('sales_hub', preset)} activePreset={sectionDatePresets.sales_hub || ''} inlineTitle="Sales Hub" hideInlineTitle={isStandaloneView} />
         <WorkspaceToolbar
           className="workspace-toolbar-sales"
           title=""
@@ -3567,7 +3588,7 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
 
     if (activeSection === 'production_ops') return (
       <>
-        <DateFilterControl range={productionDateFilter} onOpen={openDateFilter} onClear={() => clearDateFilter('production_ops')} onPresetSelect={preset => applyQuickDatePreset('production_ops', preset)} activePreset={sectionDatePresets.production_ops || ''} inlineTitle="Production Ops" />
+        <DateFilterControl range={productionDateFilter} onOpen={openDateFilter} onClear={() => clearDateFilter('production_ops')} onPresetSelect={preset => applyQuickDatePreset('production_ops', preset)} activePreset={sectionDatePresets.production_ops || ''} inlineTitle="Production Ops" hideInlineTitle={isStandaloneView} />
         <WorkspaceToolbar
           className="workspace-toolbar-production"
           title=""
@@ -3623,7 +3644,7 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
 
     if (activeSection === 'supplies_stock') return (
       <>
-        <DateFilterControl range={suppliesDateFilter} onOpen={openDateFilter} onClear={() => clearDateFilter('supplies_stock')} onPresetSelect={preset => applyQuickDatePreset('supplies_stock', preset)} activePreset={sectionDatePresets.supplies_stock || ''} inlineTitle="Supplies & Stock" />
+        <DateFilterControl range={suppliesDateFilter} onOpen={openDateFilter} onClear={() => clearDateFilter('supplies_stock')} onPresetSelect={preset => applyQuickDatePreset('supplies_stock', preset)} activePreset={sectionDatePresets.supplies_stock || ''} inlineTitle="Supplies & Stock" hideInlineTitle={isStandaloneView} />
         <SummaryGrid items={suppliesSummary} />
         <WorkspaceToolbar
           className="workspace-toolbar-supplies"
@@ -3676,7 +3697,7 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
 
     if (activeSection === 'customers') return (
       <>
-        <DateFilterControl range={customersDateFilter} onOpen={openDateFilter} onClear={() => clearDateFilter('customers')} onPresetSelect={preset => applyQuickDatePreset('customers', preset)} activePreset={sectionDatePresets.customers || ''} inlineTitle="Customers" />
+        <DateFilterControl range={customersDateFilter} onOpen={openDateFilter} onClear={() => clearDateFilter('customers')} onPresetSelect={preset => applyQuickDatePreset('customers', preset)} activePreset={sectionDatePresets.customers || ''} inlineTitle="Customers" hideInlineTitle={isStandaloneView} />
         <SummaryGrid items={customersSummary} />
         <WorkspaceToolbar
           className="workspace-toolbar-customers"
@@ -3714,6 +3735,10 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
           <SnippetCard
             title="Top Receivables"
             rows={clampRows(filteredCustomerLedger.filter(c => c.outstanding > 0)).map(c => ({ id: c.id, title: c.name, meta: `${c.invoiceCount} invoices`, value: fmt(c.outstanding) }))}
+            onItemClick={id => {
+              const customer = customerLedger.find(c => c.id === id)
+              if (customer) openModal('customer', customer)
+            }}
           />
         )}
       </>
@@ -3721,7 +3746,7 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
 
     if (activeSection === 'suppliers') return (
       <>
-        <DateFilterControl range={suppliersDateFilter} onOpen={openDateFilter} onClear={() => clearDateFilter('suppliers')} onPresetSelect={preset => applyQuickDatePreset('suppliers', preset)} activePreset={sectionDatePresets.suppliers || ''} inlineTitle="Suppliers" />
+        <DateFilterControl range={suppliersDateFilter} onOpen={openDateFilter} onClear={() => clearDateFilter('suppliers')} onPresetSelect={preset => applyQuickDatePreset('suppliers', preset)} activePreset={sectionDatePresets.suppliers || ''} inlineTitle="Suppliers" hideInlineTitle={isStandaloneView} />
         <SummaryGrid items={suppliersSummary} />
         <WorkspaceToolbar
           className="workspace-toolbar-suppliers"
@@ -3762,6 +3787,10 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
           <SnippetCard
             title="Open Supplier Balances"
             rows={clampRows(filteredSupplierLedger.filter(s => s.outstanding > 0)).map(s => ({ id: s.id, title: s.name, meta: `${s.purchaseCount} purchases`, value: fmt(s.outstanding) }))}
+            onItemClick={id => {
+              const supplier = supplierLedger.find(s => s.id === id)
+              if (supplier) openModal('supplier', supplier)
+            }}
           />
         )}
       </>
@@ -3781,7 +3810,7 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
     // accounts_pricing
     return (
       <>
-        <DateFilterControl range={accountsDateFilter} onOpen={openDateFilter} onClear={() => clearDateFilter('accounts_pricing')} onPresetSelect={preset => applyQuickDatePreset('accounts_pricing', preset)} activePreset={sectionDatePresets.accounts_pricing || ''} inlineTitle="Accounts & Pricing" />
+        <DateFilterControl range={accountsDateFilter} onOpen={openDateFilter} onClear={() => clearDateFilter('accounts_pricing')} onPresetSelect={preset => applyQuickDatePreset('accounts_pricing', preset)} activePreset={sectionDatePresets.accounts_pricing || ''} inlineTitle="Accounts & Pricing" hideInlineTitle={isStandaloneView} />
         <SummaryGrid items={accountsSummary} />
         <WorkspaceToolbar
           className="workspace-toolbar-accounts"
@@ -3954,10 +3983,12 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
           </aside>
         ) : null}
         <section ref={accountContentRef} className={`account-content${isStandaloneView ? ' account-content-standalone' : ''}`}>
-          <header className={`account-content-header section-${activeSection}${isStandaloneView ? ' account-content-header-standalone' : ''}`}>
-            <h1>{activeContent.label}</h1>
-            <p>{activeContent.subtitle}</p>
-          </header>
+          {(isStandaloneView || !sectionsWithInlineHeader.has(activeSection)) ? (
+            <header className={`account-content-header section-${activeSection}${isStandaloneView ? ' account-content-header-standalone' : ''}`}>
+              <h1>{activeContent.label}</h1>
+              <p>{activeContent.subtitle}</p>
+            </header>
+          ) : null}
           {loadError ? <div className="workspace-error-banner">{loadError}</div> : null}
           {renderSection()}
         </section>
@@ -5791,6 +5822,11 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
                 <span><strong>Category:</strong> {selectedCustomer.customer_category_name || selectedCustomer.pricing_category || '—'}</span>
                 <span><strong>Since:</strong> {fmtD(selectedCustomer.date)}</span>
                 {toNumber(selectedCustomer.previous_balance) > 0 && <span><strong>Opening Balance:</strong> {fmt(selectedCustomer.previous_balance)}</span>}
+              </div>
+            </div>
+            <div className="detail-modal-section" style={{ paddingTop: 0 }}>
+              <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                <button type="button" className="account-alert-button account-alert-button-dark" onClick={() => { setSelectedCustomer(null); openModal('customer', selectedCustomer) }}>Edit Customer</button>
               </div>
             </div>
             <div className="detail-modal-section">
