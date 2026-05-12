@@ -1963,13 +1963,7 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
     () => ACCOUNT_SUB_ACCOUNTS_BY_TYPE[accountForm.entry_type] || [],
     [accountForm.entry_type]
   )
-  const getOutputProductionPrice = (output) => {
-    const product = output?.product ? productMap.get(String(output.product)) : null
-    if (product) return toNumber(product.unit_price)
-    const matchedProduct = data.products.find(item => normalizeSizeKey(item.name) === normalizeSizeKey(output?.product_size))
-    return toNumber(matchedProduct?.unit_price)
-  }
-  const getBatchOutputValue = (batch) => sumBy(batch?.outputs || [], output => getOutputProductionPrice(output) * toNumber(output.quantity))
+  const getBatchOutputValue = (batch) => sumBy(batch?.outputs || [], output => getBatchOutputProductionCosts(batch, output).lineProductionCost)
   const getBatchProductionGain = (batch) => getBatchOutputValue(batch) - toNumber(batch?.total_cost)
   const selectedBatchOutputValue = selectedBatch ? getBatchOutputValue(selectedBatch) : 0
   const selectedBatchProductionGain = selectedBatch ? getBatchProductionGain(selectedBatch) : 0
