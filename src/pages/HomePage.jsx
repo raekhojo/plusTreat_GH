@@ -1963,6 +1963,16 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
     () => ACCOUNT_SUB_ACCOUNTS_BY_TYPE[accountForm.entry_type] || [],
     [accountForm.entry_type]
   )
+  const getOutputProductionPrice = (output) => {
+    const product = output?.product ? productMap.get(String(output.product)) : null
+    if (product) return toNumber(product.unit_price)
+    const matchedProduct = data.products.find(item => normalizeSizeKey(item.name) === normalizeSizeKey(output?.product_size))
+    return toNumber(matchedProduct?.unit_price)
+  }
+  const getBatchOutputValue = (batch) => sumBy(batch?.outputs || [], output => getOutputProductionPrice(output) * toNumber(output.quantity))
+  const getBatchProductionGain = (batch) => getBatchOutputValue(batch) - toNumber(batch?.total_cost)
+  const selectedBatchOutputValue = selectedBatch ? getBatchOutputValue(selectedBatch) : 0
+  const selectedBatchProductionGain = selectedBatch ? getBatchProductionGain(selectedBatch) : 0
 
   // Shared product-size suggestions from pricing rules
   const productSizes = useMemo(() =>
@@ -3109,7 +3119,7 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
     { label: 'Total Paid',  value: fmt(sumBy(filteredSalesPayments, p => p.amount)),                     note: `${filteredSalesPayments.length} receipts` },
     { label: 'Outstanding', value: fmt(sumBy(filteredSalesInvoices, inv => getInvoiceOutstanding(inv))), note: `${filteredSalesInvoices.filter(i => getInvoiceOutstanding(i) > 0).length} unpaid` },
   ]
-  const productionSummary = [{ label: 'Batches', value: String(productionBatchesFiltered.length), note: 'Production_Dtls' }, { label: 'RM Cost', value: fmt(sumBy(productionBatchesFiltered, b => b.total_raw_material_cost)), note: 'Material usage' }, { label: 'Profit', value: fmt(sumBy(productionBatchesFiltered, b => b.profit)), note: 'Batch value less cost' }, { label: 'Stock Units', value: fmtQ(sumBy(data.products, p => p.stock_quantity)), note: 'Finished goods on hand' }]
+  const productionSummary = [{ label: 'Batches', value: String(productionBatchesFiltered.length), note: 'Production_Dtls' }, { label: 'RM Cost', value: fmt(sumBy(productionBatchesFiltered, b => b.total_raw_material_cost)), note: 'Material usage' }, { label: 'Production Gain', value: fmt(sumBy(productionBatchesFiltered, b => getBatchProductionGain(b))), note: 'Output value less total cost' }, { label: 'Stock Units', value: fmtQ(sumBy(data.products, p => p.stock_quantity)), note: 'Finished goods on hand' }]
   const suppliesSummary   = [{ label: 'Suppliers', value: String(data.suppliers.length), note: 'Supplier_Dtls' }, { label: 'Raw Materials', value: String(data.rawMaterials.length), note: 'RawMaterials tracked' }, { label: 'Purchases', value: fmt(sumBy(purchasesFiltered, p => p.total_amount)), note: `${purchasesFiltered.length} records` }, { label: 'Supplier Due', value: fmt(sumBy(purchasesFiltered, p => getPurchaseOutstanding(p))), note: 'Open balances' }]
   const customersSummary  = [{ label: 'Customers', value: String(data.customers.length), note: `${filteredCustomerLedger.filter(c => c.invoiceCount > 0).length} already billed` }, { label: 'Outstanding', value: fmt(sumBy(filteredCustomerLedger, c => c.outstanding)), note: 'Total receivables due' }, { label: 'Receipts', value: fmt(sumBy(customerPaymentsFiltered, p => p.amount)), note: 'Total collected' }, { label: 'Open Invoices', value: String(customerInvoicesFiltered.filter(inv => getInvoiceOutstanding(inv) > 0).length), note: 'Invoices with balance' }]
   const suppliersSummary  = [{ label: 'Suppliers', value: String(data.suppliers.length), note: 'Vendor records' }, { label: 'Purchases', value: fmt(sumBy(supplierPurchasesFiltered, p => p.total_amount)), note: `${supplierPurchasesFiltered.length} purchase records` }, { label: 'Paid', value: fmt(sumBy(supplierPurchasesFiltered, p => p.total_paid)), note: 'Total paid to suppliers' }, { label: 'Due', value: fmt(sumBy(filteredSupplierLedger, s => s.outstanding)), note: 'Outstanding payables' }]
@@ -4873,9 +4883,9 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
           })
         const finishedGoodsValue = sumBy(finishedGoodsPreview, line => line.totalValue)
         const batchCost = toNumber(selectedBatchRecord?.total_cost)
-        const projectedProfit = finishedGoodsValue - batchCost
+        const projectedProductionGain = finishedGoodsValue - batchCost
         return (
-        <ModalShell kicker="Plus Treat Production" title={isEditingFinishedGoods ? 'Edit Finished Goods' : 'Finished Goods Produced'} stat={finishedGoodsValue > 0 ? fmt(finishedGoodsValue) : undefined} onClose={() => setActiveModal('')}>
+        <ModalShell kicker="Plus Treat Production" title={isEditingFinishedGoods ? 'Edit Finished Goods' : 'Finished Goods Produced'} stat={finishedGoodsValue > 0 ? fmt(finishedGoodsValue) : undefined} onClose={() => setActiveModal('')} layer={80}>
           <form className="sales-form sales-form-redesign" onSubmit={handleFinishedGoodsSubmit}>
             {selectedBatchRecord ? (
               <div className="sales-form-actions" style={{ marginBottom: '12px' }}>
@@ -4902,7 +4912,7 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
                 <span>Batch Cost <strong>{fmt(selectedBatchRecord.total_cost)}</strong></span>
                 <span>Current RM Cost <strong>{fmt(selectedBatchRecord.total_raw_material_cost)}</strong></span>
                 <span>Projected Output Value <strong>{fmt(finishedGoodsValue)}</strong></span>
-                <span>Projected Profit <strong style={{ color: projectedProfit >= 0 ? '#16a34a' : '#dc2626' }}>{fmt(projectedProfit)}</strong></span>
+                <span>Projected Production Gain <strong style={{ color: projectedProductionGain >= 0 ? '#16a34a' : '#dc2626' }}>{fmt(projectedProductionGain)}</strong></span>
               </div>
             ) : null}
 
@@ -5559,7 +5569,7 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
           kicker="Batch Detail"
           title={selectedBatch.batch_number || `Batch #${selectedBatch.id}`}
           subtitle={`Produced: ${fmtD(selectedBatch.production_date)} · Expires: ${fmtD(selectedBatch.expiry_date)}`}
-          stat={`Profit: ${fmt(selectedBatch.profit)}`}
+          stat={`Production Gain: ${fmt(selectedBatchProductionGain)}`}
           onClose={() => setSelectedBatch(null)}
         >
           <div className="sales-form-actions" style={{ marginBottom: '12px' }}>
@@ -5614,8 +5624,8 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
             <span>Electricity: <strong>{fmt(selectedBatch.electricity_cost)}</strong></span>
             <span>Gas: <strong>{fmt(selectedBatch.gas_cost)}</strong></span>
             <span>Total Cost: <strong>{fmt(selectedBatch.total_cost)}</strong></span>
-            <span>Output Value: <strong>{fmt(selectedBatch.total_production_value)}</strong></span>
-            <span>Profit: <strong style={{ color: toNumber(selectedBatch.profit) >= 0 ? '#16a34a' : '#dc2626' }}>{fmt(selectedBatch.profit)}</strong></span>
+            <span>Output Value: <strong>{fmt(selectedBatchOutputValue)}</strong></span>
+            <span>Production Gain: <strong style={{ color: selectedBatchProductionGain >= 0 ? '#16a34a' : '#dc2626' }}>{fmt(selectedBatchProductionGain)}</strong></span>
           </div>
 
           {/* Raw material usage */}
@@ -5641,15 +5651,14 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
           <div className="detail-modal-section">
             <h3>Finished Goods Produced ({(selectedBatch.outputs || []).length})</h3>
             {(selectedBatch.outputs || []).length ? (
-              <div className="sales-list-table workspace-table" style={{ '--table-cols': '2fr 1fr 1fr 1fr 1fr 88px' }}>
+              <div className="sales-list-table workspace-table" style={{ '--table-cols': '1.2fr 1fr 1fr 1fr 88px' }}>
                 <div className="sales-list-head workspace-table-head">
-                  <span>Product</span><span>Size</span><span>Qty Produced</span><span>Unit Production Cost</span><span>Total Production Cost</span><span>Action</span>
+                  <span>Size</span><span>Qty Produced</span><span>Unit Production Cost</span><span>Total Production Cost</span><span>Action</span>
                 </div>
                 {(selectedBatch.outputs || []).map(o => {
                   const { unitProductionCost, lineProductionCost } = getBatchOutputProductionCosts(selectedBatch, o)
                   return (
                   <div key={o.id} className="sales-list-row workspace-table-row">
-                    <span>{o.product_name || '—'}</span>
                     <span>{o.product_size}</span>
                     <span>{fmtQ(o.quantity)}</span>
                     <span>{fmt(unitProductionCost)}</span>
