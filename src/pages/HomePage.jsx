@@ -341,6 +341,24 @@ function ratioPct(value, total) {
   if (!total) return 0
   return Math.max(0, Math.min(100, (toNumber(value) / toNumber(total)) * 100))
 }
+function getBatchOutputProductionCosts(batch, output) {
+  const outputs = Array.isArray(batch?.outputs) ? batch.outputs : []
+  const totalBatchCost = toNumber(batch?.total_cost)
+  const totalLitres = sumBy(outputs, item => item.total_litres)
+  const totalQuantity = sumBy(outputs, item => item.quantity)
+  const outputQuantity = toNumber(output?.quantity)
+  const outputLitres = toNumber(output?.total_litres)
+
+  let lineProductionCost = 0
+  if (totalBatchCost > 0 && totalLitres > 0 && outputLitres > 0) {
+    lineProductionCost = totalBatchCost * (outputLitres / totalLitres)
+  } else if (totalBatchCost > 0 && totalQuantity > 0 && outputQuantity > 0) {
+    lineProductionCost = totalBatchCost * (outputQuantity / totalQuantity)
+  }
+
+  const unitProductionCost = outputQuantity > 0 ? lineProductionCost / outputQuantity : 0
+  return { lineProductionCost, unitProductionCost }
+}
 
 // ─── Form initialisers ────────────────────────────────────────────────────────
 
@@ -5625,18 +5643,21 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
             {(selectedBatch.outputs || []).length ? (
               <div className="sales-list-table workspace-table" style={{ '--table-cols': '2fr 1fr 1fr 1fr 1fr 88px' }}>
                 <div className="sales-list-head workspace-table-head">
-                  <span>Product</span><span>Size</span><span>Qty Produced</span><span>Unit Value</span><span>Total Value</span><span>Action</span>
+                  <span>Product</span><span>Size</span><span>Qty Produced</span><span>Unit Production Cost</span><span>Total Production Cost</span><span>Action</span>
                 </div>
-                {(selectedBatch.outputs || []).map(o => (
+                {(selectedBatch.outputs || []).map(o => {
+                  const { unitProductionCost, lineProductionCost } = getBatchOutputProductionCosts(selectedBatch, o)
+                  return (
                   <div key={o.id} className="sales-list-row workspace-table-row">
                     <span>{o.product_name || '—'}</span>
                     <span>{o.product_size}</span>
                     <span>{fmtQ(o.quantity)}</span>
-                    <span>{fmt(o.unit_cost)}</span>
-                    <span>{fmt(o.amount)}</span>
+                    <span>{fmt(unitProductionCost)}</span>
+                    <span>{fmt(lineProductionCost)}</span>
                     <button type="button" className="workspace-action-btn" onClick={() => openModal('finished_goods', { ...o, batch: selectedBatch.id })}>Edit</button>
                   </div>
-                ))}
+                  )
+                })}
               </div>
             ) : <p className="workspace-empty">No outputs recorded.</p>}
           </div>
