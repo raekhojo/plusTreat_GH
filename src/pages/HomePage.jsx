@@ -16,7 +16,7 @@ import {
   updateProduct, deleteProduct,
   updateRawMaterial, deleteRawMaterial,
   createStaffProfile, updateStaffProfile,
-  updateProductionBatch,
+  updateProductionBatch, updateProductionOutput,
   getAnalyticsSummary,
 } from '../lib/api'
 
@@ -373,8 +373,22 @@ const buildBatchForm   = (entity = null) => {
     _editId: entity.id,
   }
 }
-const mkFinishedGoodsLine = (productSize = '') => ({ productSize, quantity: '' })
-const mkFinishedGoodsForm = ()           => ({ batch: '', lines: FINISHED_GOODS_SIZE_TEMPLATES.map(size => mkFinishedGoodsLine(size)) })
+const mkFinishedGoodsLine = (productSize = '', overrides = {}) => ({ productSize, quantity: '', productId: '', _lineId: null, ...overrides })
+const mkFinishedGoodsForm = ()           => ({ batch: '', lines: FINISHED_GOODS_SIZE_TEMPLATES.map(size => mkFinishedGoodsLine(size)), _editId: null })
+const buildFinishedGoodsForm = (entity = null) => {
+  if (!entity) return mkFinishedGoodsForm()
+
+  return {
+    ...mkFinishedGoodsForm(),
+    batch: entity.batch ? String(entity.batch) : '',
+    lines: [mkFinishedGoodsLine(entity.product_size || '', {
+      quantity: entity.quantity ? String(entity.quantity) : '',
+      productId: entity.product ? String(entity.product) : '',
+      _lineId: entity.id || null,
+    })],
+    _editId: entity.id || null,
+  }
+}
 const mkPurchaseItem   = ()              => ({ rawMaterial: '', isNewRM: false, newRMName: '', newRMCategory: '', newRMUnit: '', newRMOpeningStock: '0', newRMReorderLevel: '0', quantity: '', unitPerItem: '1', pricePerItem: '', _lineId: null })
 const mkPurchaseForm   = ()              => ({ purchaseDate: todayValue(), supplier: '', category: '', notes: '', items: [mkPurchaseItem()], paymentAmount: '', paymentMethod: 'cash', paymentNotes: '', paymentDate: todayValue(), _paymentId: null, _editId: null, status: 'open' })
 const buildPurchaseForm = (entity = null) => {
@@ -1272,7 +1286,7 @@ function TableCard({
               }
 
               if (mobileVariant === 'inventory-list') {
-                const [item, available, stockBalance, prodLevel, prodRequired] = row.cells
+                const [inventoryId, item, unit, opening, stockIn, stockOut, available, stockBalance, prodLevel, prodRequired] = row.cells
                 return (
                   <article
                     key={`mobile-${row.key}`}
@@ -1282,11 +1296,23 @@ function TableCard({
                     <div className="workspace-mobile-production-top">
                       <div className="workspace-mobile-production-copy">
                         <strong className="workspace-mobile-production-title">{item}</strong>
-                        <span className="workspace-mobile-production-meta">Finished goods</span>
+                        <span className="workspace-mobile-production-meta">{inventoryId} · {unit}</span>
                       </div>
                       <span className="workspace-mobile-sales-arrow" aria-hidden="true">â€º</span>
                     </div>
                     <div className="workspace-mobile-production-grid">
+                      <div className="workspace-mobile-production-stat">
+                        <span>Opening</span>
+                        <strong>{opening}</strong>
+                      </div>
+                      <div className="workspace-mobile-production-stat">
+                        <span>Stock In</span>
+                        <strong>{stockIn}</strong>
+                      </div>
+                      <div className="workspace-mobile-production-stat">
+                        <span>Stock Out</span>
+                        <strong>{stockOut}</strong>
+                      </div>
                       <div className="workspace-mobile-production-stat">
                         <span>Available</span>
                         <strong>{available}</strong>
@@ -2496,7 +2522,7 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
     if (type === 'sale')        setSaleForm(mkSaleForm(user?.staffProfileId || ''))
     if (type === 'receipt')     setReceiptForm(mkReceiptForm())
     if (type === 'batch')       setBatchForm(buildBatchForm(entity))
-    if (type === 'finished_goods') setFinishedGoodsForm(mkFinishedGoodsForm())
+    if (type === 'finished_goods') setFinishedGoodsForm(buildFinishedGoodsForm(entity))
     if (type === 'purchase')    setPurchaseForm(buildPurchaseForm(entity))
     if (type === 'pur_pay')     setPurPayForm(mkPurPayForm())
     if (type === 'customer')    setCustomerForm(entity ? { ...mkCustomerForm(), ...entity, pricing_category: entity.pricing_category_id || '', previousBalance: entity.previous_balance || '0', _editId: entity.id } : mkCustomerForm())
@@ -2735,7 +2761,7 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
         const matchedProduct = data.products.find(p => normalizeSizeKey(p.name) === targetSize)
         const litres = inferTotalLitres(line.productSize, line.quantity)
         const unitCost = toNumber(matchedProduct?.unit_price || 0)
-        await createProductionOutput({
+        const payload = {
           batch: finishedGoodsForm.batch,
           product: matchedProduct ? matchedProduct.id : null,
           product_size: line.productSize,
@@ -2743,9 +2769,14 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
           unit_cost: String(unitCost),
           batch_litres: String(litres),
           total_litres: String(litres),
-        })
+        }
+        if (finishedGoodsForm._editId || line._lineId) {
+          await updateProductionOutput(line._lineId || finishedGoodsForm._editId, payload)
+          return
+        }
+        await createProductionOutput(payload)
       }))
-      await refreshData(); setFB('finished_goods', 'Finished goods recorded.'); setActiveModal('')
+      await refreshData(); setFB('finished_goods', finishedGoodsForm._editId ? 'Finished goods updated.' : 'Finished goods recorded.'); setActiveModal('')
     } catch (err) { setFB('finished_goods', err.message || 'Could not record finished goods.') }
     finally { setSub('finished_goods', false) }
   }
@@ -3156,13 +3187,34 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
   }))
   const inventoryRows = inventoryLedger.map(item => ({
     key: item.size,
-    emphasisIndex: 2,
+    emphasisIndex: 6,
     cells: [
+      item.id,
       item.size,
-      `${fmtQ(item.available)} ${item.unit}`,
+      item.unit,
+      fmtQ(item.opening),
+      fmtQ(item.stockIn),
+      fmtQ(item.stockOut),
+      fmtQ(item.available),
       fmt(item.stockBalance),
       fmtQ(item.productionLevel),
       <span key="pr" style={{ color: item.prodRequired ? '#dc2626' : '#16a34a', fontWeight: 600 }}>{item.prodRequired ? 'Yes' : 'No'}</span>,
+      <button
+        key="edit"
+        type="button"
+        className="workspace-action-btn"
+        onClick={event => {
+          event.stopPropagation()
+          const matchingProduct = data.products.find(product => normalizeSizeKey(product.name) === normalizeSizeKey(item.size))
+          if (matchingProduct) {
+            openModal('product', matchingProduct)
+            return
+          }
+          setSelectedInventoryItem(item)
+        }}
+      >
+        Edit
+      </button>,
     ],
   }))
   const materialRows = lowStockRows.map(m => {
@@ -3902,7 +3954,8 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
           <TableCard
             title="Finished Inventory"
             subtitle="Stock by product size — matches the Inventory sheet. Click a row to see full history."
-            columns={['Item', 'Available', 'Stock Balance', 'Prod Level', 'Prod Required']}
+            columns={['INV ID', 'Item', 'Unit', 'Opening', 'Stock In', 'Stock Out', 'Available', 'Stock Balance', 'Prod Level', 'Prod Required', '']}
+            colWidths={['140px', '150px', '90px', '110px', '110px', '110px', '120px', '160px', '110px', '130px', '88px']}
             rows={inventoryRows}
             mobileVariant="inventory-list"
             onRowClick={size => setSelectedInventoryItem(inventoryLedger.find(i => i.size === size) || null)}
@@ -4784,6 +4837,7 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
 
       {/* ── FINISHED GOODS MODAL ── */}
       {activeModal === 'finished_goods' && (() => {
+        const isEditingFinishedGoods = Boolean(finishedGoodsForm._editId)
         const selectedBatchRecord = data.productionBatches.find(b => String(b.id) === String(finishedGoodsForm.batch))
         const finishedGoodsPreview = finishedGoodsForm.lines
           .filter(line => toNumber(line.quantity) > 0)
@@ -4803,7 +4857,7 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
         const batchCost = toNumber(selectedBatchRecord?.total_cost)
         const projectedProfit = finishedGoodsValue - batchCost
         return (
-        <ModalShell kicker="Plus Treat Production" title="Finished Goods Produced" stat={finishedGoodsValue > 0 ? fmt(finishedGoodsValue) : undefined} onClose={() => setActiveModal('')}>
+        <ModalShell kicker="Plus Treat Production" title={isEditingFinishedGoods ? 'Edit Finished Goods' : 'Finished Goods Produced'} stat={finishedGoodsValue > 0 ? fmt(finishedGoodsValue) : undefined} onClose={() => setActiveModal('')}>
           <form className="sales-form sales-form-redesign" onSubmit={handleFinishedGoodsSubmit}>
             {selectedBatchRecord ? (
               <div className="sales-form-actions" style={{ marginBottom: '12px' }}>
@@ -4821,6 +4875,7 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
                   searchPlaceholder="Search batches..."
                   value={finishedGoodsForm.batch}
                   onChange={value => setFinishedGoodsForm(cur => ({ ...cur, batch: value }))}
+                  isDisabled={isEditingFinishedGoods}
                 />
               </label>
             </div>
@@ -4844,7 +4899,7 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
               {finishedGoodsForm.lines.map((line, idx) => (
                 <div key={idx} className="purchase-line-row production-output-row" style={{ gridTemplateColumns: '2fr 1fr' }}>
                   <label className="sales-field">
-                    <input type="text" value={line.productSize} readOnly />
+                    <input type="text" value={line.productSize} readOnly={!isEditingFinishedGoods} onChange={e => updateFinishedGoodsLine(idx, 'productSize', e.target.value)} />
                   </label>
                   <label className="sales-field">
                     <input
@@ -4880,7 +4935,7 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
             <div className="sales-form-actions sales-form-actions-split">
               <button type="button" className="account-alert-button account-alert-button-light" onClick={() => setActiveModal('')}>Cancel</button>
               <button type="submit" className="account-alert-button account-alert-button-dark" disabled={submitting.finished_goods}>
-                {submitting.finished_goods ? 'Saving…' : 'Save Finished Goods'}
+                {submitting.finished_goods ? 'Saving…' : isEditingFinishedGoods ? 'Update Finished Goods' : 'Save Finished Goods'}
               </button>
             </div>
             {feedback.finished_goods ? <p className="sales-form-message">{feedback.finished_goods}</p> : null}
@@ -5568,9 +5623,9 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
           <div className="detail-modal-section">
             <h3>Finished Goods Produced ({(selectedBatch.outputs || []).length})</h3>
             {(selectedBatch.outputs || []).length ? (
-              <div className="sales-list-table workspace-table" style={{ '--table-cols': '2fr 1fr 1fr 1fr 1fr' }}>
+              <div className="sales-list-table workspace-table" style={{ '--table-cols': '2fr 1fr 1fr 1fr 1fr 88px' }}>
                 <div className="sales-list-head workspace-table-head">
-                  <span>Product</span><span>Size</span><span>Qty Produced</span><span>Unit Value</span><span>Total Value</span>
+                  <span>Product</span><span>Size</span><span>Qty Produced</span><span>Unit Value</span><span>Total Value</span><span>Action</span>
                 </div>
                 {(selectedBatch.outputs || []).map(o => (
                   <div key={o.id} className="sales-list-row workspace-table-row">
@@ -5579,6 +5634,7 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
                     <span>{fmtQ(o.quantity)}</span>
                     <span>{fmt(o.unit_cost)}</span>
                     <span>{fmt(o.amount)}</span>
+                    <button type="button" className="workspace-action-btn" onClick={() => openModal('finished_goods', { ...o, batch: selectedBatch.id })}>Edit</button>
                   </div>
                 ))}
               </div>

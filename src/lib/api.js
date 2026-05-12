@@ -243,6 +243,10 @@ export function createProductionOutput(payload) {
   return request('/production-outputs/', { method: 'POST', body: JSON.stringify(payload) })
 }
 
+export function updateProductionOutput(id, payload) {
+  return request(`/production-outputs/${id}/`, { method: 'PATCH', body: JSON.stringify(payload) })
+}
+
 export function deleteProductionBatch(id) {
   return request(`/production-batches/${id}/`, { method: 'DELETE' })
 }
