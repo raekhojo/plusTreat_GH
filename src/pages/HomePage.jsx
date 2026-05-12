@@ -6,7 +6,9 @@ import { AppAutocomplete, AppFilterPicker, AppSelect } from '../components/FormS
 import {
   createAccountTransaction, createCustomer, createInvoice, createPayment,
   createPricingRule, createProductionBatch, createProductionOutput, createPurchase, createSupplier,
-  createPurchasePayment, createProduct, createRawMaterial, createItemCategory,
+  createPurchasePayment, updatePurchasePayment, createProduct, createRawMaterial, createItemCategory,
+  deleteProductionBatch, deletePurchase, deletePurchaseItem,
+  updatePurchase,
   updateCustomer, deleteCustomer,
   updateSupplier, deleteSupplier,
   updateAccountTransaction, deleteAccountTransaction,
@@ -14,6 +16,7 @@ import {
   updateProduct, deleteProduct,
   updateRawMaterial, deleteRawMaterial,
   createStaffProfile, updateStaffProfile,
+  updateProductionBatch,
   getAnalyticsSummary,
 } from '../lib/api'
 
@@ -112,6 +115,30 @@ const TRIAL_BALANCE_EXPENSE_START = '2025-10-01'
 const todayValue  = () => new Date().toISOString().slice(0, 10)
 
 function toNumber(v) { const n = Number(v); return Number.isFinite(n) ? n : 0 }
+function sanitizeDecimalInput(value, maxDecimalPlaces) {
+  const text = String(value ?? '').replace(/[^\d.]/g, '')
+  if (!text) return ''
+
+  const [wholePart = '', ...fractionParts] = text.split('.')
+  const safeWholePart = wholePart.replace(/^0+(?=\d)/, '') || (wholePart ? '0' : '')
+
+  if (!fractionParts.length) return safeWholePart
+
+  const fraction = fractionParts.join('').slice(0, maxDecimalPlaces)
+  return `${safeWholePart}.` + fraction
+}
+function toFixedDecimalString(value, decimalPlaces, maxDigits, label = 'Value') {
+  const numericValue = toNumber(value)
+  const rounded = numericValue.toFixed(decimalPlaces)
+  const [integerPart = '0'] = rounded.replace('-', '').split('.')
+  const maxIntegerDigits = maxDigits - decimalPlaces
+
+  if (integerPart.length > maxIntegerDigits) {
+    throw new Error(`${label} is too large.`)
+  }
+
+  return rounded
+}
 function sumBy(rows, fn) { return rows.reduce((s, r) => s + toNumber(fn(r)), 0) }
 function clampRows(rows, n = 5) { return rows.slice(0, n) }
 function isThisYear(v) {
@@ -322,11 +349,72 @@ const mkSalePayment    = ()              => ({ amount: '', method: 'cash', refer
 const mkSaleForm       = (staffId = '') => ({ customer: '', pricingCategoryId: '', invoiceDate: todayValue(), staff: staffId, discountAmount: '0', notes: '', payments: [mkSalePayment()], lines: [mkSaleLine()] })
 const mkReceiptForm    = ()              => ({ invoice: '', paymentDate: todayValue(), payments: [mkSalePayment()] })
 const mkBatchUsage     = (materialName = '') => ({ rawMaterial: '', materialName, quantityUsed: '', isTemplate: Boolean(materialName) })
-const mkBatchForm      = ()              => ({ productionDate: todayValue(), electricityCost: '', gasCost: '', productionWages: '', notes: '', usages: PRODUCTION_RAW_MATERIAL_TEMPLATES.map(name => mkBatchUsage(name)) })
+const mkBatchForm      = ()              => ({ productionDate: todayValue(), electricityCost: '', gasCost: '', productionWages: '', notes: '', usages: PRODUCTION_RAW_MATERIAL_TEMPLATES.map(name => mkBatchUsage(name)), _editId: null })
+const buildBatchForm   = (entity = null) => {
+  if (!entity) return mkBatchForm()
+
+  const usages = Array.isArray(entity.material_usages) && entity.material_usages.length
+    ? entity.material_usages.map(usage => ({
+        rawMaterial: usage.raw_material ? String(usage.raw_material) : '',
+        materialName: usage.raw_material_name || '',
+        quantityUsed: usage.quantity_used ? String(usage.quantity_used) : '',
+        isTemplate: true,
+      }))
+    : [mkBatchUsage('')]
+
+  return {
+    ...mkBatchForm(),
+    productionDate: entity.production_date || todayValue(),
+    electricityCost: entity.electricity_cost ? String(entity.electricity_cost) : '',
+    gasCost: entity.gas_cost ? String(entity.gas_cost) : '',
+    productionWages: entity.production_wages ? String(entity.production_wages) : '',
+    notes: entity.notes || '',
+    usages,
+    _editId: entity.id,
+  }
+}
 const mkFinishedGoodsLine = (productSize = '') => ({ productSize, quantity: '' })
 const mkFinishedGoodsForm = ()           => ({ batch: '', lines: FINISHED_GOODS_SIZE_TEMPLATES.map(size => mkFinishedGoodsLine(size)) })
-const mkPurchaseItem   = ()              => ({ rawMaterial: '', isNewRM: false, newRMName: '', newRMCategory: '', newRMUnit: '', newRMOpeningStock: '0', newRMReorderLevel: '0', quantity: '', unitPerItem: '1', pricePerItem: '' })
-const mkPurchaseForm   = ()              => ({ purchaseDate: todayValue(), supplier: '', category: '', notes: '', items: [mkPurchaseItem()], paymentAmount: '', paymentMethod: 'cash', paymentNotes: '' })
+const mkPurchaseItem   = ()              => ({ rawMaterial: '', isNewRM: false, newRMName: '', newRMCategory: '', newRMUnit: '', newRMOpeningStock: '0', newRMReorderLevel: '0', quantity: '', unitPerItem: '1', pricePerItem: '', _lineId: null })
+const mkPurchaseForm   = ()              => ({ purchaseDate: todayValue(), supplier: '', category: '', notes: '', items: [mkPurchaseItem()], paymentAmount: '', paymentMethod: 'cash', paymentNotes: '', paymentDate: todayValue(), _paymentId: null, _editId: null, status: 'open' })
+const buildPurchaseForm = (entity = null) => {
+  if (!entity) return mkPurchaseForm()
+
+  const payments = Array.isArray(entity.payments) ? entity.payments : []
+  const latestPayment = [...payments].sort((a, b) => new Date(b.payment_date || 0) - new Date(a.payment_date || 0))[0] || null
+  const totalPaidAmount = toNumber(entity.total_paid)
+  const paymentAmount = totalPaidAmount > 0
+    ? String(entity.total_paid)
+    : latestPayment?.amount
+      ? String(latestPayment.amount)
+      : ''
+  const items = Array.isArray(entity.items) && entity.items.length
+    ? entity.items.map(item => ({
+        ...mkPurchaseItem(),
+        rawMaterial: item.raw_material ? String(item.raw_material) : '',
+        quantity: item.quantity ? String(item.quantity) : '',
+        unitPerItem: item.unit_per_item ? String(item.unit_per_item) : '1',
+        pricePerItem: item.price_per_item ? String(item.price_per_item) : '0',
+        _lineId: item.id || null,
+      }))
+    : [mkPurchaseItem()]
+
+  return {
+    ...mkPurchaseForm(),
+    purchaseDate: entity.purchase_date || todayValue(),
+    supplier: entity.supplier ? String(entity.supplier) : '',
+    category: normalizeCategoryValue(entity.category),
+    notes: entity.notes || '',
+    items,
+    paymentAmount,
+    paymentMethod: latestPayment?.payment_method || 'cash',
+    paymentNotes: latestPayment?.notes || '',
+    paymentDate: latestPayment?.payment_date || entity.purchase_date || todayValue(),
+    _paymentId: latestPayment?.id || null,
+    _editId: entity.id,
+    status: entity.status || 'open',
+  }
+}
 const mkPurPayForm     = ()              => ({ purchase: '', paymentDate: todayValue(), amount: '', paymentMethod: 'cash', notes: '' })
 const mkCustomerForm   = ()              => ({ name: '', customer_category: '', pricing_category: '', phone: '', email: '', address: '', date: todayValue(), previousBalance: '0', _editId: null })
 const mkSupplierForm   = ()              => ({ name: '', item_category: '', delivery_package: false, phone: '', notes: '', _editId: null })
@@ -1882,10 +1970,34 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
     }),
     [sortedRawMaterials]
   )
+  const purchaseRawMaterialSelectOptions = useMemo(() => {
+    const selectedCategory = normalizeCategoryValue(purchaseForm.category)
+    if (!selectedCategory) return []
+
+    return sortedRawMaterials
+      .filter(material => normalizeCategoryValue(material.category) === selectedCategory)
+      .map(material => {
+        const available = toNumber(material.opening_stock) + toNumber(material.stock_in) - toNumber(material.stock_out)
+        return {
+          value: String(material.id),
+          label: material.name,
+          meta: `${fmtQ(available)} ${material.unit || ''}`.trim(),
+        }
+      })
+  }, [purchaseForm.category, sortedRawMaterials])
   const supplierSelectOptions = useMemo(
     () => data.suppliers
       .map(supplier => ({ value: String(supplier.id), label: supplier.name, meta: resolveSupplierItemCategory(supplier, data.purchases, data.rawMaterials) }))
       .sort((a, b) => a.label.localeCompare(b.label)),
+    [data.purchases, data.rawMaterials, data.suppliers]
+  )
+  const supplierCategoryById = useMemo(
+    () => new Map(
+      data.suppliers.map(supplier => [
+        String(supplier.id),
+        resolveSupplierItemCategory(supplier, data.purchases, data.rawMaterials),
+      ])
+    ),
     [data.purchases, data.rawMaterials, data.suppliers]
   )
   const purchaseSelectOptions = useMemo(
@@ -2010,6 +2122,28 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
   const filteredCustomerLedger = useMemo(() => buildCustomerLedger(data.customers, customerInvoicesFiltered), [data.customers, customerInvoicesFiltered])
   const filteredSupplierLedgerForSupplies = useMemo(() => buildSupplierLedger(data.suppliers, purchasesFiltered), [data.suppliers, purchasesFiltered])
   const filteredSupplierLedger = useMemo(() => buildSupplierLedger(data.suppliers, supplierPurchasesFiltered), [data.suppliers, supplierPurchasesFiltered])
+
+  function handlePurchaseSupplierChange(value) {
+    const nextSupplier = String(value || '')
+    const nextCategory = normalizeCategoryValue(supplierCategoryById.get(nextSupplier))
+    const allowedMaterialIds = new Set(
+      data.rawMaterials
+        .filter(material => normalizeCategoryValue(material.category) === nextCategory)
+        .map(material => String(material.id))
+    )
+
+    setPurchaseForm(current => ({
+      ...current,
+      supplier: nextSupplier,
+      category: nextCategory || current.category,
+      items: current.items.map(item => {
+        if (item.isNewRM || !item.rawMaterial) return item
+        return allowedMaterialIds.has(String(item.rawMaterial))
+          ? item
+          : { ...item, rawMaterial: '' }
+      }),
+    }))
+  }
 
   const lowStockRows = useMemo(() => data.rawMaterials.map(m => ({
     ...m, available: toNumber(m.opening_stock) + toNumber(m.stock_in) - toNumber(m.stock_out)
@@ -2361,9 +2495,9 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
     setFB(type, '')
     if (type === 'sale')        setSaleForm(mkSaleForm(user?.staffProfileId || ''))
     if (type === 'receipt')     setReceiptForm(mkReceiptForm())
-    if (type === 'batch')       setBatchForm(mkBatchForm())
+    if (type === 'batch')       setBatchForm(buildBatchForm(entity))
     if (type === 'finished_goods') setFinishedGoodsForm(mkFinishedGoodsForm())
-    if (type === 'purchase')    setPurchaseForm(mkPurchaseForm())
+    if (type === 'purchase')    setPurchaseForm(buildPurchaseForm(entity))
     if (type === 'pur_pay')     setPurPayForm(mkPurPayForm())
     if (type === 'customer')    setCustomerForm(entity ? { ...mkCustomerForm(), ...entity, pricing_category: entity.pricing_category_id || '', previousBalance: entity.previous_balance || '0', _editId: entity.id } : mkCustomerForm())
     if (type === 'supplier')    setSupplierForm(entity ? { ...entity, item_category: entity.item_category ? String(entity.item_category) : '', delivery_package: Boolean(entity.delivery_package), _editId: entity.id } : mkSupplierForm())
@@ -2410,6 +2544,34 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
     } catch (err) {
       alert(err.message || `Failed to delete ${label}.`)
     }
+  }
+
+  async function handlePurchaseItemDelete(index) {
+    const item = purchaseForm.items[index]
+    if (!item) return
+
+    if (item._lineId && purchaseForm._editId) {
+      if (!window.confirm('Delete this purchase item? This cannot be undone.')) return
+      try {
+        setSub(`purchase_item_delete_${index}`, true)
+        await deletePurchaseItem(item._lineId)
+        await refreshData()
+        setPurchaseForm(current => {
+          const nextItems = current.items.filter((_, i) => i !== index)
+          return { ...current, items: nextItems.length ? nextItems : [mkPurchaseItem()] }
+        })
+      } catch (err) {
+        alert(err.message || 'Failed to delete purchase item.')
+      } finally {
+        setSub(`purchase_item_delete_${index}`, false)
+      }
+      return
+    }
+
+    setPurchaseForm(current => {
+      const nextItems = current.items.filter((_, i) => i !== index)
+      return { ...current, items: nextItems.length ? nextItems : [mkPurchaseItem()] }
+    })
   }
 
   // ── Form submit handlers ──────────────────────────────────────────────────
@@ -2512,6 +2674,20 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
     e.preventDefault()
     setSub('batch', true); setFB('batch', '')
     try {
+      const batchPayload = {
+        production_date: batchForm.productionDate,
+        notes: batchForm.notes,
+        electricity_cost: batchForm.electricityCost || '0',
+        gas_cost: batchForm.gasCost || '0',
+        production_wages: batchForm.productionWages || '0',
+      }
+
+      if (batchForm._editId) {
+        await updateProductionBatch(batchForm._editId, batchPayload)
+        await refreshData(); setFB('batch', 'Batch updated.'); setActiveModal('')
+        return
+      }
+
       const rmByName = new Map(data.rawMaterials.map(m => [String(m.name || '').trim().toLowerCase(), m]))
       const resolveRawMaterialId = (usage) => {
         if (usage.rawMaterial) return usage.rawMaterial
@@ -2530,16 +2706,15 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
       const material_usages = qtyRows.map(it => {
         const resolvedId = resolveRawMaterialId(it)
         const mat = rawMaterialMap.get(resolvedId)
-        const uc = toNumber(mat?.unit_price || 0)
-        return { raw_material: resolvedId, quantity_used: it.quantityUsed, amount: String(uc * toNumber(it.quantityUsed)), notes: '' }
+        const unitPrice = toFixedDecimalString(mat?.unit_price || 0, 4, 12, `${mat?.name || it.materialName || 'Raw material'} unit price`)
+        const materialName = mat?.name || it.materialName || 'Raw material'
+        const quantityUsed = toFixedDecimalString(it.quantityUsed, 3, 12, `${materialName} quantity used`)
+        const amount = toFixedDecimalString(toNumber(unitPrice) * toNumber(quantityUsed), 2, 12, `${materialName} amount`)
+        return { raw_material: resolvedId, quantity_used: quantityUsed, amount, notes: '' }
       })
       if (!material_usages.length) throw new Error('Add at least one raw material quantity.')
       await createProductionBatch({
-        production_date: batchForm.productionDate,
-        notes: batchForm.notes,
-        electricity_cost: batchForm.electricityCost || '0',
-        gas_cost: batchForm.gasCost || '0',
-        production_wages: batchForm.productionWages || '0',
+        ...batchPayload,
         outputs: [],
         material_usages,
       })
@@ -2600,13 +2775,51 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
         }
         const ppi = toNumber(it.pricePerItem)
         const upi = toNumber(it.unitPerItem || 1) || 1
-        return { raw_material: rmId, item_name: rmName, quantity: it.quantity, price_per_item: String(ppi), unit_per_item: String(upi), price_per_unit: String(ppi / upi) }
+        const pricePerUnit = Math.round((ppi / upi) * 10000) / 10000
+        return {
+          ...(it._lineId ? { id: it._lineId } : {}),
+          raw_material: rmId,
+          item_name: rmName,
+          quantity: it.quantity,
+          price_per_item: String(ppi),
+          unit_per_item: String(upi),
+          price_per_unit: String(pricePerUnit),
+        }
       }))
-      const purchase = await createPurchase({ purchase_date: purchaseForm.purchaseDate, supplier: purchaseForm.supplier, category: purchaseForm.category, status: 'open', notes: purchaseForm.notes, items: resolvedItems })
-      if (purchase?.id && toNumber(purchaseForm.paymentAmount) > 0) {
-        await createPurchasePayment({ purchase: purchase.id, payment_date: purchaseForm.purchaseDate, amount: purchaseForm.paymentAmount, payment_method: purchaseForm.paymentMethod, notes: purchaseForm.paymentNotes })
+      const purchasePayload = {
+        purchase_date: purchaseForm.purchaseDate,
+        supplier: purchaseForm.supplier,
+        category: purchaseForm.category,
+        status: purchaseForm.status || 'open',
+        notes: purchaseForm.notes,
+        items: resolvedItems,
       }
-      await refreshData(); setFB('purchase', 'Purchase recorded.'); setActiveModal('')
+      const purchase = purchaseForm._editId
+        ? await updatePurchase(purchaseForm._editId, purchasePayload)
+        : await createPurchase(purchasePayload)
+      if (!purchaseForm._editId && purchase?.id && toNumber(purchaseForm.paymentAmount) > 0) {
+        await createPurchasePayment({ purchase: purchase.id, payment_date: purchaseForm.paymentDate || purchaseForm.purchaseDate, amount: purchaseForm.paymentAmount, payment_method: purchaseForm.paymentMethod, notes: purchaseForm.paymentNotes })
+      }
+      if (purchaseForm._editId) {
+        if (toNumber(purchaseForm.paymentAmount) > 0) {
+          const paymentPayload = {
+            purchase: purchaseForm._editId,
+            payment_date: purchaseForm.paymentDate || purchaseForm.purchaseDate,
+            amount: purchaseForm.paymentAmount,
+            payment_method: purchaseForm.paymentMethod,
+            notes: purchaseForm.paymentNotes,
+          }
+          if (purchaseForm._paymentId) {
+            await updatePurchasePayment(purchaseForm._paymentId, paymentPayload)
+          } else {
+            await createPurchasePayment(paymentPayload)
+          }
+        } else if (purchaseForm._paymentId) {
+          // Leave deletion to the dedicated payment flow for now if a payment already exists.
+          // This branch intentionally avoids silently deleting historical payment records.
+        }
+      }
+      await refreshData(); setFB('purchase', purchaseForm._editId ? 'Purchase updated.' : 'Purchase recorded.'); setActiveModal('')
     } catch (err) { setFB('purchase', err.message || 'Purchase could not be saved.') }
     finally { setSub('purchase', false) }
   }
@@ -2767,11 +2980,12 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
   }
 
   function updateBatchUsage(index, field, val) {
+    const nextValue = field === 'quantityUsed' ? sanitizeDecimalInput(val, 3) : val
     setBatchForm(cur => ({
       ...cur,
       usages: cur.usages.map((item, i) => {
         if (i !== index) return item
-        return { ...item, [field]: val, ...(field === 'rawMaterial' && rawMaterialMap.get(val) ? { amount: String(rawMaterialMap.get(val).unit_price) } : {}) }
+        return { ...item, [field]: nextValue, ...(field === 'rawMaterial' && rawMaterialMap.get(val) ? { amount: String(rawMaterialMap.get(val).unit_price) } : {}) }
       }),
     }))
   }
@@ -2789,6 +3003,14 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
       items: cur.items.map((item, i) => {
         if (i !== index) return item
         if (field === '_toggleRM') return { ...item, isNewRM: !item.isNewRM, rawMaterial: '', newRMName: '', newRMCategory: '' }
+        if (field === 'rawMaterial') {
+          const selectedMaterial = rawMaterialMap.get(String(val))
+          return {
+            ...item,
+            rawMaterial: val,
+            unitPerItem: selectedMaterial?.unit_per_item ? String(selectedMaterial.unit_per_item) : item.unitPerItem,
+          }
+        }
         return { ...item, [field]: val }
       }),
     }))
@@ -2881,8 +3103,57 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
       fmt(getInvoiceOutstanding(inv)),
     ],
   }))
-  const batchRows    = productionBatchesFiltered.map(b => ({ key: b.id, emphasisIndex: 5, cells: [fmtD(b.production_date), b.batch_number || `#${b.id}`, fmtD(b.expiry_date), String(b.outputs?.length || 0), fmt(b.total_cost), fmt(b.profit)] }))
-  const purchaseRows = purchasesFiltered.map(p => ({ key: p.id, emphasisIndex: 6, cells: [fmtD(p.purchase_date), `#${p.id}`, p.supplier_name || 'Supplier', fmtStatus(p.category || 'other'), fmtStatus(p.status), fmt(p.total_paid), fmt(getPurchaseOutstanding(p))] }))
+  const batchRows    = productionBatchesFiltered.map(b => ({
+    key: b.id,
+    emphasisIndex: 5,
+    cells: [
+      fmtD(b.production_date),
+      b.batch_number || `#${b.id}`,
+      fmtD(b.expiry_date),
+      String(b.outputs?.length || 0),
+      fmt(b.total_cost),
+      fmt(b.profit),
+      <div key="actions" style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+        <button type="button" className="workspace-action-btn" onClick={event => { event.stopPropagation(); openModal('batch', b) }}>Edit</button>
+        <button
+          type="button"
+          className="workspace-action-btn"
+          onClick={event => {
+            event.stopPropagation()
+            handleDelete('batch', () => deleteProductionBatch(b.id))
+          }}
+        >
+          Delete
+        </button>
+      </div>,
+    ],
+  }))
+  const purchaseRows = purchasesFiltered.map(p => ({
+    key: p.id,
+    emphasisIndex: 6,
+    cells: [
+      fmtD(p.purchase_date),
+      `#${p.id}`,
+      p.supplier_name || 'Supplier',
+      fmtStatus(p.category || 'other'),
+      fmtStatus(p.status),
+      fmt(p.total_paid),
+      fmt(getPurchaseOutstanding(p)),
+      <div key="actions" style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+        <button type="button" className="workspace-action-btn" onClick={event => { event.stopPropagation(); openModal('purchase', p) }}>Edit</button>
+        <button
+          type="button"
+          className="workspace-action-btn"
+          onClick={event => {
+            event.stopPropagation()
+            handleDelete('purchase', () => deletePurchase(p.id))
+          }}
+        >
+          Delete
+        </button>
+      </div>,
+    ],
+  }))
   const inventoryRows = inventoryLedger.map(item => ({
     key: item.size,
     emphasisIndex: 2,
@@ -3423,7 +3694,7 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
           <section className="workspace-inline-tabs">
             {SECTION_TABS.supplies_stock.map(tab => <span key={tab.key} className={`workspace-inline-tab ${tab.key === getSectionTab('supplies_stock') ? 'active' : ''}`}>{tab.label}</span>)}
           </section>
-          {getSectionTab('supplies_stock') === 'purchases' && <TableCardSkeleton title="Purchase Register" columns={7} rows={5} />}
+          {getSectionTab('supplies_stock') === 'purchases' && <TableCardSkeleton title="Purchase Register" columns={8} rows={5} />}
           {getSectionTab('supplies_stock') === 'materials' && <TableCardSkeleton title="Raw Materials" columns={9} rows={6} />}
           {getSectionTab('supplies_stock') === 'balances' && <SnippetCardSkeleton title="Open Supplier Balances" rows={6} />}
         </>
@@ -3619,7 +3890,7 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
           <TableCard
             title="Production Batches"
             subtitle="Track batch production and finished stock."
-            columns={['Date', 'Batch Number', 'Expiry Date', 'Outputs', 'Total Cost', 'Profit']}
+            columns={['Date', 'Batch Number', 'Expiry Date', 'Outputs', 'Total Cost', 'Profit', 'Actions']}
             rows={batchRows}
             mobileVariant="production-batches"
             search={searchTerms.production_ops}
@@ -3667,7 +3938,7 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
             className="supplies-purchases-card"
             title="Purchase Register"
             subtitle="Click a row to view full details and payments."
-            columns={['Date', '#', 'Supplier', 'Category', 'Status', 'Paid', 'Outstanding']}
+            columns={['Date', '#', 'Supplier', 'Category', 'Status', 'Paid', 'Outstanding', 'Actions']}
             rows={purchaseRows}
             mobileVariant="purchases-list"
             search={searchTerms.supplies_stock}
@@ -4387,8 +4658,12 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
         }, 0)
         const overheadPreviewTotal = toNumber(batchForm.productionWages) + toNumber(batchForm.electricityCost) + toNumber(batchForm.gasCost)
         const batchCostPreview = rawMaterialPreviewTotal + overheadPreviewTotal
+        const isEditingBatch = Boolean(batchForm._editId)
+        const editingBatchRecord = isEditingBatch
+          ? data.productionBatches.find(batch => String(batch.id) === String(batchForm._editId))
+          : null
         return (
-          <ModalShell kicker="Plus Treat Production" title="New Production Batch" onClose={() => setActiveModal('')} cardClassName="sales-modal-card-wide">
+          <ModalShell kicker="Plus Treat Production" title={isEditingBatch ? `Edit ${editingBatchRecord?.batch_number || `Batch #${batchForm._editId}`}` : 'New Production Batch'} onClose={() => setActiveModal('')} cardClassName="sales-modal-card-wide">
             <form className="sales-form sales-form-redesign" onSubmit={handleBatchSubmit}>
 
               {/* ── Batch header ── */}
@@ -4411,8 +4686,9 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
               <section className="sales-lines-panel">
                 <div className="sales-lines-panel-header">
                   <div><span className="sales-form-eyebrow">Inputs</span><h3>Raw materials used</h3></div>
-                  <button type="button" className="account-alert-button account-alert-button-light" onClick={addBatchUsageLine}>Add Extra Material</button>
+                  {!isEditingBatch ? <button type="button" className="account-alert-button account-alert-button-light" onClick={addBatchUsageLine}>Add Extra Material</button> : null}
                 </div>
+                {isEditingBatch ? <p className="workspace-empty" style={{ marginBottom: '12px' }}>Existing raw-material lines are locked here because the backend only updates batch header details for edits.</p> : null}
                 <div className="purchase-lines-head production-compact-head" style={{ '--col-count': 3, gridTemplateColumns: '2fr 1fr 40px' }}>
                   <span>Material</span><span>Qty Used</span><span></span>
                 </div>
@@ -4449,6 +4725,7 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
                                 searchPlaceholder="Search materials..."
                                 value={item.rawMaterial}
                                 onChange={value => updateBatchUsage(idx, 'rawMaterial', value)}
+                                disabled={isEditingBatch}
                               />
                               {selectedMaterial ? (
                                 <small style={{ color: projectedRemaining != null && projectedRemaining < 0 ? '#dc2626' : '#64748b', fontSize: '0.72rem' }}>
@@ -4459,13 +4736,13 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
                           )}
                         </div>
                         <label className="sales-field production-compact-qty-field">
-                          <input type="number" min="0" step="0.001" placeholder="0.000" value={item.quantityUsed} onChange={e => updateBatchUsage(idx, 'quantityUsed', e.target.value)} />
+                          <input type="number" min="0" step="0.001" placeholder="0.000" value={item.quantityUsed} onChange={e => updateBatchUsage(idx, 'quantityUsed', e.target.value)} disabled={isEditingBatch} />
                         </label>
                         <button
                           type="button"
                           className="sales-line-remove"
                           onClick={() => setBatchForm(c => ({ ...c, usages: c.usages.filter((_, i) => i !== idx) }))}
-                          disabled={item.isTemplate}
+                          disabled={item.isTemplate || isEditingBatch}
                           title={item.isTemplate ? 'Template materials cannot be removed' : 'Remove'}
                         >
                           ✕
@@ -4480,7 +4757,7 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
               {/* ── Overhead costs ── */}
               <section className="sales-lines-panel">
                 <div className="sales-lines-panel-header">
-                  <div><span className="sales-form-eyebrow">Overheads</span><h3>Batch costs</h3></div>
+                  <div><span className="sales-form-eyebrow">Overheads</span><h3>{isEditingBatch ? 'Update batch costs' : 'Batch costs'}</h3></div>
                 </div>
                 <div className="sales-form-grid">
                   <label className="sales-field"><span>Wages</span><input type="number" min="0" step="0.01" placeholder="0.00" value={batchForm.productionWages} onChange={e => setBatchForm(c => ({ ...c, productionWages: e.target.value }))} /></label>
@@ -4496,7 +4773,8 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
               </section>
 
               <div className="sales-form-actions">
-                <button type="submit" className="account-alert-button account-alert-button-light" disabled={submitting.batch}>{submitting.batch ? 'Saving…' : 'Save Batch'}</button>
+                <button type="submit" className="account-alert-button account-alert-button-light" disabled={submitting.batch}>{submitting.batch ? 'Saving…' : isEditingBatch ? 'Update Batch' : 'Save Batch'}</button>
+                {batchForm._editId ? <button type="button" className="account-alert-button account-alert-button-danger" onClick={() => handleDelete('batch', () => deleteProductionBatch(batchForm._editId)).then(() => setActiveModal(''))}>Delete</button> : null}
               </div>
               {feedback.batch ? <p className="sales-form-message">{feedback.batch}</p> : null}
             </form>
@@ -4527,6 +4805,12 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
         return (
         <ModalShell kicker="Plus Treat Production" title="Finished Goods Produced" stat={finishedGoodsValue > 0 ? fmt(finishedGoodsValue) : undefined} onClose={() => setActiveModal('')}>
           <form className="sales-form sales-form-redesign" onSubmit={handleFinishedGoodsSubmit}>
+            {selectedBatchRecord ? (
+              <div className="sales-form-actions" style={{ marginBottom: '12px' }}>
+                <button type="button" className="account-alert-button account-alert-button-light" onClick={() => openModal('batch', selectedBatchRecord)}>Edit Batch</button>
+                <button type="button" className="account-alert-button account-alert-button-danger" onClick={() => handleDelete('batch', () => deleteProductionBatch(selectedBatchRecord.id)).then(() => setActiveModal(''))}>Delete Batch</button>
+              </div>
+            ) : null}
             <div className="sales-form-grid sales-form-grid-primary">
               <label className="sales-field">
                 <span>Batch Number</span>
@@ -4609,8 +4893,9 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
       {activeModal === 'purchase' && (() => {
         const linesTotal = purchaseForm.items.reduce((s, it) => s + toNumber(it.quantity) * toNumber(it.pricePerItem), 0)
         const outstanding = linesTotal - toNumber(purchaseForm.paymentAmount)
+        const isEditingPurchase = Boolean(purchaseForm._editId)
         return (
-          <ModalShell kicker="Plus Treat Supply Desk" title="RM Purchase Entry" stat={`${purchaseForm.items.length} line${purchaseForm.items.length !== 1 ? 's' : ''}`} onClose={() => setActiveModal('')}>
+          <ModalShell kicker="Plus Treat Supply Desk" title={isEditingPurchase ? `Edit Purchase #${purchaseForm._editId}` : 'RM Purchase Entry'} stat={`${purchaseForm.items.length} line${purchaseForm.items.length !== 1 ? 's' : ''}`} onClose={() => setActiveModal('')}>
             <form className="sales-form sales-form-redesign" onSubmit={handlePurchaseSubmit}>
               {/* Header fields */}
               <div className="sales-form-grid sales-form-grid-primary">
@@ -4622,16 +4907,16 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
                     placeholder="Select supplier"
                     searchPlaceholder="Search suppliers..."
                     value={purchaseForm.supplier}
-                    onChange={value => setPurchaseForm(c => ({ ...c, supplier: value }))}
+                    onChange={handlePurchaseSupplierChange}
                   />
                 </label>
                 <label className="sales-field"><span>Item Category</span>
-                  <AppSelect
-                    ariaLabel="Item category"
-                    options={itemCategoryOptions}
-                    placeholder="Select category"
+                  <input
+                    type="text"
+                    aria-label="Item category"
                     value={purchaseForm.category}
-                    onChange={value => setPurchaseForm(c => ({ ...c, category: value }))}
+                    placeholder="Select supplier first"
+                    readOnly
                   />
                 </label>
                 <div className="category-field-actions">
@@ -4673,10 +4958,10 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
                       </div>
                       <div className="purchase-new-rm-pricing">
                         <label className="sales-field"><span>Qty</span><input type="number" min="0" step="0.001" placeholder="0" value={item.quantity} onChange={e => updatePurchaseItem(idx, 'quantity', e.target.value)} /></label>
-                        <label className="sales-field"><span>Units/Item</span><input type="number" min="0" step="0.001" placeholder="1" value={item.unitPerItem} onChange={e => updatePurchaseItem(idx, 'unitPerItem', e.target.value)} /></label>
+                        <label className="sales-field"><span>Units/Item</span><input type="number" min="0" step="0.001" placeholder="1" value={item.unitPerItem} readOnly /></label>
                         <label className="sales-field"><span>Price/Item</span><input type="number" min="0" step="0.01" placeholder="0.00" value={item.pricePerItem} onChange={e => updatePurchaseItem(idx, 'pricePerItem', e.target.value)} /></label>
                         <div className="purchase-new-rm-total"><span>Line Total</span><strong>{fmt(lineTotal)}</strong></div>
-                        <button type="button" className="sales-line-remove" onClick={() => setPurchaseForm(c => ({ ...c, items: c.items.filter((_, i) => i !== idx) }))} disabled={purchaseForm.items.length === 1}>✕</button>
+                        <button type="button" className="sales-line-remove" onClick={() => handlePurchaseItemDelete(idx)} disabled={purchaseForm.items.length === 1 || Boolean(submitting[`purchase_item_delete_${idx}`])}>✕</button>
                       </div>
                     </div>
                   ) : (
@@ -4685,19 +4970,19 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
                         <AppAutocomplete
                           ariaLabel="Purchase raw material"
                           className="app-form-select-compact"
-                          options={rawMaterialSelectOptions}
-                          placeholder="Select material"
-                          searchPlaceholder="Search materials..."
+                          options={purchaseRawMaterialSelectOptions}
+                          placeholder={purchaseForm.category ? 'Select material' : 'Select supplier first'}
+                          searchPlaceholder={purchaseForm.category ? 'Search materials...' : 'Select supplier first'}
                           value={item.rawMaterial}
                           onChange={value => updatePurchaseItem(idx, 'rawMaterial', value)}
                         />
                         <button type="button" className="purchase-rm-toggle" onClick={() => updatePurchaseItem(idx, '_toggleRM', null)}>+ New material</button>
                       </div>
                       <label className="sales-field"><input type="number" min="0" step="0.001" placeholder="0" value={item.quantity} onChange={e => updatePurchaseItem(idx, 'quantity', e.target.value)} /></label>
-                      <label className="sales-field"><input type="number" min="0" step="0.001" placeholder="1" value={item.unitPerItem} onChange={e => updatePurchaseItem(idx, 'unitPerItem', e.target.value)} /></label>
+                      <label className="sales-field"><input type="number" min="0" step="0.001" placeholder="1" value={item.unitPerItem} readOnly /></label>
                       <label className="sales-field"><input type="number" min="0" step="0.01" placeholder="0.00" value={item.pricePerItem} onChange={e => updatePurchaseItem(idx, 'pricePerItem', e.target.value)} /></label>
                       <span className="purchase-line-total">{fmt(lineTotal)}</span>
-                      <button type="button" className="sales-line-remove" onClick={() => setPurchaseForm(c => ({ ...c, items: c.items.filter((_, i) => i !== idx) }))} disabled={purchaseForm.items.length === 1}>✕</button>
+                      <button type="button" className="sales-line-remove" onClick={() => handlePurchaseItemDelete(idx)} disabled={purchaseForm.items.length === 1 || Boolean(submitting[`purchase_item_delete_${idx}`])}>✕</button>
                     </div>
                   )
                 })}
@@ -4707,13 +4992,13 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
                 </div>
               </section>
 
-              {/* Initial payment */}
               <section className="sales-lines-panel">
                 <div className="sales-lines-panel-header">
-                  <div><span className="sales-form-eyebrow">Payment</span><h3>Record initial payment (optional)</h3></div>
+                  <div><span className="sales-form-eyebrow">Payment</span><h3>{isEditingPurchase ? 'Recorded payment details' : 'Record initial payment (optional)'}</h3></div>
                 </div>
                 <div className="sales-form-grid">
                   <label className="sales-field"><span>Amount Paid</span><input type="number" min="0" step="0.01" placeholder="0.00" value={purchaseForm.paymentAmount} onChange={e => setPurchaseForm(c => ({ ...c, paymentAmount: e.target.value }))} /></label>
+                  <label className="sales-field"><span>Payment Date</span><input type="date" value={purchaseForm.paymentDate} onChange={e => setPurchaseForm(c => ({ ...c, paymentDate: e.target.value }))} /></label>
                   <label className="sales-field"><span>Payment Method</span>
                     <AppSelect
                       ariaLabel="Purchase payment method"
@@ -4733,7 +5018,8 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
               <label className="sales-field"><span>Notes</span><textarea rows="2" value={purchaseForm.notes} onChange={e => setPurchaseForm(c => ({ ...c, notes: e.target.value }))} /></label>
               <div className="sales-form-actions sales-form-actions-split">
                 <button type="button" className="account-alert-button account-alert-button-light" onClick={() => setActiveModal('')}>Cancel</button>
-                <button type="submit" className="account-alert-button account-alert-button-dark" disabled={submitting.purchase}>{submitting.purchase ? 'Saving…' : 'Save Purchase'}</button>
+                <button type="submit" className="account-alert-button account-alert-button-dark" disabled={submitting.purchase}>{submitting.purchase ? 'Saving…' : isEditingPurchase ? 'Update Purchase' : 'Save Purchase'}</button>
+                {purchaseForm._editId && <button type="button" className="account-alert-button account-alert-button-danger" onClick={() => handleDelete('purchase', () => deletePurchase(purchaseForm._editId)).then(() => setActiveModal(''))}>Delete</button>}
               </div>
               {feedback.purchase ? <p className="sales-form-message">{feedback.purchase}</p> : null}
             </form>
@@ -5203,6 +5489,25 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
           stat={`Profit: ${fmt(selectedBatch.profit)}`}
           onClose={() => setSelectedBatch(null)}
         >
+          <div className="sales-form-actions" style={{ marginBottom: '12px' }}>
+            <button
+              type="button"
+              className="account-alert-button account-alert-button-dark"
+              onClick={() => {
+                setSelectedBatch(null)
+                openModal('batch', selectedBatch)
+              }}
+            >
+              Edit Batch
+            </button>
+            <button
+              type="button"
+              className="account-alert-button account-alert-button-danger"
+              onClick={() => handleDelete('batch', () => deleteProductionBatch(selectedBatch.id)).then(() => setSelectedBatch(null))}
+            >
+              Delete Batch
+            </button>
+          </div>
           {/* Batch info grid */}
           <div className="detail-purchase-header">
             <div className="detail-purchase-field">
@@ -5448,6 +5753,18 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
                   <strong>{p.notes}</strong>
                 </div>
               )}
+            </div>
+            <div className="sales-form-actions" style={{ marginBottom: '12px' }}>
+              <button
+                type="button"
+                className="account-alert-button account-alert-button-dark"
+                onClick={() => {
+                  setSelectedPurchase(null)
+                  openModal('purchase', p)
+                }}
+              >
+                Edit Purchase
+              </button>
             </div>
 
             {/* Items table */}

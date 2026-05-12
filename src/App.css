@@ -3904,55 +3904,99 @@
   text-align: center;
 }
 
-.app-form-select [data-slot="trigger"] {
+.app-native-field {
+  position: relative;
+  width: 100%;
+}
+
+.app-native-control {
   width: 100%;
   min-height: 44px;
+  padding: 0 42px 0 14px;
   border: 1px solid rgba(226, 232, 240, 0.95);
   border-radius: 14px;
   background: #ffffff;
   color: #111111;
   box-shadow: none;
-  cursor: pointer;
+  font: inherit;
+  line-height: 1.4;
   transition: border-color 160ms ease, box-shadow 160ms ease, background-color 160ms ease;
+  outline: none;
 }
 
-.app-form-select [data-slot="trigger"]:focus-within,
-.app-form-select [data-slot="trigger"][data-focused="true"] {
+.app-native-control:focus {
   border-color: rgba(226, 181, 104, 0.9);
   background: #ffffff;
   box-shadow: 0 0 0 4px rgba(255, 223, 167, 0.45);
 }
 
-.app-form-select [data-slot="value"] {
-  color: #111111;
-  font: inherit;
+.app-native-control:disabled {
+  cursor: not-allowed;
+  opacity: 0.7;
+  background: #f8fafc;
+}
+
+.app-native-control::placeholder {
+  color: #94a3b8;
+}
+
+.app-native-control-select {
+  appearance: none;
+  cursor: pointer;
+}
+
+.app-native-control-input::-webkit-calendar-picker-indicator {
+  opacity: 0;
   pointer-events: none;
 }
 
-.app-form-select [data-slot="input"] {
-  font: inherit;
-  color: #111111;
-  pointer-events: none;
-}
-
-.app-form-select [data-slot="selector-icon"],
-.app-form-select [data-slot="clear-button"] {
+.app-native-field-icon {
+  position: absolute;
+  top: 50%;
+  right: 14px;
+  transform: translateY(-50%);
   color: #5f7b91;
-}
-
-.app-form-select [data-slot="trigger"] > *:not([data-slot="clear-button"]):not([data-slot="selector-icon"]) {
+  font-size: 0.72rem;
   pointer-events: none;
 }
 
-.app-form-select [data-slot="content"] {
+.app-native-field-clear {
+  position: absolute;
+  top: 50%;
+  right: 34px;
+  transform: translateY(-50%);
+  border: 0;
+  background: transparent;
+  color: #94a3b8;
+  font-size: 1rem;
+  line-height: 1;
+  padding: 2px 4px;
+  cursor: pointer;
+}
+
+.app-native-field-clear:hover,
+.app-native-field-clear:focus {
+  color: #475569;
+  outline: none;
+}
+
+.app-filter-select .app-native-control {
+  min-height: 50px;
+  padding-left: 16px;
+  border-color: rgba(214, 224, 235, 0.98);
   border-radius: 16px;
+  color: #15344d;
+  font-weight: 600;
 }
 
-.app-form-select [role="option"] {
-  font-family: var(--font-body);
+.app-form-select-compact [data-slot="trigger"],
+.app-form-select-compact [data-slot="select-trigger"],
+.app-form-select-compact [data-slot="autocomplete-trigger"] {
+  min-height: 40px;
+  border-radius: 12px;
 }
 
-.app-form-select-compact [data-slot="trigger"] {
+.app-form-select-compact .app-native-control {
   min-height: 40px;
   border-radius: 12px;
 }
@@ -6598,6 +6642,15 @@
 
 .workspace-table-row-clickable:hover {
   background: color-mix(in srgb, var(--accent, #6366f1) 6%, transparent);
+}
+
+.supplies-purchases-card .workspace-table-scroll {
+  overflow-x: hidden;
+}
+
+.supplies-purchases-card .workspace-table-head,
+.supplies-purchases-card .workspace-table-row {
+  grid-template-columns: minmax(96px, 1fr) minmax(54px, 0.6fr) minmax(130px, 1.2fr) minmax(110px, 0.95fr) minmax(90px, 0.85fr) minmax(100px, 0.9fr) minmax(120px, 1fr) minmax(78px, 0.7fr);
 }
 
 /* ─── Clickable snippet rows ─────────────────────────────────────────────────── */

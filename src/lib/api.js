@@ -13,6 +13,29 @@ export function setStoredToken(token) {
   }
 }
 
+function flattenErrorMessages(value, prefix = '') {
+  if (value === null || value === undefined) return []
+
+  if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+    return [prefix ? `${prefix}: ${value}` : String(value)]
+  }
+
+  if (Array.isArray(value)) {
+    return value.flatMap(entry => flattenErrorMessages(entry, prefix))
+  }
+
+  if (typeof value === 'object') {
+    return Object.entries(value).flatMap(([key, entry]) => {
+      const nextPrefix = prefix
+        ? `${prefix} ${key}`.trim()
+        : key
+      return flattenErrorMessages(entry, nextPrefix)
+    })
+  }
+
+  return [prefix ? `${prefix}: ${String(value)}` : String(value)]
+}
+
 async function request(path, options = {}) {
   const token = getStoredToken()
   const method = (options.method || 'GET').toUpperCase()
@@ -35,11 +58,8 @@ async function request(path, options = {}) {
       } else if (Array.isArray(errorPayload)) {
         message = errorPayload.join(', ')
       } else if (errorPayload && typeof errorPayload === 'object') {
-        const firstEntry = Object.entries(errorPayload)[0]
-        if (firstEntry) {
-          const [, value] = firstEntry
-          message = Array.isArray(value) ? value.join(', ') : String(value)
-        }
+        const flattenedMessages = flattenErrorMessages(errorPayload)
+        if (flattenedMessages.length) message = flattenedMessages.join(', ')
       }
     } catch {
       // keep fallback message
@@ -182,6 +202,10 @@ export function deletePurchase(id) {
   return request(`/purchases/${id}/`, { method: 'DELETE' })
 }
 
+export function deletePurchaseItem(id) {
+  return request(`/purchase-items/${id}/`, { method: 'DELETE' })
+}
+
 // ─── Purchase Payments ───────────────────────────────────────────────────────
 
 export function getPurchasePayments() {
@@ -190,6 +214,10 @@ export function getPurchasePayments() {
 
 export function createPurchasePayment(payload) {
   return request('/purchase-payments/', { method: 'POST', body: JSON.stringify(payload) })
+}
+
+export function updatePurchasePayment(id, payload) {
+  return request(`/purchase-payments/${id}/`, { method: 'PATCH', body: JSON.stringify(payload) })
 }
 
 export function deletePurchasePayment(id) {
@@ -205,6 +233,10 @@ export function getProductionBatches(params = {}) {
 
 export function createProductionBatch(payload) {
   return request('/production-batches/', { method: 'POST', body: JSON.stringify(payload) })
+}
+
+export function updateProductionBatch(id, payload) {
+  return request(`/production-batches/${id}/`, { method: 'PATCH', body: JSON.stringify(payload) })
 }
 
 export function createProductionOutput(payload) {

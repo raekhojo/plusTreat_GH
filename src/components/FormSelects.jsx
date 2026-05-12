@@ -1,341 +1,62 @@
-import { useEffect, useMemo, useState } from 'react'
-import { createPortal } from 'react-dom'
-import { Autocomplete, ListBox, Select } from '@heroui/react'
+import { useEffect, useId, useMemo, useState } from 'react'
 
-function normalizeSelectedKey(value) {
-  if (value === null || value === undefined || value === '') return null
-  return String(value)
+function normalizeText(value) {
+  return String(value || '').trim().toLowerCase()
 }
 
-function renderOption(option) {
-  return (
-    <ListBox.Item id={option.value} textValue={option.searchText || option.label}>
-      <div className="app-select-option">
-        <span>{option.label}</span>
-        {option.meta ? <small>{option.meta}</small> : null}
-      </div>
-    </ListBox.Item>
-  )
+function getOptionByValue(options, value) {
+  return options.find(option => String(option.value) === String(value || ''))
 }
 
-function useIsMobilePicker(breakpoint = 768) {
-  const [isMobile, setIsMobile] = useState(() => {
-    if (typeof window === 'undefined') return false
-    return window.innerWidth <= breakpoint
-  })
-
-  useEffect(() => {
-    if (typeof window === 'undefined') return undefined
-
-    const mediaQuery = window.matchMedia(`(max-width: ${breakpoint}px)`)
-    const update = () => setIsMobile(mediaQuery.matches)
-
-    update()
-    mediaQuery.addEventListener('change', update)
-    return () => mediaQuery.removeEventListener('change', update)
-  }, [breakpoint])
-
-  return isMobile
+function getOptionByDisplay(options, text) {
+  const normalized = normalizeText(text)
+  if (!normalized) return null
+  return options.find((option) => {
+    const candidates = [
+      option.label,
+      option.value,
+      option.searchText,
+      option.meta,
+    ]
+    return candidates.some(candidate => normalizeText(candidate) === normalized)
+  }) || null
 }
 
-function MobileSelectModal({
-  open,
-  title,
-  placeholder,
-  searchPlaceholder,
-  options,
-  value,
-  onChange,
-  onClose,
-  allowClear = false,
-}) {
-  const [search, setSearch] = useState('')
-
-  useEffect(() => {
-    if (!open) {
-      setSearch('')
-      return
-    }
-
-    function handleKeyDown(event) {
-      if (event.key === 'Escape') onClose?.()
-    }
-
-    document.addEventListener('keydown', handleKeyDown)
-    return () => document.removeEventListener('keydown', handleKeyDown)
-  }, [open, onClose])
-
-  const filteredOptions = useMemo(() => {
-    const query = search.trim().toLowerCase()
-    if (!query) return options
-    return options.filter((option) => {
-      const haystack = [
-        option.label,
-        option.meta,
-        option.searchText,
-        option.value,
-      ]
-        .filter(Boolean)
-        .join(' ')
-        .toLowerCase()
-      return haystack.includes(query)
-    })
-  }, [options, search])
-
-  if (!open || typeof document === 'undefined') return null
-
-  return createPortal(
-    <div
-      className="mobile-select-modal-backdrop"
-      role="presentation"
-      onClick={(event) => {
-        if (event.target === event.currentTarget) onClose?.()
-      }}
-    >
-      <article
-        className="mobile-select-modal-sheet"
-        role="dialog"
-        aria-modal="true"
-        aria-label={title || placeholder}
-      >
-        <div className="mobile-select-modal-handle" aria-hidden="true" />
-        <div className="mobile-select-modal-header">
-          <div>
-            <h3>{title || placeholder}</h3>
-          </div>
-          <button type="button" className="mobile-select-modal-close" onClick={onClose}>
-            Close
-          </button>
-        </div>
-
-        <label className="mobile-select-modal-search">
-          <span>Search</span>
-          <input
-            type="text"
-            value={search}
-            onChange={(event) => setSearch(event.target.value)}
-            placeholder={searchPlaceholder}
-            autoFocus
-          />
-        </label>
-
-        {allowClear && value ? (
-          <button
-            type="button"
-            className="mobile-select-modal-clear"
-            onClick={() => {
-              onChange?.('')
-              onClose?.()
-            }}
-          >
-            Clear selection
-          </button>
-        ) : null}
-
-        <div className="mobile-select-modal-options">
-          {filteredOptions.length ? (
-            filteredOptions.map((option) => {
-              const isSelected = String(option.value) === String(value || '')
-              return (
-                <button
-                  key={option.value}
-                  type="button"
-                  className={`mobile-select-modal-option${isSelected ? ' is-selected' : ''}`}
-                  onClick={() => {
-                    onChange?.(String(option.value))
-                    onClose?.()
-                  }}
-                >
-                  <span className="mobile-select-modal-option-label">{option.label}</span>
-                  {option.meta ? <small>{option.meta}</small> : null}
-                </button>
-              )
-            })
-          ) : (
-            <p className="mobile-select-modal-empty">No matching options found.</p>
-          )}
-        </div>
-      </article>
-    </div>,
-    document.body,
-  )
+function getAutocompleteDisplayValue(options, value) {
+  const selectedOption = getOptionByValue(options, value)
+  return selectedOption?.label || String(value || '')
 }
 
-function MobileSelectField({
+function NativeSelectField({
   value,
   onChange,
   options = [],
-  placeholder,
-  searchPlaceholder,
+  placeholder = 'Select',
   ariaLabel,
   isDisabled = false,
   isRequired = false,
   className = '',
-  allowClear = false,
+  variant = 'default',
 }) {
-  const [open, setOpen] = useState(false)
-  const selectedOption = options.find((option) => String(option.value) === String(value || ''))
-
   return (
-    <>
-      <button
-        type="button"
+    <div className={`app-native-field app-native-field-select app-native-field-${variant} ${className}`.trim()}>
+      <select
         aria-label={ariaLabel || placeholder}
-        className={`mobile-select-trigger ${className}`.trim()}
+        className="app-native-control app-native-control-select"
         disabled={isDisabled}
-        onClick={() => setOpen(true)}
+        required={isRequired}
+        value={value ?? ''}
+        onChange={event => onChange?.(event.target.value)}
       >
-        <span className={`mobile-select-trigger-value${selectedOption ? ' has-value' : ''}`}>
-          {selectedOption?.label || placeholder}
-        </span>
-        <span className="mobile-select-trigger-icon" aria-hidden="true">
-          ▾
-        </span>
-      </button>
-      {!isRequired && allowClear && value ? (
-        <button
-          type="button"
-          className="mobile-select-inline-clear"
-          onClick={() => onChange?.('')}
-        >
-          Clear
-        </button>
-      ) : null}
-      <MobileSelectModal
-        open={open}
-        title={ariaLabel || placeholder}
-        placeholder={placeholder}
-        searchPlaceholder={searchPlaceholder}
-        options={options}
-        value={value}
-        onChange={onChange}
-        onClose={() => setOpen(false)}
-        allowClear={!isRequired && allowClear}
-      />
-    </>
-  )
-}
-
-function DesktopFilterModal({
-  open,
-  title,
-  placeholder,
-  searchPlaceholder,
-  options,
-  value,
-  onChange,
-  onClose,
-  allowClear = false,
-}) {
-  const [search, setSearch] = useState('')
-
-  useEffect(() => {
-    if (!open) {
-      setSearch('')
-      return
-    }
-
-    function handleKeyDown(event) {
-      if (event.key === 'Escape') onClose?.()
-    }
-
-    document.addEventListener('keydown', handleKeyDown)
-    return () => document.removeEventListener('keydown', handleKeyDown)
-  }, [open, onClose])
-
-  const filteredOptions = useMemo(() => {
-    const query = search.trim().toLowerCase()
-    if (!query) return options
-    return options.filter((option) => {
-      const haystack = [
-        option.label,
-        option.meta,
-        option.searchText,
-        option.value,
-      ]
-        .filter(Boolean)
-        .join(' ')
-        .toLowerCase()
-      return haystack.includes(query)
-    })
-  }, [options, search])
-
-  if (!open || typeof document === 'undefined') return null
-
-  return createPortal(
-    <div
-      className="filter-picker-modal-backdrop"
-      role="presentation"
-      onClick={(event) => {
-        if (event.target === event.currentTarget) onClose?.()
-      }}
-    >
-      <article
-        className="filter-picker-modal-card"
-        role="dialog"
-        aria-modal="true"
-        aria-label={title || placeholder}
-      >
-        <div className="filter-picker-modal-header">
-          <div>
-            <span className="filter-picker-modal-kicker">Filter</span>
-            <h3>{title || placeholder}</h3>
-          </div>
-          <button type="button" className="filter-picker-modal-close" onClick={onClose} aria-label="Close filter picker">
-            ×
-          </button>
-        </div>
-
-        <label className="filter-picker-modal-search">
-          <span>Search</span>
-          <input
-            type="text"
-            value={search}
-            onChange={(event) => setSearch(event.target.value)}
-            placeholder={searchPlaceholder}
-            autoFocus
-          />
-        </label>
-
-        {allowClear && value ? (
-          <button
-            type="button"
-            className="filter-picker-modal-clear"
-            onClick={() => {
-              onChange?.('')
-              onClose?.()
-            }}
-          >
-            Clear selection
-          </button>
-        ) : null}
-
-        <div className="filter-picker-modal-options">
-          {filteredOptions.length ? (
-            filteredOptions.map((option) => {
-              const isSelected = String(option.value) === String(value || '')
-              return (
-                <button
-                  key={option.value}
-                  type="button"
-                  className={`filter-picker-modal-option${isSelected ? ' is-selected' : ''}`}
-                  onClick={() => {
-                    onChange?.(String(option.value))
-                    onClose?.()
-                  }}
-                >
-                  <span className="filter-picker-modal-option-label">{option.label}</span>
-                  {option.meta ? <small>{option.meta}</small> : null}
-                </button>
-              )
-            })
-          ) : (
-            <p className="filter-picker-modal-empty">No matching options found.</p>
-          )}
-        </div>
-      </article>
-    </div>,
-    document.body,
+        <option value="">{placeholder}</option>
+        {options.map(option => (
+          <option key={option.value} value={String(option.value)}>
+            {option.label}
+          </option>
+        ))}
+      </select>
+      <span className="app-native-field-icon" aria-hidden="true">▼</span>
+    </div>
   )
 }
 
@@ -344,60 +65,21 @@ export function AppFilterPicker({
   onChange,
   options = [],
   placeholder = 'Select',
-  searchPlaceholder = 'Search...',
   ariaLabel,
   isDisabled = false,
   className = '',
-  allowClear = true,
 }) {
-  const isMobile = useIsMobilePicker()
-  const [open, setOpen] = useState(false)
-  const selectedOption = options.find((option) => String(option.value) === String(value || ''))
-
   return (
-    <>
-      <button
-        type="button"
-        aria-label={ariaLabel || placeholder}
-        className={`filter-picker-trigger ${className}`.trim()}
-        disabled={isDisabled}
-        onClick={() => setOpen(true)}
-      >
-        <span className="filter-picker-trigger-copy">
-          <span className={`filter-picker-trigger-value${selectedOption ? ' has-value' : ''}`}>
-            {selectedOption?.label || placeholder}
-          </span>
-        </span>
-        <span className="filter-picker-trigger-icon" aria-hidden="true">
-          ▾
-        </span>
-      </button>
-      {isMobile ? (
-        <MobileSelectModal
-          open={open}
-          title={ariaLabel || placeholder}
-          placeholder={placeholder}
-          searchPlaceholder={searchPlaceholder}
-          options={options}
-          value={value}
-          onChange={onChange}
-          onClose={() => setOpen(false)}
-          allowClear={allowClear}
-        />
-      ) : (
-        <DesktopFilterModal
-          open={open}
-          title={ariaLabel || placeholder}
-          placeholder={placeholder}
-          searchPlaceholder={searchPlaceholder}
-          options={options}
-          value={value}
-          onChange={onChange}
-          onClose={() => setOpen(false)}
-          allowClear={allowClear}
-        />
-      )}
-    </>
+    <NativeSelectField
+      value={value}
+      onChange={onChange}
+      options={options}
+      placeholder={placeholder}
+      ariaLabel={ariaLabel}
+      isDisabled={isDisabled}
+      className={`app-filter-select ${className}`.trim()}
+      variant="filter"
+    />
   )
 }
 
@@ -411,46 +93,17 @@ export function AppSelect({
   isRequired = false,
   className = '',
 }) {
-  const isMobile = useIsMobilePicker()
-
-  if (isMobile) {
-    return (
-      <MobileSelectField
-        value={value}
-        onChange={onChange}
-        options={options}
-        placeholder={placeholder}
-        searchPlaceholder={`Search ${String(placeholder || 'options').toLowerCase()}...`}
-        ariaLabel={ariaLabel}
-        isDisabled={isDisabled}
-        isRequired={isRequired}
-        className={className}
-      />
-    )
-  }
-
   return (
-    <Select
-      aria-label={ariaLabel || placeholder}
-      className={`app-form-select ${className}`.trim()}
-      fullWidth
+    <NativeSelectField
+      value={value}
+      onChange={onChange}
+      options={options}
+      placeholder={placeholder}
+      ariaLabel={ariaLabel}
       isDisabled={isDisabled}
       isRequired={isRequired}
-      items={options}
-      placeholder={placeholder}
-      selectedKey={normalizeSelectedKey(value)}
-      variant="secondary"
-      onSelectionChange={key => onChange?.(key == null ? '' : String(key))}
-    >
-      <Select.Trigger />
-      <Select.Value />
-      <Select.Indicator />
-      <Select.Popover>
-        <ListBox items={options}>
-          {renderOption}
-        </ListBox>
-      </Select.Popover>
-    </Select>
+      className={`app-form-select ${className}`.trim()}
+    />
   )
 }
 
@@ -459,56 +112,72 @@ export function AppAutocomplete({
   onChange,
   options = [],
   placeholder = 'Search and select',
-  searchPlaceholder = 'Search...',
+  searchPlaceholder,
   ariaLabel,
   isDisabled = false,
   isRequired = false,
   className = '',
 }) {
-  const isMobile = useIsMobilePicker()
+  const listId = useId()
+  const optionLookup = useMemo(() => new Map(
+    options.map(option => [normalizeText(option.label), String(option.value)]),
+  ), [options])
+  const [draft, setDraft] = useState(() => getAutocompleteDisplayValue(options, value))
 
-  if (isMobile) {
-    return (
-      <MobileSelectField
-        value={value}
-        onChange={onChange}
-        options={options}
-        placeholder={placeholder}
-        searchPlaceholder={searchPlaceholder}
-        ariaLabel={ariaLabel}
-        isDisabled={isDisabled}
-        isRequired={isRequired}
-        className={className}
-        allowClear
-      />
-    )
+  useEffect(() => {
+    setDraft(getAutocompleteDisplayValue(options, value))
+  }, [options, value])
+
+  function handleChange(nextDraft) {
+    setDraft(nextDraft)
+
+    if (!nextDraft) {
+      onChange?.('')
+      return
+    }
+
+    const matchedValue = optionLookup.get(normalizeText(nextDraft))
+    if (matchedValue !== undefined) {
+      onChange?.(matchedValue)
+      return
+    }
+
+    const matchedOption = getOptionByDisplay(options, nextDraft)
+    onChange?.(matchedOption ? String(matchedOption.value) : nextDraft)
   }
 
   return (
-    <Autocomplete
-      aria-label={ariaLabel || placeholder}
-      className={`app-form-select ${className}`.trim()}
-      fullWidth
-      isDisabled={isDisabled}
-      isRequired={isRequired}
-      items={options}
-      placeholder={placeholder}
-      selectedKey={normalizeSelectedKey(value)}
-      variant="secondary"
-      onSelectionChange={key => onChange?.(key == null ? '' : String(key))}
-      onClear={() => onChange?.('')}
-    >
-      <Autocomplete.Trigger>
-        <Autocomplete.Value />
-        <Autocomplete.ClearButton />
-        <Autocomplete.Indicator />
-      </Autocomplete.Trigger>
-      <Autocomplete.Popover>
-        <Autocomplete.Filter placeholder={searchPlaceholder} />
-        <ListBox items={options}>
-          {renderOption}
-        </ListBox>
-      </Autocomplete.Popover>
-    </Autocomplete>
+    <div className={`app-native-field app-native-field-autocomplete app-form-select ${className}`.trim()}>
+      <input
+        aria-label={ariaLabel || placeholder}
+        className="app-native-control app-native-control-input"
+        disabled={isDisabled}
+        list={listId}
+        placeholder={searchPlaceholder || placeholder}
+        required={isRequired}
+        value={draft}
+        onChange={event => handleChange(event.target.value)}
+      />
+      {draft && !isRequired ? (
+        <button
+          type="button"
+          className="app-native-field-clear"
+          aria-label={`Clear ${ariaLabel || placeholder}`}
+          onClick={() => handleChange('')}
+        >
+          ×
+        </button>
+      ) : null}
+      <span className="app-native-field-icon" aria-hidden="true">▼</span>
+      <datalist id={listId}>
+        {options.map(option => (
+          <option
+            key={option.value}
+            value={option.label}
+            label={option.meta ? `${option.label} - ${option.meta}` : option.label}
+          />
+        ))}
+      </datalist>
+    </div>
   )
 }
