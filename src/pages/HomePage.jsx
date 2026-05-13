@@ -7,8 +7,8 @@ import {
   createAccountTransaction, createCustomer, createInvoice, createPayment,
   createPricingRule, createProductionBatch, createProductionOutput, createPurchase, createSupplier,
   createPurchasePayment, updatePurchasePayment, createProduct, createRawMaterial, createItemCategory,
-  deleteProductionBatch, deletePurchase, deletePurchaseItem,
-  updatePurchase,
+  deleteInvoice, deletePayment, deleteProductionBatch, deletePurchase, deletePurchaseItem,
+  updateInvoice, updatePayment, updatePurchase,
   updateCustomer, deleteCustomer,
   updateSupplier, deleteSupplier,
   updateAccountTransaction, deleteAccountTransaction,
@@ -363,9 +363,62 @@ function getBatchOutputProductionCosts(batch, output) {
 // ─── Form initialisers ────────────────────────────────────────────────────────
 
 const mkSaleLine       = ()              => ({ productSize: '', pricingRule: '', quantity: '1', unitPrice: '' })
-const mkSalePayment    = ()              => ({ amount: '', method: 'cash', reference: '', notes: '' })
-const mkSaleForm       = (staffId = '') => ({ customer: '', pricingCategoryId: '', invoiceDate: todayValue(), staff: staffId, discountAmount: '0', notes: '', payments: [mkSalePayment()], lines: [mkSaleLine()] })
-const mkReceiptForm    = ()              => ({ invoice: '', paymentDate: todayValue(), payments: [mkSalePayment()] })
+const mkSalePayment    = ()              => ({ amount: '', method: 'cash', reference: '', notes: '', _paymentId: null })
+const mkSaleForm       = (staffId = '') => ({ customer: '', pricingCategoryId: '', invoiceDate: todayValue(), staff: staffId, discountAmount: '0', notes: '', payments: [mkSalePayment()], lines: [mkSaleLine()], _editId: null, _originalPaymentIds: [] })
+const buildSaleForm    = (entity = null, customer = null, staffId = '') => {
+  if (!entity) return mkSaleForm(staffId)
+
+  const payments = Array.isArray(entity.payments) && entity.payments.length
+    ? entity.payments.map(payment => ({
+        ...mkSalePayment(),
+        amount: payment.amount ? String(payment.amount) : '',
+        method: payment.method || 'cash',
+        reference: payment.reference || '',
+        notes: payment.notes || '',
+        _paymentId: payment.id || null,
+      }))
+    : [mkSalePayment()]
+
+  return {
+    ...mkSaleForm(staffId),
+    customer: entity.customer ? String(entity.customer) : '',
+    pricingCategoryId: customer?.pricing_category_id ? String(customer.pricing_category_id) : '',
+    invoiceDate: entity.invoice_date || todayValue(),
+    staff: entity.staff ? String(entity.staff) : (staffId || ''),
+    discountAmount: entity.discount_amount ? String(entity.discount_amount) : '0',
+    notes: entity.notes || '',
+    payments,
+    lines: Array.isArray(entity.lines) && entity.lines.length
+      ? entity.lines.map(line => ({
+          productSize: line.product_size || '',
+          pricingRule: line.pricing_rule ? String(line.pricing_rule) : '',
+          quantity: line.quantity ? String(line.quantity) : '1',
+          unitPrice: line.unit_price ? String(line.unit_price) : '',
+        }))
+      : [mkSaleLine()],
+    _editId: entity.id || null,
+    _originalPaymentIds: payments.map(payment => payment._paymentId).filter(Boolean),
+  }
+}
+const mkReceiptForm    = ()              => ({ invoice: '', paymentDate: todayValue(), payments: [mkSalePayment()], _editId: null })
+const buildReceiptForm = (entity = null) => {
+  if (!entity) return mkReceiptForm()
+
+  return {
+    ...mkReceiptForm(),
+    invoice: entity.invoice ? String(entity.invoice) : '',
+    paymentDate: entity.payment_date || todayValue(),
+    payments: [{
+      ...mkSalePayment(),
+      amount: entity.amount ? String(entity.amount) : '',
+      method: entity.method || 'cash',
+      reference: entity.reference || '',
+      notes: entity.notes || '',
+      _paymentId: entity.id || null,
+    }],
+    _editId: entity.id || null,
+  }
+}
 const mkBatchUsage     = (materialName = '') => ({ rawMaterial: '', materialName, quantityUsed: '', isTemplate: Boolean(materialName) })
 const mkBatchForm      = ()              => ({ productionDate: todayValue(), electricityCost: '', gasCost: '', productionWages: '', notes: '', usages: PRODUCTION_RAW_MATERIAL_TEMPLATES.map(name => mkBatchUsage(name)), _editId: null })
 const buildBatchForm   = (entity = null) => {
@@ -1956,7 +2009,7 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
   )
   const pricingRuleMap = useMemo(() => new Map(data.pricingRules.map(r => [String(r.id), r])), [data.pricingRules])
   const invoiceOptions = useMemo(() => data.invoices
-    .filter(inv => getInvoiceOutstanding(inv) > 0)
+    .filter(inv => getInvoiceOutstanding(inv) > 0 || (receiptForm._editId && String(inv.id) === String(receiptForm.invoice)))
     .map(inv => ({ id: inv.id, label: `${fmtInv(inv.id)} — ${inv.customer_name || 'Customer'}`, outstanding: getInvoiceOutstanding(inv) })), [data.invoices])
   const openPurchases  = useMemo(() => data.purchases.filter(p => p.status === 'open' || p.status === 'partially_paid'), [data.purchases])
   const accountSubAccountOptions = useMemo(
@@ -1998,15 +2051,26 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
       .sort((a, b) => a.label.localeCompare(b.label)),
     [data.customers]
   )
-  const invoiceSelectOptions = useMemo(
-    () => invoiceOptions.map(invoice => ({
+  const invoiceSelectOptions = useMemo(() => {
+    const options = invoiceOptions.map(invoice => ({
       value: String(invoice.id),
       label: invoice.label,
       meta: fmt(invoice.outstanding),
       searchText: `${invoice.label} ${fmt(invoice.outstanding)}`,
-    })),
-    [invoiceOptions]
-  )
+    }))
+    if (receiptForm._editId && receiptForm.invoice && !options.some(option => option.value === String(receiptForm.invoice))) {
+      const currentInvoice = data.invoices.find(invoice => String(invoice.id) === String(receiptForm.invoice))
+      if (currentInvoice) {
+        options.unshift({
+          value: String(currentInvoice.id),
+          label: `${fmtInv(currentInvoice.id)} â€” ${currentInvoice.customer_name || 'Customer'}`,
+          meta: fmt(getInvoiceOutstanding(currentInvoice)),
+          searchText: `${fmtInv(currentInvoice.id)} ${currentInvoice.customer_name || 'Customer'} ${fmt(getInvoiceOutstanding(currentInvoice))}`,
+        })
+      }
+    }
+    return options
+  }, [data.invoices, invoiceOptions, receiptForm._editId, receiptForm.invoice])
   const rawMaterialSelectOptions = useMemo(
     () => sortedRawMaterials.map(material => {
       const available = toNumber(material.opening_stock) + toNumber(material.stock_in) - toNumber(material.stock_out)
@@ -2134,6 +2198,7 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
   const customerPaymentsFiltered = useMemo(() => filterByDateRange(data.payments, p => p.payment_date, customersDateFilter), [data.payments, customersDateFilter])
   const supplierPurchasesFiltered = useMemo(() => filterByDateRange(data.purchases, p => p.purchase_date, suppliersDateFilter), [data.purchases, suppliersDateFilter])
   const accountTransactionsFiltered = useMemo(() => filterByDateRange(data.accountTransactions, e => e.transaction_date, accountsDateFilter), [data.accountTransactions, accountsDateFilter])
+  const accountInvoicesFiltered = useMemo(() => filterByDateRange(data.invoices, inv => inv.invoice_date, accountsDateFilter), [data.invoices, accountsDateFilter])
 
   const salesFilterScope = `sales_hub:${sectionTabs.sales_hub || SECTION_DEFAULT_TABS.sales_hub}`
   const pricingFilterScope = `accounts_pricing:${activeAccountsTab}`
@@ -2541,8 +2606,11 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
   function openModal(type, entity = null) {
     setActiveModal(type)
     setFB(type, '')
-    if (type === 'sale')        setSaleForm(mkSaleForm(user?.staffProfileId || ''))
-    if (type === 'receipt')     setReceiptForm(mkReceiptForm())
+    if (type === 'sale') {
+      const linkedCustomer = entity ? data.customers.find(customer => String(customer.id) === String(entity.customer)) : null
+      setSaleForm(buildSaleForm(entity, linkedCustomer, user?.staffProfileId || ''))
+    }
+    if (type === 'receipt')     setReceiptForm(buildReceiptForm(entity))
     if (type === 'batch')       setBatchForm(buildBatchForm(entity))
     if (type === 'finished_goods') setFinishedGoodsForm(buildFinishedGoodsForm(entity))
     if (type === 'purchase')    setPurchaseForm(buildPurchaseForm(entity))
@@ -2642,6 +2710,7 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
       const validPayments = saleForm.payments
         .filter(payment => toNumber(payment.amount) > 0)
         .map(payment => ({
+          _paymentId: payment._paymentId || null,
           amount: String(toNumber(payment.amount)),
           method: payment.method || 'cash',
           reference: payment.reference || '',
@@ -2650,16 +2719,23 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
       const noRuleLines = saleForm.lines.filter(it => it.productSize && !it.pricingRule)
       if (noRuleLines.length) throw new Error(`No pricing rule found for: ${noRuleLines.map(l => l.productSize).join(', ')}. Add the pricing rule first.`)
       if (!saleForm.customer || !lines.length) throw new Error('Choose a customer and at least one valid product line.')
+      const totalPaymentAmount = sumBy(validPayments, payment => payment.amount)
+      const currentInvoice = saleForm._editId ? data.invoices.find(invoice => String(invoice.id) === String(saleForm._editId)) : null
+      if (totalPaymentAmount > Math.max(0, sumBy(lines, line => toNumber(line.quantity) * toNumber(line.unit_price)) - toNumber(saleForm.discountAmount))) {
+        throw new Error('Payments entered exceed the invoice total.')
+      }
       const outOfStockSizes = Array.from(requestedBySize.entries()).flatMap(([sizeKey, requestedQty]) => {
         const matchedProduct = data.products.find(product => normalizeSizeKey(product.name) === sizeKey)
+        const restoredQty = sumBy((currentInvoice?.lines || []).filter(line => normalizeSizeKey(line.product_size) === sizeKey), line => line.quantity)
         const availableStock = matchedProduct ? toNumber(matchedProduct.stock_quantity) : 0
-        if (availableStock >= requestedQty) return []
-        return [`${matchedProduct?.name || sizeKey} - ${fmtQ(availableStock)} available, ${fmtQ(requestedQty)} requested`]
+        const availableForEdit = availableStock + restoredQty
+        if (availableForEdit >= requestedQty) return []
+        return [`${matchedProduct?.name || sizeKey} - ${fmtQ(availableForEdit)} available, ${fmtQ(requestedQty)} requested`]
       })
       if (outOfStockSizes.length) {
         throw new Error(`Cannot process sale. Out of stock: ${outOfStockSizes.join(', ')}.`)
       }
-      const createdInvoice = await createInvoice({
+      const invoicePayload = {
         invoice_date: saleForm.invoiceDate,
         customer: saleForm.customer,
         staff: saleForm.staff || null,
@@ -2668,18 +2744,33 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
         status: 'issued',
         notes: saleForm.notes || '',
         lines,
-      })
-      if (validPayments.length) {
-        await Promise.all(validPayments.map(payment => createPayment({
-          invoice: createdInvoice.id,
-          amount: payment.amount,
-          payment_date: saleForm.invoiceDate,
-          method: payment.method,
-          reference: payment.reference,
-          notes: payment.notes,
-        })))
       }
-      await refreshData(); setFB('sale', 'Sale saved successfully.'); setActiveModal('')
+      const savedInvoice = saleForm._editId
+        ? await updateInvoice(saleForm._editId, invoicePayload)
+        : await createInvoice(invoicePayload)
+      if (saleForm._editId) {
+        const retainedIds = new Set(validPayments.map(payment => payment._paymentId).filter(Boolean))
+        const deletedPaymentIds = saleForm._originalPaymentIds.filter(paymentId => !retainedIds.has(paymentId))
+        if (deletedPaymentIds.length) {
+          await Promise.all(deletedPaymentIds.map(paymentId => deletePayment(paymentId)))
+        }
+      }
+      if (validPayments.length) {
+        await Promise.all(validPayments.map(payment => {
+          const paymentPayload = {
+            invoice: savedInvoice.id,
+            amount: payment.amount,
+            payment_date: saleForm.invoiceDate,
+            method: payment.method,
+            reference: payment.reference,
+            notes: payment.notes,
+          }
+          return payment._paymentId
+            ? updatePayment(payment._paymentId, paymentPayload)
+            : createPayment(paymentPayload)
+        }))
+      }
+      await refreshData(); setFB('sale', saleForm._editId ? 'Sale updated successfully.' : 'Sale saved successfully.'); setActiveModal('')
     } catch (err) { setFB('sale', err.message || 'Sale could not be saved.') }
     finally { setSub('sale', false) }
   }
@@ -2691,6 +2782,7 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
       const validPayments = receiptForm.payments
         .filter(payment => toNumber(payment.amount) > 0)
         .map(payment => ({
+          _paymentId: payment._paymentId || null,
           amount: String(toNumber(payment.amount)),
           method: payment.method || 'cash',
           reference: payment.reference || '',
@@ -2698,13 +2790,17 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
         }))
       if (!receiptForm.invoice || !validPayments.length) throw new Error('Choose an invoice and enter at least one payment amount received.')
       const selectedInvoice = data.invoices.find(inv => String(inv.id) === String(receiptForm.invoice))
-      const outstandingBalance = getInvoiceOutstanding(selectedInvoice)
+      const totalInvoiceValue = toNumber(selectedInvoice?.previous_balance) + toNumber(selectedInvoice?.total_amount)
+      const otherPaymentsTotal = sumBy((selectedInvoice?.payments || []).filter(payment => String(payment.id) !== String(receiptForm._editId)), payment => payment.amount)
+      const outstandingBalance = Math.max(0, totalInvoiceValue - otherPaymentsTotal)
       const totalReceived = sumBy(validPayments, payment => payment.amount)
       if (selectedInvoice && totalReceived > outstandingBalance) {
         throw new Error(`Amount received exceeds the outstanding balance of ${fmt(outstandingBalance)}.`)
       }
-      for (const payment of validPayments) {
-        await createPayment({
+      if (receiptForm._editId) {
+        if (validPayments.length !== 1) throw new Error('Receipt edits support one payment record at a time.')
+        const payment = validPayments[0]
+        await updatePayment(receiptForm._editId, {
           invoice: receiptForm.invoice,
           amount: payment.amount,
           payment_date: receiptForm.paymentDate,
@@ -2712,8 +2808,19 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
           reference: payment.reference,
           notes: payment.notes,
         })
+      } else {
+        for (const payment of validPayments) {
+          await createPayment({
+            invoice: receiptForm.invoice,
+            amount: payment.amount,
+            payment_date: receiptForm.paymentDate,
+            method: payment.method,
+            reference: payment.reference,
+            notes: payment.notes,
+          })
+        }
       }
-      await refreshData(); setFB('receipt', 'Receipt recorded.'); setActiveModal('')
+      await refreshData(); setFB('receipt', receiptForm._editId ? 'Receipt updated.' : 'Receipt recorded.'); setActiveModal('')
     } catch (err) { setFB('receipt', err.message || 'Receipt could not be recorded.') }
     finally { setSub('receipt', false) }
   }
@@ -3117,7 +3224,8 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
   const suppliesSummary   = [{ label: 'Suppliers', value: String(data.suppliers.length), note: 'Supplier_Dtls' }, { label: 'Raw Materials', value: String(data.rawMaterials.length), note: 'RawMaterials tracked' }, { label: 'Purchases', value: fmt(sumBy(purchasesFiltered, p => p.total_amount)), note: `${purchasesFiltered.length} records` }, { label: 'Supplier Due', value: fmt(sumBy(purchasesFiltered, p => getPurchaseOutstanding(p))), note: 'Open balances' }]
   const customersSummary  = [{ label: 'Customers', value: String(data.customers.length), note: `${filteredCustomerLedger.filter(c => c.invoiceCount > 0).length} already billed` }, { label: 'Outstanding', value: fmt(sumBy(filteredCustomerLedger, c => c.outstanding)), note: 'Total receivables due' }, { label: 'Receipts', value: fmt(sumBy(customerPaymentsFiltered, p => p.amount)), note: 'Total collected' }, { label: 'Open Invoices', value: String(customerInvoicesFiltered.filter(inv => getInvoiceOutstanding(inv) > 0).length), note: 'Invoices with balance' }]
   const suppliersSummary  = [{ label: 'Suppliers', value: String(data.suppliers.length), note: 'Vendor records' }, { label: 'Purchases', value: fmt(sumBy(supplierPurchasesFiltered, p => p.total_amount)), note: `${supplierPurchasesFiltered.length} purchase records` }, { label: 'Paid', value: fmt(sumBy(supplierPurchasesFiltered, p => p.total_paid)), note: 'Total paid to suppliers' }, { label: 'Due', value: fmt(sumBy(filteredSupplierLedger, s => s.outstanding)), note: 'Outstanding payables' }]
-  const accountsSummary   = [{ label: 'Entries', value: String(accountTransactionsFiltered.length), note: 'Accounts_Dtls rows' }, { label: 'Income', value: fmt(sumBy(accountTransactionsFiltered.filter(e => e.entry_type === 'income'), e => e.amount)), note: 'Income rows' }, { label: 'Expenses', value: fmt(sumBy(accountTransactionsFiltered.filter(e => e.entry_type === 'expense'), e => e.amount)), note: 'Expense rows' }, { label: 'Pricing Rules', value: String(filteredPricingRules.length), note: 'Filtered pricing sheet' }]
+  const accountsIncomeTotal = sumBy(accountInvoicesFiltered, invoice => invoice.total_amount) + sumBy(accountTransactionsFiltered.filter(e => e.entry_type === 'income'), e => e.amount)
+  const accountsSummary   = [{ label: 'Entries', value: String(accountTransactionsFiltered.length), note: 'Accounts_Dtls rows' }, { label: 'Income', value: fmt(accountsIncomeTotal), note: `${accountInvoicesFiltered.length} sales + other income` }, { label: 'Expenses', value: fmt(sumBy(accountTransactionsFiltered.filter(e => e.entry_type === 'expense'), e => e.amount)), note: 'Expense rows' }, { label: 'Pricing Rules', value: String(filteredPricingRules.length), note: 'Filtered pricing sheet' }]
   const mobilePrimarySections = availableSections
     .filter(section => ['dashboard', 'sales_hub', 'production_ops', 'customers'].includes(section.key))
     .map(section => section.key)
@@ -3154,6 +3262,19 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
       fmt(inv.total_amount),
       fmt(getInvoicePaidAmount(inv)),
       fmt(getInvoiceOutstanding(inv)),
+      <div key="actions" style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+        <button type="button" className="workspace-action-btn" onClick={event => { event.stopPropagation(); openModal('sale', inv) }}>Edit</button>
+        <button
+          type="button"
+          className="workspace-action-btn"
+          onClick={event => {
+            event.stopPropagation()
+            handleDelete('sale', () => deleteInvoice(inv.id))
+          }}
+        >
+          Delete
+        </button>
+      </div>,
     ],
   }))
   const batchRows    = productionBatchesFiltered.map(b => ({
@@ -3913,7 +4034,7 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
           <TableCard
             title="Sales List"
             subtitle="Mirrors Sales, Sales_Dtls, and Invoice workbook rows."
-            columns={['Date', 'Invoice', 'Customer', 'Total', 'Paid', 'Outstanding']}
+            columns={['Date', 'Invoice', 'Customer', 'Total', 'Paid', 'Outstanding', 'Actions']}
             rows={salesRows}
             mobileVariant="sales-list"
             search={searchTerms.sales_hub}
@@ -4442,6 +4563,7 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
       )}
 
       {activeModal === 'sale' && (() => {
+        const isEditingSale = Boolean(saleForm._editId)
         const selectedCust      = data.customers.find(c => String(c.id) === String(saleForm.customer))
         const activePricingCatId = saleForm.pricingCategoryId
         const activePricingCategoryName = activePricingCatId
@@ -4465,7 +4587,7 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
         return (
         <ModalShell
           kicker="Plus Treat Sales Desk"
-          title="Sales Entry"
+          title={isEditingSale ? `Edit ${fmtInv(saleForm._editId)}` : 'Sales Entry'}
           stat={invoiceTotal > 0 ? fmt(invoiceTotal) : undefined}
           onClose={() => setActiveModal('')}
           headerAside={salespersonName ? <span className="sales-modal-inline-meta">{salespersonName}</span> : null}
@@ -4632,9 +4754,12 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
             <label className="sales-field"><span>Notes</span><textarea rows="2" value={saleForm.notes} onChange={e => setSaleForm(c => ({ ...c, notes: e.target.value }))} /></label>
             <div className="sales-form-actions sales-form-actions-split">
               <button type="button" className="account-alert-button account-alert-button-light" onClick={() => setActiveModal('')}>Cancel</button>
-              <button type="submit" className="account-alert-button account-alert-button-dark" disabled={submitting.sale}>{submitting.sale ? 'Saving…' : 'Save Sale'}</button>
+              <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                {saleForm._editId ? <button type="button" className="account-alert-button account-alert-button-danger" onClick={() => handleDelete('sale', () => deleteInvoice(saleForm._editId)).then(() => setActiveModal(''))}>Delete</button> : null}
+                <button type="submit" className="account-alert-button account-alert-button-dark" disabled={submitting.sale}>{submitting.sale ? 'Saving…' : saleForm._editId ? 'Update Sale' : 'Save Sale'}</button>
+              </div>
             </div>
-            {feedback.sale ? <p className={`sales-form-message${feedback.sale === 'Sale saved successfully.' ? '' : ' sales-form-message-error'}`}>{feedback.sale}</p> : null}
+            {feedback.sale ? <p className={`sales-form-message${feedback.sale === 'Sale saved successfully.' || feedback.sale === 'Sale updated successfully.' ? '' : ' sales-form-message-error'}`}>{feedback.sale}</p> : null}
           </form>
         </ModalShell>
         )
@@ -4642,12 +4767,14 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
 
       {/* ── RECEIPT MODAL ── */}
       {activeModal === 'receipt' && (() => {
+          const isEditingReceipt = Boolean(receiptForm._editId)
           const selectedInvoice = data.invoices.find(inv => String(inv.id) === String(receiptForm.invoice))
-          const outstandingBalance = getInvoiceOutstanding(selectedInvoice)
+          const otherPaymentsTotal = sumBy((selectedInvoice?.payments || []).filter(payment => String(payment.id) !== String(receiptForm._editId)), payment => payment.amount)
+          const outstandingBalance = Math.max(0, toNumber(selectedInvoice?.previous_balance) + toNumber(selectedInvoice?.total_amount) - otherPaymentsTotal)
           const paidNow = sumBy(receiptForm.payments, payment => payment.amount)
           const balanceAfterPayments = Math.max(0, outstandingBalance - paidNow)
           return (
-          <ModalShell kicker="Plus Treat Collections" title="Receipt Entry" stat={`${invoiceOptions.length} open invoices`} onClose={() => setActiveModal('')}>
+          <ModalShell kicker="Plus Treat Collections" title={isEditingReceipt ? `Edit Receipt #${receiptForm._editId}` : 'Receipt Entry'} stat={isEditingReceipt ? undefined : `${invoiceOptions.length} open invoices`} onClose={() => setActiveModal('')}>
           <form className="sales-form sales-form-redesign" onSubmit={handleReceiptSubmit}>
             <label className="sales-field"><span>Outstanding Invoice</span>
               <AppAutocomplete
@@ -4666,7 +4793,7 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
                   <span className="sales-form-eyebrow">Collection Split</span>
                   <h3>Receipt payment methods</h3>
                 </div>
-                <button type="button" className="account-alert-button account-alert-button-light" onClick={() => setReceiptForm(c => ({ ...c, payments: [...c.payments, mkSalePayment()] }))}>Add Payment</button>
+                {!isEditingReceipt ? <button type="button" className="account-alert-button account-alert-button-light" onClick={() => setReceiptForm(c => ({ ...c, payments: [...c.payments, mkSalePayment()] }))}>Add Payment</button> : null}
               </div>
               <div className="sales-payment-list">
                 {receiptForm.payments.map((payment, idx) => (
@@ -4700,7 +4827,7 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
                         const nextPayments = c.payments.filter((_, i) => i !== idx)
                         return { ...c, payments: nextPayments.length ? nextPayments : [mkSalePayment()] }
                       })}
-                      disabled={receiptForm.payments.length === 1}
+                      disabled={isEditingReceipt || receiptForm.payments.length === 1}
                     >
                       Remove
                     </button>
@@ -4714,7 +4841,8 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
             </div>
             </section>
             <div className="sales-form-actions">
-              <button type="submit" className="account-alert-button account-alert-button-light" disabled={submitting.receipt}>{submitting.receipt ? 'Saving…' : 'Record Receipt'}</button>
+              {receiptForm._editId ? <button type="button" className="account-alert-button account-alert-button-danger" onClick={() => handleDelete('receipt', () => deletePayment(receiptForm._editId)).then(() => setActiveModal(''))}>Delete</button> : null}
+              <button type="submit" className="account-alert-button account-alert-button-light" disabled={submitting.receipt}>{submitting.receipt ? 'Saving…' : receiptForm._editId ? 'Update Receipt' : 'Record Receipt'}</button>
             </div>
             {feedback.receipt ? <p className="sales-form-message">{feedback.receipt}</p> : null}
           </form>
@@ -5393,6 +5521,25 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
             stat={fmt(selectedReceipt.amount)}
             onClose={() => setSelectedReceipt(null)}
           >
+            <div className="sales-form-actions" style={{ marginBottom: '12px' }}>
+              <button
+                type="button"
+                className="account-alert-button account-alert-button-dark"
+                onClick={() => {
+                  setSelectedReceipt(null)
+                  openModal('receipt', selectedReceipt)
+                }}
+              >
+                Edit Receipt
+              </button>
+              <button
+                type="button"
+                className="account-alert-button account-alert-button-danger"
+                onClick={() => handleDelete('receipt', () => deletePayment(selectedReceipt.id)).then(() => setSelectedReceipt(null))}
+              >
+                Delete Receipt
+              </button>
+            </div>
             <div className="detail-receipt-grid">
               <div className="detail-receipt-field">
                 <span>Date</span>
@@ -5464,6 +5611,25 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
             stat={fmtStatus(inv.status)}
             onClose={() => setSelectedInvoice(null)}
           >
+            <div className="sales-form-actions" style={{ marginBottom: '12px' }}>
+              <button
+                type="button"
+                className="account-alert-button account-alert-button-dark"
+                onClick={() => {
+                  setSelectedInvoice(null)
+                  openModal('sale', inv)
+                }}
+              >
+                Edit Sale
+              </button>
+              <button
+                type="button"
+                className="account-alert-button account-alert-button-danger"
+                onClick={() => handleDelete('sale', () => deleteInvoice(inv.id)).then(() => setSelectedInvoice(null))}
+              >
+                Delete Sale
+              </button>
+            </div>
             {/* Header info grid */}
             <div className="detail-purchase-header">
               <div className="detail-purchase-field">
@@ -5537,9 +5703,9 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
             <div className="detail-modal-section">
               <h3>Payments ({(inv.payments || []).length})</h3>
               {(inv.payments || []).length ? (
-                <div className="sales-list-table workspace-table" style={{ '--table-cols': '1fr 70px 1fr 1fr 1fr' }}>
+                <div className="sales-list-table workspace-table" style={{ '--table-cols': '1fr 70px 1fr 1fr 1fr auto' }}>
                   <div className="sales-list-head workspace-table-head">
-                    <span>Date</span><span>ID</span><span>Method</span><span>Reference</span><span>Amount</span>
+                    <span>Date</span><span>ID</span><span>Method</span><span>Reference</span><span>Amount</span><span>Actions</span>
                   </div>
                   {(inv.payments || []).map(p => (
                     <div key={p.id} className="sales-list-row workspace-table-row">
@@ -5548,6 +5714,10 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
                       <span>{fmtStatus(p.method)}</span>
                       <span>{p.reference || '—'}</span>
                       <span>{fmt(p.amount)}</span>
+                      <span style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                        <button type="button" className="workspace-action-btn" onClick={() => { setSelectedInvoice(null); openModal('receipt', p) }}>Edit</button>
+                        <button type="button" className="workspace-action-btn" onClick={() => handleDelete('receipt', () => deletePayment(p.id)).then(() => setSelectedInvoice(null))}>Delete</button>
+                      </span>
                     </div>
                   ))}
                 </div>

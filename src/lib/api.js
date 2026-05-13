@@ -161,6 +161,10 @@ export function createPayment(payload) {
   return request('/payments/', { method: 'POST', body: JSON.stringify(payload) })
 }
 
+export function updatePayment(id, payload) {
+  return request(`/payments/${id}/`, { method: 'PATCH', body: JSON.stringify(payload) })
+}
+
 export function deletePayment(id) {
   return request(`/payments/${id}/`, { method: 'DELETE' })
 }

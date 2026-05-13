@@ -8592,3 +8592,141 @@
     font-size: 0.6rem;
   }
 }
+
+@media (max-width: 640px) {
+  .workspace-filter-row {
+    gap: 12px;
+  }
+
+  .workspace-filter-header-row {
+    display: grid;
+    grid-template-columns: 1fr;
+    align-items: start;
+    gap: 10px;
+  }
+
+  .workspace-filter-header-row h1 {
+    font-size: clamp(2rem, 8vw, 2.6rem);
+    line-height: 0.98;
+    letter-spacing: -0.04em;
+  }
+
+  .workspace-date-range-button {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .workspace-filter-presets-wrap {
+    gap: 0;
+  }
+
+  .workspace-filter-arrow,
+  .workspace-inline-tabs-arrow {
+    display: none !important;
+  }
+
+  .workspace-filter-presets,
+  .workspace-inline-tabs {
+    padding-inline: 0;
+    scroll-padding-inline: 0;
+  }
+
+  .workspace-filter-preset,
+  .workspace-inline-tab {
+    flex: 0 0 auto;
+  }
+
+  .workspace-toolbar,
+  .workspace-panel-header {
+    gap: 12px;
+  }
+
+  .workspace-panel-header {
+    padding: 18px 18px 0;
+  }
+
+  .workspace-toolbar-actions {
+    width: 100%;
+  }
+
+  .workspace-toolbar-sales .workspace-toolbar-actions,
+  .workspace-toolbar-production .workspace-toolbar-actions,
+  .workspace-toolbar-accounts .workspace-toolbar-actions {
+    grid-template-columns: 1fr;
+  }
+
+  .workspace-toolbar-actions .account-alert-button {
+    width: 100%;
+    min-height: 48px;
+    padding: 10px 14px;
+    line-height: 1.25;
+    text-align: center;
+    white-space: normal;
+  }
+
+  .summary-mobile-carousel {
+    gap: 10px;
+    margin-top: 4px;
+    margin-bottom: 12px;
+  }
+
+  .summary-mobile-carousel .dashboard-mobile-carousel-head {
+    justify-content: center;
+  }
+
+  .summary-mobile-carousel .dashboard-mobile-carousel-actions {
+    width: 100%;
+    justify-content: flex-end;
+  }
+
+  .summary-mobile-carousel .dashboard-snippet-stat {
+    min-height: 118px;
+    padding: 14px 14px 12px;
+  }
+
+  .sales-list-card .workspace-panel-header,
+  .sales-list-card .workspace-panel-controls {
+    padding-left: 0;
+    padding-right: 0;
+  }
+
+  .sales-list-card .workspace-panel-controls {
+    gap: 8px;
+  }
+
+  .workspace-search {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .workspace-table-count,
+  .workspace-page-status,
+  .workspace-page-size {
+    font-size: 0.76rem;
+  }
+
+  .workspace-mobile-list {
+    padding: 0 10px 12px;
+  }
+
+  .workspace-mobile-card,
+  .workspace-mobile-card-production,
+  .workspace-mobile-card-supply {
+    padding: 13px;
+  }
+
+  .workspace-mobile-sales-top,
+  .workspace-mobile-sales-bottom {
+    gap: 8px;
+  }
+
+  .workspace-mobile-sales-customer,
+  .workspace-mobile-value {
+    font-size: 0.9rem;
+  }
+
+  .workspace-mobile-sales-date,
+  .workspace-mobile-production-list-meta {
+    font-size: 0.72rem;
+  }
+}
