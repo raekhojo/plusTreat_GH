@@ -327,6 +327,10 @@ function buildSupplierLedger(suppliers, purchases) {
 function normalizeSizeKey(v) {
   return String(v || '').toLowerCase().replaceAll(',', '').replace(/\s+/g, '')
 }
+function isProductionPricingCategory(value) {
+  const normalized = normalizeFilterValue(value).replace(/\s+/g, '')
+  return normalized === 'productionprice' || normalized === 'productionprices'
+}
 function inferTotalLitres(sizeLabel, quantity) {
   const text = String(sizeLabel || '').toLowerCase().replaceAll(',', '').trim()
   const qty = toNumber(quantity)
@@ -340,24 +344,6 @@ function inferTotalLitres(sizeLabel, quantity) {
 function ratioPct(value, total) {
   if (!total) return 0
   return Math.max(0, Math.min(100, (toNumber(value) / toNumber(total)) * 100))
-}
-function getBatchOutputProductionCosts(batch, output) {
-  const outputs = Array.isArray(batch?.outputs) ? batch.outputs : []
-  const totalBatchCost = toNumber(batch?.total_cost)
-  const totalLitres = sumBy(outputs, item => item.total_litres)
-  const totalQuantity = sumBy(outputs, item => item.quantity)
-  const outputQuantity = toNumber(output?.quantity)
-  const outputLitres = toNumber(output?.total_litres)
-
-  let lineProductionCost = 0
-  if (totalBatchCost > 0 && totalLitres > 0 && outputLitres > 0) {
-    lineProductionCost = totalBatchCost * (outputLitres / totalLitres)
-  } else if (totalBatchCost > 0 && totalQuantity > 0 && outputQuantity > 0) {
-    lineProductionCost = totalBatchCost * (outputQuantity / totalQuantity)
-  }
-
-  const unitProductionCost = outputQuantity > 0 ? lineProductionCost / outputQuantity : 0
-  return { lineProductionCost, unitProductionCost }
 }
 
 // ─── Form initialisers ────────────────────────────────────────────────────────
@@ -2003,11 +1989,38 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
 
   const productMap = useMemo(() => new Map(data.products.map(p => [String(p.id), p])), [data.products])
   const rawMaterialMap = useMemo(() => new Map(data.rawMaterials.map(m => [String(m.id), m])), [data.rawMaterials])
+  const productBySizeKey = useMemo(
+    () => new Map(data.products.map(product => [normalizeSizeKey(product.name), product])),
+    [data.products]
+  )
   const sortedRawMaterials = useMemo(
     () => [...data.rawMaterials].sort((a, b) => String(a.name || '').localeCompare(String(b.name || ''))),
     [data.rawMaterials]
   )
   const pricingRuleMap = useMemo(() => new Map(data.pricingRules.map(r => [String(r.id), r])), [data.pricingRules])
+  const productionPriceBySize = useMemo(() => {
+    const priceMap = new Map()
+
+    data.pricingRules.forEach(rule => {
+      if (!isProductionPricingCategory(rule.pricing_category_name || rule.pricing_category)) return
+      const sizeKey = normalizeSizeKey(rule.size)
+      if (!sizeKey || priceMap.has(sizeKey)) return
+      priceMap.set(sizeKey, toNumber(rule.price))
+    })
+
+    data.products.forEach(product => {
+      const sizeKey = normalizeSizeKey(product.name)
+      if (!sizeKey || priceMap.has(sizeKey)) return
+      priceMap.set(sizeKey, toNumber(product.unit_price))
+    })
+
+    return priceMap
+  }, [data.pricingRules, data.products])
+  const resolveProductionPrice = (sizeLabel, product = null) => {
+    const sizePrice = productionPriceBySize.get(normalizeSizeKey(sizeLabel))
+    if (sizePrice > 0) return sizePrice
+    return toNumber(product?.unit_price)
+  }
   const invoiceOptions = useMemo(() => data.invoices
     .filter(inv => getInvoiceOutstanding(inv) > 0 || (receiptForm._editId && String(inv.id) === String(receiptForm.invoice)))
     .map(inv => ({ id: inv.id, label: `${fmtInv(inv.id)} — ${inv.customer_name || 'Customer'}`, outstanding: getInvoiceOutstanding(inv) })), [data.invoices])
@@ -2016,8 +2029,16 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
     () => ACCOUNT_SUB_ACCOUNTS_BY_TYPE[accountForm.entry_type] || [],
     [accountForm.entry_type]
   )
-  const getBatchOutputValue = (batch) => sumBy(batch?.outputs || [], output => getBatchOutputProductionCosts(batch, output).lineProductionCost)
-  const getBatchProductionGain = (batch) => getBatchOutputValue(batch) - toNumber(batch?.total_cost)
+  const getBatchOutputValue = (batch) => {
+    const batchValue = toNumber(batch?.total_production_value)
+    if (batchValue > 0) return batchValue
+    return sumBy(batch?.outputs || [], output => output.amount)
+  }
+  const getBatchProductionGain = (batch) => {
+    const batchProfit = toNumber(batch?.profit)
+    if (batchProfit || batchProfit === 0) return batchProfit
+    return getBatchOutputValue(batch) - toNumber(batch?.total_cost)
+  }
   const selectedBatchOutputValue = selectedBatch ? getBatchOutputValue(selectedBatch) : 0
   const selectedBatchProductionGain = selectedBatch ? getBatchProductionGain(selectedBatch) : 0
 
@@ -2887,9 +2908,9 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
       if (!validLines.length) throw new Error('Add at least one finished good with quantity.')
       await Promise.all(validLines.map(async (line) => {
         const targetSize = normalizeSizeKey(line.productSize)
-        const matchedProduct = data.products.find(p => normalizeSizeKey(p.name) === targetSize)
+        const matchedProduct = productBySizeKey.get(targetSize)
         const litres = inferTotalLitres(line.productSize, line.quantity)
-        const unitCost = toNumber(matchedProduct?.unit_price || 0)
+        const unitCost = resolveProductionPrice(line.productSize, matchedProduct)
         const payload = {
           batch: finishedGoodsForm.batch,
           product: matchedProduct ? matchedProduct.id : null,
@@ -4992,9 +5013,9 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
         const finishedGoodsPreview = finishedGoodsForm.lines
           .filter(line => toNumber(line.quantity) > 0)
           .map(line => {
-            const matchedProduct = data.products.find(product => normalizeSizeKey(product.name) === normalizeSizeKey(line.productSize))
+            const matchedProduct = productBySizeKey.get(normalizeSizeKey(line.productSize))
             const quantity = toNumber(line.quantity)
-            const unitValue = toNumber(matchedProduct?.unit_price)
+            const unitValue = resolveProductionPrice(line.productSize, matchedProduct)
             return {
               size: line.productSize,
               quantity,
@@ -5061,17 +5082,18 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
                       onChange={e => updateFinishedGoodsLine(idx, 'quantity', e.target.value)}
                     />
                     {(() => {
-                      const matchedProduct = data.products.find(product => normalizeSizeKey(product.name) === normalizeSizeKey(line.productSize))
+                      const matchedProduct = productBySizeKey.get(normalizeSizeKey(line.productSize))
+                      const unitValue = resolveProductionPrice(line.productSize, matchedProduct)
                       const currentStock = toNumber(matchedProduct?.stock_quantity)
                       const projectedStock = currentStock + toNumber(line.quantity)
-                      const lineValue = toNumber(line.quantity) * toNumber(matchedProduct?.unit_price)
+                      const lineValue = toNumber(line.quantity) * unitValue
                       return (
                         <>
                           <small style={{ color: '#64748b', fontSize: '0.72rem' }}>
                             {matchedProduct ? `${fmtQ(currentStock)} on hand · ${fmtQ(projectedStock)} after posting` : `${fmtQ(projectedStock)} after posting`}
                           </small>
                           <small style={{ color: '#64748b', fontSize: '0.72rem' }}>
-                            {matchedProduct ? `${fmt(matchedProduct.unit_price)} each · ${fmt(lineValue)} total value` : `${fmt(lineValue)} total value`}
+                            {matchedProduct || unitValue > 0 ? `${fmt(unitValue)} each · ${fmt(lineValue)} total value` : `${fmt(lineValue)} total value`}
                           </small>
                         </>
                       )
@@ -5733,7 +5755,7 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
           kicker="Batch Detail"
           title={selectedBatch.batch_number || `Batch #${selectedBatch.id}`}
           subtitle={`Produced: ${fmtD(selectedBatch.production_date)} · Expires: ${fmtD(selectedBatch.expiry_date)}`}
-          stat={`Production Gain: ${fmt(selectedBatchProductionGain)}`}
+          stat={`Profit: ${fmt(selectedBatchProductionGain)}`}
           onClose={() => setSelectedBatch(null)}
         >
           <div className="sales-form-actions" style={{ marginBottom: '12px' }}>
@@ -5789,7 +5811,7 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
             <span>Gas: <strong>{fmt(selectedBatch.gas_cost)}</strong></span>
             <span>Total Cost: <strong>{fmt(selectedBatch.total_cost)}</strong></span>
             <span>Output Value: <strong>{fmt(selectedBatchOutputValue)}</strong></span>
-            <span>Production Gain: <strong style={{ color: selectedBatchProductionGain >= 0 ? '#16a34a' : '#dc2626' }}>{fmt(selectedBatchProductionGain)}</strong></span>
+            <span>Profit: <strong style={{ color: selectedBatchProductionGain >= 0 ? '#16a34a' : '#dc2626' }}>{fmt(selectedBatchProductionGain)}</strong></span>
           </div>
 
           {/* Raw material usage */}
@@ -5817,16 +5839,15 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
             {(selectedBatch.outputs || []).length ? (
               <div className="sales-list-table workspace-table" style={{ '--table-cols': '1.2fr 1fr 1fr 1fr 88px' }}>
                 <div className="sales-list-head workspace-table-head">
-                  <span>Size</span><span>Qty Produced</span><span>Unit Production Cost</span><span>Total Production Cost</span><span>Action</span>
+                  <span>Size</span><span>Qty Produced</span><span>Unit Production Price</span><span>Total Production Value</span><span>Action</span>
                 </div>
                 {(selectedBatch.outputs || []).map(o => {
-                  const { unitProductionCost, lineProductionCost } = getBatchOutputProductionCosts(selectedBatch, o)
                   return (
                   <div key={o.id} className="sales-list-row workspace-table-row">
                     <span>{o.product_size}</span>
                     <span>{fmtQ(o.quantity)}</span>
-                    <span>{fmt(unitProductionCost)}</span>
-                    <span>{fmt(lineProductionCost)}</span>
+                    <span>{fmt(o.unit_cost)}</span>
+                    <span>{fmt(o.amount)}</span>
                     <button type="button" className="workspace-action-btn" onClick={() => openModal('finished_goods', { ...o, batch: selectedBatch.id })}>Edit</button>
                   </div>
                   )
