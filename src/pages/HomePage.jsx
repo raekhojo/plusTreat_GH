@@ -24,9 +24,9 @@ import {
 
 const SECTIONS = [
   { key: 'dashboard',       label: 'Dashboard',          icon: 'home',      roles: ['admin', 'sales', 'accounts'], subtitle: 'Live summary pulled from Dashboard and Financials workbook logic.',                                          sheets: ['Dashboard', 'Financials'] },
-  { key: 'sales_hub',       label: 'Sales Hub',          icon: 'sales',     roles: ['admin', 'sales'],             subtitle: 'Sales entry, invoices, receipts, and customer collections.',                                                sheets: ['Sales_Entry', 'Sales_Dtls', 'Invoice', 'SalesReceipt_Entry', 'SalesReceipt_Dtls', 'Sales'] },
-  { key: 'production_ops',  label: 'Production Ops',     icon: 'production',roles: ['admin'],                      subtitle: 'Batch production, finished stock, and raw material usage.',                                                sheets: ['Production_Entry', 'Production_Dtls', 'Inventory', 'RM_Usage_Dtls', 'Prod Planner'] },
-  { key: 'supplies_stock',  label: 'Supplies & Stock',   icon: 'inventory', roles: ['admin'],                      subtitle: 'Purchases, suppliers, raw materials, and stock control.',                                                   sheets: ['RMPurchases_Entry', 'Purchase_Dtls', 'PurchasePmt_Dtls', 'RawMaterials'] },
+  { key: 'sales_hub',       label: 'Sales Hub',          icon: 'sales',     roles: ['admin', 'sales', 'accounts'], subtitle: 'Sales entry, invoices, receipts, and customer collections.',                                                sheets: ['Sales_Entry', 'Sales_Dtls', 'Invoice', 'SalesReceipt_Entry', 'SalesReceipt_Dtls', 'Sales'] },
+  { key: 'production_ops',  label: 'Production Ops',     icon: 'production',roles: ['admin', 'accounts'],          subtitle: 'Batch production, finished stock, and raw material usage.',                                                sheets: ['Production_Entry', 'Production_Dtls', 'Inventory', 'RM_Usage_Dtls', 'Prod Planner'] },
+  { key: 'supplies_stock',  label: 'Supplies & Stock',   icon: 'inventory', roles: ['admin', 'accounts'],          subtitle: 'Purchases, suppliers, raw materials, and stock control.',                                                   sheets: ['RMPurchases_Entry', 'Purchase_Dtls', 'PurchasePmt_Dtls', 'RawMaterials'] },
   { key: 'customers',       label: 'Customers',          icon: 'customers', roles: ['admin', 'sales'],             subtitle: 'Customer records, invoice history, and outstanding balances.',                                          sheets: ['Customers_Dtls', 'Customers'] },
   { key: 'suppliers',       label: 'Suppliers',          icon: 'suppliers', roles: ['admin', 'accounts'],          subtitle: 'Supplier records, purchases, and payable balances.',                                                       sheets: ['Supplier_Dtls'] },
   { key: 'accounts_pricing',label: 'Accounts & Pricing', icon: 'finance',   roles: ['admin', 'accounts'],          subtitle: 'Accounts entries, pricing rules, trial balance, and configuration.',                                       sheets: ['Accounts_Entry', 'Accounts_Dtls', 'Trial Balance', 'Pricing'] },
@@ -155,6 +155,11 @@ function fmtD(v)  {
   return Number.isNaN(d.getTime()) ? String(v) : new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric' }).format(d)
 }
 function fmtStatus(v) { return String(v || '').replaceAll('_', ' ').replace(/\b\w/g, m => m.toUpperCase()) }
+function fmtRole(v) {
+  const normalized = String(v || '').trim().toLowerCase()
+  if (normalized === 'accounts') return 'Data Entry'
+  return fmtStatus(v)
+}
 function truncateText(value, maxLength = 12) {
   const text = String(value || '').trim()
   if (!text) return '—'
@@ -168,7 +173,13 @@ function nonNegativeAmount(value) {
   return Math.max(0, toNumber(value))
 }
 function getInvoiceOutstanding(invoice) {
-  return nonNegativeAmount(invoice?.outstanding_balance)
+  return toNumber(invoice?.outstanding_balance)
+}
+function getInvoiceOutstandingDue(invoice) {
+  return Math.max(0, getInvoiceOutstanding(invoice))
+}
+function getInvoiceOverpayment(invoice) {
+  return Math.max(0, -getInvoiceOutstanding(invoice))
 }
 function getPurchaseOutstanding(purchase) {
   return nonNegativeAmount(purchase?.outstanding_amount)
@@ -179,8 +190,9 @@ function getInvoicePaidAmount(invoice) {
 function getInvoiceCollectionState(invoice) {
   const outstanding = getInvoiceOutstanding(invoice)
   const total = toNumber(invoice?.total_amount)
-  const paidAmount = total - outstanding
-  if (outstanding <= 0 && total > 0) return 'paid'
+  const paidAmount = getInvoicePaidAmount(invoice)
+  if (outstanding < 0) return 'overpaid'
+  if (outstanding === 0 && total > 0) return 'paid'
   if (outstanding > 0 && paidAmount > 0) return 'partial'
   return 'unpaid'
 }
@@ -314,7 +326,7 @@ function buildCustomerLedger(customers, invoices) {
   return customers.map(c => {
     const invs = invoices.filter(inv => String(inv.customer) === String(c.id))
     const paid = sumBy(invs, inv => getInvoicePaidAmount(inv))
-    const outstanding = sumBy(invs, inv => getInvoiceOutstanding(inv))
+    const outstanding = sumBy(invs, inv => getInvoiceOutstandingDue(inv))
     return { ...c, invoiceCount: invs.length, paid, outstanding }
   }).sort((a, b) => b.outstanding - a.outstanding)
 }
@@ -330,6 +342,12 @@ function normalizeSizeKey(v) {
 function isProductionPricingCategory(value) {
   const normalized = normalizeFilterValue(value).replace(/\s+/g, '')
   return normalized === 'productionprice' || normalized === 'productionprices'
+}
+function getBatchTypeLabel(value) {
+  const normalized = normalizeFilterValue(value)
+  if (normalized === 'production') return 'Production'
+  if (normalized === 'development') return 'Product Development'
+  return fmtStatus(value)
 }
 function inferTotalLitres(sizeLabel, quantity) {
   const text = String(sizeLabel || '').toLowerCase().replaceAll(',', '').trim()
@@ -406,7 +424,7 @@ const buildReceiptForm = (entity = null) => {
   }
 }
 const mkBatchUsage     = (materialName = '') => ({ rawMaterial: '', materialName, quantityUsed: '', isTemplate: Boolean(materialName) })
-const mkBatchForm      = ()              => ({ productionDate: todayValue(), electricityCost: '', gasCost: '', productionWages: '', notes: '', usages: PRODUCTION_RAW_MATERIAL_TEMPLATES.map(name => mkBatchUsage(name)), _editId: null })
+const mkBatchForm      = ()              => ({ batchType: 'production', productionDate: todayValue(), electricityCost: '', gasCost: '', productionWages: '', notes: '', usages: PRODUCTION_RAW_MATERIAL_TEMPLATES.map(name => mkBatchUsage(name)), _editId: null })
 const buildBatchForm   = (entity = null) => {
   if (!entity) return mkBatchForm()
 
@@ -421,6 +439,7 @@ const buildBatchForm   = (entity = null) => {
 
   return {
     ...mkBatchForm(),
+    batchType: entity.batch_type || 'production',
     productionDate: entity.production_date || todayValue(),
     electricityCost: entity.electricity_cost ? String(entity.electricity_cost) : '',
     gasCost: entity.gas_cost ? String(entity.gas_cost) : '',
@@ -1732,7 +1751,7 @@ function UserManagement({ staffProfiles, onSaved }) {
     <>
       <WorkspaceToolbar
         title="Staff Accounts"
-        subtitle="Create staff logins and assign admin, sales, or accounts access."
+        subtitle="Create staff logins and assign admin, sales, or data entry access."
         actions={<button type="button" className="account-alert-button account-alert-button-dark" onClick={startCreate}>Add Staff</button>}
       />
 
@@ -1754,7 +1773,7 @@ function UserManagement({ staffProfiles, onSaved }) {
               <div className="sales-form-hero-meta">
                 <div>
                   <span>Role</span>
-                  <strong>{fmtStatus(form.role)}</strong>
+                  <strong>{fmtRole(form.role)}</strong>
                 </div>
                 <div>
                   <span>Status</span>
@@ -1809,7 +1828,7 @@ function UserManagement({ staffProfiles, onSaved }) {
                 <label className="sales-field">
                   <span>Role</span>
                   <select value={form.role} onChange={event => setForm(current => ({ ...current, role: event.target.value }))}>
-                    {ROLES.map(role => <option key={role} value={role}>{fmtStatus(role)}</option>)}
+                    {ROLES.map(role => <option key={role} value={role}>{fmtRole(role)}</option>)}
                   </select>
                 </label>
                 <label className="sales-field">
@@ -1841,7 +1860,7 @@ function UserManagement({ staffProfiles, onSaved }) {
           cells: [
             `${profile.user?.first_name || ''} ${profile.user?.last_name || ''}`.trim() || profile.user?.username || 'Staff',
             `@${profile.user?.username || 'user'}`,
-            fmtStatus(profile.role),
+            fmtRole(profile.role),
             profile.user?.email || profile.phone || '—',
             profile.user?.is_active === false ? 'Inactive' : 'Active',
             <button key={`edit-${profile.id}`} type="button" className="workspace-action-btn" onClick={event => { event.stopPropagation(); startEdit(profile) }}>Edit</button>,
@@ -1904,6 +1923,10 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
   const batchUsageTailRef = useRef(null)
   const purchaseItemsTailRef = useRef(null)
   const normalizedRole = String(user?.role || 'sales').toLowerCase()
+  const isDataEntryRole = normalizedRole === 'accounts'
+  const canManageSalesTransactions = normalizedRole === 'admin'
+  const canManageProductionTransactions = normalizedRole === 'admin'
+  const canManageDataEntryEditDelete = !isDataEntryRole
   const availableSections = useMemo(() => {
     const visible = SECTIONS
       .filter(section => !section.roles || section.roles.includes(normalizedRole))
@@ -2025,6 +2048,12 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
     .filter(inv => getInvoiceOutstanding(inv) > 0 || (receiptForm._editId && String(inv.id) === String(receiptForm.invoice)))
     .map(inv => ({ id: inv.id, label: `${fmtInv(inv.id)} — ${inv.customer_name || 'Customer'}`, outstanding: getInvoiceOutstanding(inv) })), [data.invoices])
   const openPurchases  = useMemo(() => data.purchases.filter(p => p.status === 'open' || p.status === 'partially_paid'), [data.purchases])
+  const openInvoiceOptions = useMemo(
+    () => data.invoices
+      .filter(inv => getInvoiceOutstandingDue(inv) > 0 || (receiptForm._editId && String(inv.id) === String(receiptForm.invoice)))
+      .map(inv => ({ id: inv.id, label: `${fmtInv(inv.id)} - ${inv.customer_name || 'Customer'}`, outstanding: getInvoiceOutstandingDue(inv) })),
+    [data.invoices, receiptForm._editId, receiptForm.invoice],
+  )
   const accountSubAccountOptions = useMemo(
     () => ACCOUNT_SUB_ACCOUNTS_BY_TYPE[accountForm.entry_type] || [],
     [accountForm.entry_type]
@@ -2073,7 +2102,7 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
     [data.customers]
   )
   const invoiceSelectOptions = useMemo(() => {
-    const options = invoiceOptions.map(invoice => ({
+    const options = openInvoiceOptions.map(invoice => ({
       value: String(invoice.id),
       label: invoice.label,
       meta: fmt(invoice.outstanding),
@@ -2085,13 +2114,13 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
         options.unshift({
           value: String(currentInvoice.id),
           label: `${fmtInv(currentInvoice.id)} â€” ${currentInvoice.customer_name || 'Customer'}`,
-          meta: fmt(getInvoiceOutstanding(currentInvoice)),
-          searchText: `${fmtInv(currentInvoice.id)} ${currentInvoice.customer_name || 'Customer'} ${fmt(getInvoiceOutstanding(currentInvoice))}`,
+          meta: fmt(getInvoiceOutstandingDue(currentInvoice)),
+          searchText: `${fmtInv(currentInvoice.id)} ${currentInvoice.customer_name || 'Customer'} ${fmt(getInvoiceOutstandingDue(currentInvoice))}`,
         })
       }
     }
     return options
-  }, [data.invoices, invoiceOptions, receiptForm._editId, receiptForm.invoice])
+  }, [data.invoices, openInvoiceOptions, receiptForm._editId, receiptForm.invoice])
   const rawMaterialSelectOptions = useMemo(
     () => sortedRawMaterials.map(material => {
       const available = toNumber(material.opening_stock) + toNumber(material.stock_in) - toNumber(material.stock_out)
@@ -2167,6 +2196,27 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
       searchText: `${batch.batch_number || `Batch #${batch.id}`} ${fmtD(batch.production_date)}`,
     })),
     [data.productionBatches]
+  )
+  const productionBatchTypeOptions = useMemo(() => {
+    const baseOptions = [
+      { value: 'production', label: 'Production' },
+      { value: 'development', label: 'Product Development' },
+    ]
+    const known = new Set(baseOptions.map(option => option.value))
+    const dynamicOptions = data.productionBatches
+      .map(batch => String(batch.batch_type || '').trim())
+      .filter(Boolean)
+      .filter((value, index, array) => array.indexOf(value) === index)
+      .filter(value => !known.has(value))
+      .map(value => ({ value, label: getBatchTypeLabel(value) }))
+    return [...baseOptions, ...dynamicOptions]
+  }, [data.productionBatches])
+  const finishedGoodsBatchOptions = useMemo(
+    () => batchSelectOptions.filter(option => {
+      const batch = data.productionBatches.find(entry => String(entry.id) === String(option.value))
+      return normalizeFilterValue(batch?.batch_type || 'production') !== 'development'
+    }),
+    [batchSelectOptions, data.productionBatches],
   )
   const accountTypeOptions = useMemo(
     () => ACCOUNT_TRANS_TYPE_OPTIONS.map(option => ({ value: option.value, label: option.label })),
@@ -2337,13 +2387,13 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
     const ytdAcct  = dashboardAccounts.filter(e => isThisYear(e.transaction_date))
 
     const totalSales       = sumBy(ytdInv, inv => inv.total_amount)
-    const outstanding      = sumBy(dashboardInvoices, inv => getInvoiceOutstanding(inv))
+    const outstanding      = sumBy(dashboardInvoices, inv => getInvoiceOutstandingDue(inv))
     const totalCost        = sumBy(ytdBatch, b => b.total_cost)
     const receiptsTotal    = sumBy(dashboardPayments, p => p.amount)
     const expenseTotal     = sumBy(ytdAcct.filter(e => e.entry_type === 'expense'), e => e.amount)
     const grossProfit      = totalSales - totalCost
     const netProfit        = grossProfit - expenseTotal
-    const openInvoices     = dashboardInvoices.filter(inv => getInvoiceOutstanding(inv) > 0)
+    const openInvoices     = dashboardInvoices.filter(inv => getInvoiceOutstandingDue(inv) > 0)
     const avgInvoiceValue  = ytdInv.length ? totalSales / ytdInv.length : 0
     const collectionRate   = ratioPct(receiptsTotal, Math.max(totalSales, receiptsTotal))
     const grossMarginPct   = ratioPct(grossProfit, totalSales)
@@ -2352,7 +2402,7 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
 
     const custSales = data.customers.map(c => {
       const invs = dashboardInvoices.filter(inv => String(inv.customer) === String(c.id))
-      return { id: c.id, title: c.name, meta: `${invs.length} invoices`, salesValue: sumBy(invs, inv => inv.total_amount), outstanding: sumBy(invs, inv => getInvoiceOutstanding(inv)) }
+      return { id: c.id, title: c.name, meta: `${invs.length} invoices`, salesValue: sumBy(invs, inv => inv.total_amount), outstanding: sumBy(invs, inv => getInvoiceOutstandingDue(inv)) }
     }).sort((a, b) => b.salesValue - a.salesValue)
 
     const prodMap = new Map()
@@ -2397,19 +2447,19 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
     const invoiceStatusSegments = [
       {
         label: 'Collected',
-        value: sumBy(dashboardInvoices.filter(inv => getInvoiceOutstanding(inv) <= 0), inv => inv.total_amount),
-        meta: `${dashboardInvoices.filter(inv => getInvoiceOutstanding(inv) <= 0).length} invoices settled`,
+        value: sumBy(dashboardInvoices.filter(inv => getInvoiceOutstandingDue(inv) <= 0), inv => inv.total_amount),
+        meta: `${dashboardInvoices.filter(inv => getInvoiceOutstandingDue(inv) <= 0).length} invoices settled`,
         color: '#2492da',
       },
       {
         label: 'Partially Paid',
         value: sumBy(dashboardInvoices.filter(inv => {
           const paidAmount = getInvoicePaidAmount(inv)
-          return getInvoiceOutstanding(inv) > 0 && paidAmount > 0
-        }), inv => getInvoiceOutstanding(inv)),
+          return getInvoiceOutstandingDue(inv) > 0 && paidAmount > 0
+        }), inv => getInvoiceOutstandingDue(inv)),
         meta: `${dashboardInvoices.filter(inv => {
           const paidAmount = getInvoicePaidAmount(inv)
-          return getInvoiceOutstanding(inv) > 0 && paidAmount > 0
+          return getInvoiceOutstandingDue(inv) > 0 && paidAmount > 0
         }).length} invoices still collecting`,
         color: '#f2b13a',
       },
@@ -2417,11 +2467,11 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
         label: 'Unpaid',
         value: sumBy(dashboardInvoices.filter(inv => {
           const paidAmount = getInvoicePaidAmount(inv)
-          return getInvoiceOutstanding(inv) > 0 && paidAmount <= 0
-        }), inv => getInvoiceOutstanding(inv)),
+          return getInvoiceOutstandingDue(inv) > 0 && paidAmount <= 0
+        }), inv => getInvoiceOutstandingDue(inv)),
         meta: `${dashboardInvoices.filter(inv => {
           const paidAmount = getInvoicePaidAmount(inv)
-          return getInvoiceOutstanding(inv) > 0 && paidAmount <= 0
+          return getInvoiceOutstandingDue(inv) > 0 && paidAmount <= 0
         }).length} invoices untouched`,
         color: '#ef4444',
       },
@@ -2479,7 +2529,7 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
     return {
       metrics: [
         { label: 'Total Sales (YTD)',         value: fmt(totalSales),    note: `${ytdInv.length} invoices this year` },
-        { label: 'Outstanding Receivables',   value: fmt(outstanding),   note: `${dashboardInvoices.filter(inv => getInvoiceOutstanding(inv) > 0).length} open invoices` },
+        { label: 'Outstanding Receivables',   value: fmt(outstanding),   note: `${dashboardInvoices.filter(inv => getInvoiceOutstandingDue(inv) > 0).length} open invoices` },
         { label: 'Production Batches (YTD)',  value: fmtQ(ytdBatch.length), note: 'Batches recorded this year' },
         { label: 'Production Cost (YTD)',     value: fmt(totalCost),     note: 'Sum of batch costs' },
         { label: 'Gross Profit (YTD)',        value: fmt(grossProfit),   note: 'Sales minus production cost' },
@@ -2502,7 +2552,7 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
         { id: 'net',       title: 'Net Profit / Loss',    meta: 'Gross profit minus expenses', value: fmt(netProfit) },
       ],
       receivables:    clampRows(custSales.filter(c => c.outstanding > 0)).map(c => ({ id: c.id, title: c.title, meta: 'Amount outstanding', value: fmt(c.outstanding) })),
-      openInvoices:   clampRows(openInvoices).map(inv => ({ id: inv.id, title: fmtInv(inv.id), meta: inv.customer_name || 'Customer', value: fmt(getInvoiceOutstanding(inv)) })),
+      openInvoices:   clampRows(openInvoices).map(inv => ({ id: inv.id, title: fmtInv(inv.id), meta: inv.customer_name || 'Customer', value: fmt(getInvoiceOutstandingDue(inv)) })),
     }
   }, [dashboardAccounts, dashboardBatches, dashboardInvoices, dashboardPayments, data.customers, data.products, data.rawMaterials.length, lowStockRows])
 
@@ -2740,11 +2790,7 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
       const noRuleLines = saleForm.lines.filter(it => it.productSize && !it.pricingRule)
       if (noRuleLines.length) throw new Error(`No pricing rule found for: ${noRuleLines.map(l => l.productSize).join(', ')}. Add the pricing rule first.`)
       if (!saleForm.customer || !lines.length) throw new Error('Choose a customer and at least one valid product line.')
-      const totalPaymentAmount = sumBy(validPayments, payment => payment.amount)
       const currentInvoice = saleForm._editId ? data.invoices.find(invoice => String(invoice.id) === String(saleForm._editId)) : null
-      if (totalPaymentAmount > Math.max(0, sumBy(lines, line => toNumber(line.quantity) * toNumber(line.unit_price)) - toNumber(saleForm.discountAmount))) {
-        throw new Error('Payments entered exceed the invoice total.')
-      }
       const outOfStockSizes = Array.from(requestedBySize.entries()).flatMap(([sizeKey, requestedQty]) => {
         const matchedProduct = data.products.find(product => normalizeSizeKey(product.name) === sizeKey)
         const restoredQty = sumBy((currentInvoice?.lines || []).filter(line => normalizeSizeKey(line.product_size) === sizeKey), line => line.quantity)
@@ -2850,7 +2896,9 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
     e.preventDefault()
     setSub('batch', true); setFB('batch', '')
     try {
+      if (batchForm._editId && !canManageProductionTransactions) throw new Error('Data Entry staff can add batches, but cannot edit existing ones.')
       const batchPayload = {
+        batch_type: batchForm.batchType || 'production',
         production_date: batchForm.productionDate,
         notes: batchForm.notes,
         electricity_cost: batchForm.electricityCost || '0',
@@ -2903,7 +2951,12 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
     e.preventDefault()
     setSub('finished_goods', true); setFB('finished_goods', '')
     try {
+      if (finishedGoodsForm._editId && !canManageProductionTransactions) throw new Error('Data Entry staff can record finished goods, but cannot edit existing ones.')
       if (!finishedGoodsForm.batch) throw new Error('Select a batch number first.')
+      const selectedBatchRecord = data.productionBatches.find(batch => String(batch.id) === String(finishedGoodsForm.batch))
+      if (normalizeFilterValue(selectedBatchRecord?.batch_type || 'production') === 'development') {
+        throw new Error('Finished goods can only be posted to production batches.')
+      }
       const validLines = finishedGoodsForm.lines.filter(it => it.productSize && toNumber(it.quantity) > 0)
       if (!validLines.length) throw new Error('Add at least one finished good with quantity.')
       await Promise.all(validLines.map(async (line) => {
@@ -3239,11 +3292,11 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
     { label: 'Invoices',    value: String(filteredSalesInvoices.length),                                  note: `${filteredSalesInvoices.filter(i => i.status === 'issued').length} open` },
     { label: 'Total Billed',value: fmt(sumBy(filteredSalesInvoices, inv => inv.total_amount)),           note: `${filteredSalesInvoices.length} invoices` },
     { label: 'Total Paid',  value: fmt(sumBy(filteredSalesPayments, p => p.amount)),                     note: `${filteredSalesPayments.length} receipts` },
-    { label: 'Outstanding', value: fmt(sumBy(filteredSalesInvoices, inv => getInvoiceOutstanding(inv))), note: `${filteredSalesInvoices.filter(i => getInvoiceOutstanding(i) > 0).length} unpaid` },
+    { label: 'Outstanding', value: fmt(sumBy(filteredSalesInvoices, inv => getInvoiceOutstandingDue(inv))), note: `${filteredSalesInvoices.filter(i => getInvoiceOutstandingDue(i) > 0).length} unpaid` },
   ]
   const productionSummary = [{ label: 'Batches', value: String(productionBatchesFiltered.length), note: 'Production_Dtls' }, { label: 'RM Cost', value: fmt(sumBy(productionBatchesFiltered, b => b.total_raw_material_cost)), note: 'Material usage' }, { label: 'Production Gain', value: fmt(sumBy(productionBatchesFiltered, b => getBatchProductionGain(b))), note: 'Output value less total cost' }, { label: 'Stock Units', value: fmtQ(sumBy(data.products, p => p.stock_quantity)), note: 'Finished goods on hand' }]
   const suppliesSummary   = [{ label: 'Suppliers', value: String(data.suppliers.length), note: 'Supplier_Dtls' }, { label: 'Raw Materials', value: String(data.rawMaterials.length), note: 'RawMaterials tracked' }, { label: 'Purchases', value: fmt(sumBy(purchasesFiltered, p => p.total_amount)), note: `${purchasesFiltered.length} records` }, { label: 'Supplier Due', value: fmt(sumBy(purchasesFiltered, p => getPurchaseOutstanding(p))), note: 'Open balances' }]
-  const customersSummary  = [{ label: 'Customers', value: String(data.customers.length), note: `${filteredCustomerLedger.filter(c => c.invoiceCount > 0).length} already billed` }, { label: 'Outstanding', value: fmt(sumBy(filteredCustomerLedger, c => c.outstanding)), note: 'Total receivables due' }, { label: 'Receipts', value: fmt(sumBy(customerPaymentsFiltered, p => p.amount)), note: 'Total collected' }, { label: 'Open Invoices', value: String(customerInvoicesFiltered.filter(inv => getInvoiceOutstanding(inv) > 0).length), note: 'Invoices with balance' }]
+  const customersSummary  = [{ label: 'Customers', value: String(data.customers.length), note: `${filteredCustomerLedger.filter(c => c.invoiceCount > 0).length} already billed` }, { label: 'Outstanding', value: fmt(sumBy(filteredCustomerLedger, c => c.outstanding)), note: 'Total receivables due' }, { label: 'Receipts', value: fmt(sumBy(customerPaymentsFiltered, p => p.amount)), note: 'Total collected' }, { label: 'Open Invoices', value: String(customerInvoicesFiltered.filter(inv => getInvoiceOutstandingDue(inv) > 0).length), note: 'Invoices with balance' }]
   const suppliersSummary  = [{ label: 'Suppliers', value: String(data.suppliers.length), note: 'Vendor records' }, { label: 'Purchases', value: fmt(sumBy(supplierPurchasesFiltered, p => p.total_amount)), note: `${supplierPurchasesFiltered.length} purchase records` }, { label: 'Paid', value: fmt(sumBy(supplierPurchasesFiltered, p => p.total_paid)), note: 'Total paid to suppliers' }, { label: 'Due', value: fmt(sumBy(filteredSupplierLedger, s => s.outstanding)), note: 'Outstanding payables' }]
   const accountsIncomeTotal = sumBy(accountInvoicesFiltered, invoice => invoice.total_amount) + sumBy(accountTransactionsFiltered.filter(e => e.entry_type === 'income'), e => e.amount)
   const accountsSummary   = [{ label: 'Entries', value: String(accountTransactionsFiltered.length), note: 'Accounts_Dtls rows' }, { label: 'Income', value: fmt(accountsIncomeTotal), note: `${accountInvoicesFiltered.length} sales + other income` }, { label: 'Expenses', value: fmt(sumBy(accountTransactionsFiltered.filter(e => e.entry_type === 'expense'), e => e.amount)), note: 'Expense rows' }, { label: 'Pricing Rules', value: String(filteredPricingRules.length), note: 'Filtered pricing sheet' }]
@@ -3283,19 +3336,23 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
       fmt(inv.total_amount),
       fmt(getInvoicePaidAmount(inv)),
       fmt(getInvoiceOutstanding(inv)),
-      <div key="actions" style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
-        <button type="button" className="workspace-action-btn" onClick={event => { event.stopPropagation(); openModal('sale', inv) }}>Edit</button>
-        <button
-          type="button"
-          className="workspace-action-btn"
-          onClick={event => {
-            event.stopPropagation()
-            handleDelete('sale', () => deleteInvoice(inv.id))
-          }}
-        >
-          Delete
-        </button>
-      </div>,
+      ...(canManageSalesTransactions
+        ? [(
+            <div key="actions" style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+              <button type="button" className="workspace-action-btn" onClick={event => { event.stopPropagation(); openModal('sale', inv) }}>Edit</button>
+              <button
+                type="button"
+                className="workspace-action-btn"
+                onClick={event => {
+                  event.stopPropagation()
+                  handleDelete('sale', () => deleteInvoice(inv.id))
+                }}
+              >
+                Delete
+              </button>
+            </div>
+          )]
+        : []),
     ],
   }))
   const batchRows    = productionBatchesFiltered.map(b => ({
@@ -3308,19 +3365,23 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
       String(b.outputs?.length || 0),
       fmt(b.total_cost),
       fmt(b.profit),
-      <div key="actions" style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
-        <button type="button" className="workspace-action-btn" onClick={event => { event.stopPropagation(); openModal('batch', b) }}>Edit</button>
-        <button
-          type="button"
-          className="workspace-action-btn"
-          onClick={event => {
-            event.stopPropagation()
-            handleDelete('batch', () => deleteProductionBatch(b.id))
-          }}
-        >
-          Delete
-        </button>
-      </div>,
+      ...(canManageProductionTransactions
+        ? [(
+            <div key="actions" style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+              <button type="button" className="workspace-action-btn" onClick={event => { event.stopPropagation(); openModal('batch', b) }}>Edit</button>
+              <button
+                type="button"
+                className="workspace-action-btn"
+                onClick={event => {
+                  event.stopPropagation()
+                  handleDelete('batch', () => deleteProductionBatch(b.id))
+                }}
+              >
+                Delete
+              </button>
+            </div>
+          )]
+        : []),
     ],
   }))
   const purchaseRows = purchasesFiltered.map(p => ({
@@ -3334,19 +3395,23 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
       fmtStatus(p.status),
       fmt(p.total_paid),
       fmt(getPurchaseOutstanding(p)),
-      <div key="actions" style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
-        <button type="button" className="workspace-action-btn" onClick={event => { event.stopPropagation(); openModal('purchase', p) }}>Edit</button>
-        <button
-          type="button"
-          className="workspace-action-btn"
-          onClick={event => {
-            event.stopPropagation()
-            handleDelete('purchase', () => deletePurchase(p.id))
-          }}
-        >
-          Delete
-        </button>
-      </div>,
+      ...(canManageDataEntryEditDelete
+        ? [(
+            <div key="actions" style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+              <button type="button" className="workspace-action-btn" onClick={event => { event.stopPropagation(); openModal('purchase', p) }}>Edit</button>
+              <button
+                type="button"
+                className="workspace-action-btn"
+                onClick={event => {
+                  event.stopPropagation()
+                  handleDelete('purchase', () => deletePurchase(p.id))
+                }}
+              >
+                Delete
+              </button>
+            </div>
+          )]
+        : []),
     ],
   }))
   const inventoryRows = inventoryLedger.map(item => ({
@@ -3363,22 +3428,24 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
       fmt(item.stockBalance),
       fmtQ(item.productionLevel),
       <span key="pr" style={{ color: item.prodRequired ? '#dc2626' : '#16a34a', fontWeight: 600 }}>{item.prodRequired ? 'Yes' : 'No'}</span>,
-      <button
-        key="edit"
-        type="button"
-        className="workspace-action-btn"
-        onClick={event => {
-          event.stopPropagation()
-          const matchingProduct = data.products.find(product => normalizeSizeKey(product.name) === normalizeSizeKey(item.size))
-          if (matchingProduct) {
-            openModal('product', matchingProduct)
-            return
-          }
-          setSelectedInventoryItem(item)
-        }}
-      >
-        Edit
-      </button>,
+      canManageProductionTransactions ? (
+        <button
+          key="edit"
+          type="button"
+          className="workspace-action-btn"
+          onClick={event => {
+            event.stopPropagation()
+            const matchingProduct = data.products.find(product => normalizeSizeKey(product.name) === normalizeSizeKey(item.size))
+            if (matchingProduct) {
+              openModal('product', matchingProduct)
+              return
+            }
+            setSelectedInventoryItem(item)
+          }}
+        >
+          Edit
+        </button>
+      ) : 'View',
     ],
   }))
   const materialRows = lowStockRows.map(m => {
@@ -3397,12 +3464,14 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
         <span key="avail" style={{ color: stockColor, fontWeight: 600 }}>{fmtQ(m.available)}</span>,
         fmtQ(m.reorder_level),
         <span key="status" style={{ color: stockColor, fontSize: '0.78rem', fontWeight: 700 }}>{isOut ? 'Out' : isLow ? 'Low' : 'OK'}</span>,
-        <button key="edit" type="button" className="workspace-action-btn" onClick={e => { e.stopPropagation(); openModal('raw_mat', m) }}>Edit</button>,
+        ...(canManageDataEntryEditDelete
+          ? [<button key="edit" type="button" className="workspace-action-btn" onClick={e => { e.stopPropagation(); openModal('raw_mat', m) }}>Edit</button>]
+          : []),
       ],
     }
   })
   const customerRows = filteredCustomerLedger.map(c => ({ key: c.id, emphasisIndex: 4, cells: [c.name, c.phone || '—', String(c.invoiceCount), fmt(c.paid), fmt(c.outstanding), <button key="edit" type="button" className="workspace-action-btn" onClick={e => { e.stopPropagation(); openModal('customer', c) }}>Edit</button>] }))
-  const supplierRows = filteredSupplierLedger.map(s => ({ key: s.id, emphasisIndex: 4, cells: [s.name, resolveSupplierItemCategory(s, data.purchases, data.rawMaterials), String(s.purchaseCount), fmt(s.paid), fmt(s.outstanding), <button key="edit" type="button" className="workspace-action-btn" onClick={e => { e.stopPropagation(); openModal('supplier', s) }}>Edit</button>] }))
+  const supplierRows = filteredSupplierLedger.map(s => ({ key: s.id, emphasisIndex: 4, cells: [s.name, resolveSupplierItemCategory(s, data.purchases, data.rawMaterials), String(s.purchaseCount), fmt(s.paid), fmt(s.outstanding), ...(canManageDataEntryEditDelete ? [<button key="edit" type="button" className="workspace-action-btn" onClick={e => { e.stopPropagation(); openModal('supplier', s) }}>Edit</button>] : [])] }))
   const accountRows  = accountTransactionsFiltered.map(e => ({
     key: e.id,
     emphasisIndex: 5,
@@ -3415,10 +3484,10 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
       fmt(e.amount),
       e.payment_method ? fmtStatus(e.payment_method) : '—',
       e.comments || '—',
-      <button key="edit" type="button" className="workspace-action-btn" onClick={event => { event.stopPropagation(); openModal('account', e) }}>Edit</button>,
+      ...(canManageDataEntryEditDelete ? [<button key="edit" type="button" className="workspace-action-btn" onClick={event => { event.stopPropagation(); openModal('account', e) }}>Edit</button>] : []),
     ],
   }))
-  const pricingRows  = filteredPricingRules.map(r => ({ key: r.id, emphasisIndex: 3, cells: [r.product_name || r.size || '—', r.size, r.pricing_category_name || '—', fmt(r.price), <button key="edit" type="button" className="workspace-action-btn" onClick={e => { e.stopPropagation(); openModal('pricing', r) }}>Edit</button>] }))
+  const pricingRows  = filteredPricingRules.map(r => ({ key: r.id, emphasisIndex: 3, cells: [r.product_name || r.size || '—', r.size, r.pricing_category_name || '—', fmt(r.price), ...(canManageDataEntryEditDelete ? [<button key="edit" type="button" className="workspace-action-btn" onClick={e => { e.stopPropagation(); openModal('pricing', r) }}>Edit</button>] : [])] }))
 
   const salesFilterOptions = useMemo(() => {
     if ((sectionTabs.sales_hub || SECTION_DEFAULT_TABS.sales_hub) === 'recent_receipts') {
@@ -3453,6 +3522,7 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
         searchPlaceholder: 'Search states...',
         options: [
           { value: 'paid', label: 'Collected' },
+          { value: 'overpaid', label: 'Overpaid' },
           { value: 'partial', label: 'Partially Paid' },
           { value: 'unpaid', label: 'Unpaid' },
         ],
@@ -3568,8 +3638,8 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
     uniqueDatesSorted(
       data.invoices
         .filter(inv => {
-          if (onlyOutstanding === true) return getInvoiceOutstanding(inv) > 0
-          if (onlyOutstanding === false) return getInvoiceOutstanding(inv) <= 0
+          if (onlyOutstanding === true) return getInvoiceOutstandingDue(inv) > 0
+          if (onlyOutstanding === false) return getInvoiceOutstandingDue(inv) <= 0
           return true
         })
         .map(inv => inv.invoice_date)
@@ -3717,8 +3787,8 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
     - sumPurchasePayments({ accountName, startTs, beforeStart })
   )
 
-  const incomeCreditSalesMovement = sumBy(data.invoices.filter(inv => getInvoiceOutstanding(inv) > 0), inv => inv.total_amount)
-  const incomeCashSalesMovement = sumBy(data.invoices.filter(inv => getInvoiceOutstanding(inv) <= 0), inv => inv.total_amount)
+  const incomeCreditSalesMovement = sumBy(data.invoices.filter(inv => getInvoiceOutstandingDue(inv) > 0), inv => inv.total_amount)
+  const incomeCashSalesMovement = sumBy(data.invoices.filter(inv => getInvoiceOutstandingDue(inv) <= 0), inv => inv.total_amount)
   const otherIncomeMovement = sumAccountEntries({ entryType: 'income', category: 'Other Income', startTs: expenseStartTs })
 
   const productionMovement = sumProductionOutputs({ startTs: periodStartTs })
@@ -4055,7 +4125,7 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
           <TableCard
             title="Sales List"
             subtitle="Mirrors Sales, Sales_Dtls, and Invoice workbook rows."
-            columns={['Date', 'Invoice', 'Customer', 'Total', 'Paid', 'Outstanding', 'Actions']}
+            columns={canManageSalesTransactions ? ['Date', 'Invoice', 'Customer', 'Total', 'Paid', 'Outstanding', 'Actions'] : ['Date', 'Invoice', 'Customer', 'Total', 'Paid', 'Outstanding']}
             rows={salesRows}
             mobileVariant="sales-list"
             search={searchTerms.sales_hub}
@@ -4106,7 +4176,7 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
           <TableCard
             title="Production Batches"
             subtitle="Track batch production and finished stock."
-            columns={['Date', 'Batch Number', 'Expiry Date', 'Outputs', 'Total Cost', 'Profit', 'Actions']}
+            columns={canManageProductionTransactions ? ['Date', 'Batch Number', 'Expiry Date', 'Outputs', 'Total Cost', 'Profit', 'Actions'] : ['Date', 'Batch Number', 'Expiry Date', 'Outputs', 'Total Cost', 'Profit']}
             rows={batchRows}
             mobileVariant="production-batches"
             search={searchTerms.production_ops}
@@ -4155,7 +4225,7 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
             className="supplies-purchases-card"
             title="Purchase Register"
             subtitle="Click a row to view full details and payments."
-            columns={['Date', '#', 'Supplier', 'Category', 'Status', 'Paid', 'Outstanding', 'Actions']}
+            columns={canManageDataEntryEditDelete ? ['Date', '#', 'Supplier', 'Category', 'Status', 'Paid', 'Outstanding', 'Actions'] : ['Date', '#', 'Supplier', 'Category', 'Status', 'Paid', 'Outstanding']}
             rows={purchaseRows}
             mobileVariant="purchases-list"
             search={searchTerms.supplies_stock}
@@ -4168,7 +4238,7 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
             className="supplies-materials-card"
             title="Raw Materials"
             subtitle="Stock levels (RawMaterials sheet). Click a row for full details."
-            columns={['Material', 'Category', 'Unit', 'Opening', 'Stock In', 'Available', 'Reorder', 'Status', '']}
+            columns={canManageDataEntryEditDelete ? ['Material', 'Category', 'Unit', 'Opening', 'Stock In', 'Available', 'Reorder', 'Status', ''] : ['Material', 'Category', 'Unit', 'Opening', 'Stock In', 'Available', 'Reorder', 'Status']}
             rows={materialRows}
             mobileVariant="materials-list"
             onRowClick={id => setSelectedRawMaterial(data.rawMaterials.find(m => m.id === id) || null)}
@@ -4260,7 +4330,7 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
           <TableCard
             title="Suppliers"
             subtitle="Balances and purchase history. Click Edit to update."
-            columns={['Supplier', 'Item Category', 'Purchases', 'Paid', 'Outstanding', '']}
+            columns={canManageDataEntryEditDelete ? ['Supplier', 'Item Category', 'Purchases', 'Paid', 'Outstanding', ''] : ['Supplier', 'Item Category', 'Purchases', 'Paid', 'Outstanding']}
             rows={supplierRows}
             mobileVariant="suppliers-list"
             onRowClick={id => {
@@ -4329,7 +4399,7 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
             className="account-entries-table-card"
             title="Account Entries"
             subtitle="Detailed transaction register with payment account and comments. Click a row to view the full entry."
-            columns={['Date', 'Transaction ID', 'Type', 'Category', 'Description', 'Amount', 'Payment Account', 'Comments', '']}
+            columns={canManageDataEntryEditDelete ? ['Date', 'Transaction ID', 'Type', 'Category', 'Description', 'Amount', 'Payment Account', 'Comments', ''] : ['Date', 'Transaction ID', 'Type', 'Category', 'Description', 'Amount', 'Payment Account', 'Comments']}
             colWidths={['130px', '190px', '110px', '150px', '220px', '120px', '170px', '180px', '88px']}
             rows={accountRows}
             mobileVariant="accounts-list"
@@ -4352,7 +4422,7 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
             <TableCard
               title="Pricing Rules"
               subtitle="Pricing sheet maintained from backend pricing rules, with detailed live filters by price type, size, item, and price band."
-              columns={['Finished Good Size', 'Size', 'Pricing Category', 'Price', '']}
+              columns={canManageDataEntryEditDelete ? ['Finished Good Size', 'Size', 'Pricing Category', 'Price', ''] : ['Finished Good Size', 'Size', 'Pricing Category', 'Price']}
               colWidths={['420px', '220px', '420px', '180px', '100px']}
               rows={pricingRows}
               search={searchTerms.pricing}
@@ -4430,7 +4500,7 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
 
                 <div className="app-layout-profile-card">
                   <strong>{user?.name || 'Staff'}</strong>
-                  <span>{user?.role || 'Staff'}</span>
+                  <span>{fmtRole(user?.role || 'Staff')}</span>
                   <span>{user?.email || user?.username || 'No contact info'}</span>
                   {user?.phone ? <span>{user.phone}</span> : null}
                 </div>
@@ -4604,7 +4674,9 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
         const discountAmount = Math.min(subtotal, Math.max(0, toNumber(saleForm.discountAmount)))
         const invoiceTotal = Math.max(0, subtotal - discountAmount)
         const paidNow = sumBy(saleForm.payments, payment => payment.amount)
-        const balanceAfterPayments = Math.max(0, invoiceTotal - paidNow)
+        const invoiceBalance = invoiceTotal - paidNow
+        const balanceAfterPayments = Math.max(0, invoiceBalance)
+        const overpaymentAmount = Math.max(0, -invoiceBalance)
         return (
         <ModalShell
           kicker="Plus Treat Sales Desk"
@@ -4770,14 +4842,15 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
                 <span>Total <strong>{fmt(invoiceTotal)}</strong></span>
                 <span>Paid Now <strong>{fmt(paidNow)}</strong></span>
                 <span>Balance <strong style={{ color: balanceAfterPayments > 0 ? '#dc2626' : '#16a34a' }}>{fmt(balanceAfterPayments)}</strong></span>
+                {overpaymentAmount > 0 ? <span>Overpayment <strong style={{ color: '#2563eb' }}>{fmt(overpaymentAmount)}</strong></span> : null}
               </div>
             </section>
             <label className="sales-field"><span>Notes</span><textarea rows="2" value={saleForm.notes} onChange={e => setSaleForm(c => ({ ...c, notes: e.target.value }))} /></label>
             <div className="sales-form-actions sales-form-actions-split">
               <button type="button" className="account-alert-button account-alert-button-light" onClick={() => setActiveModal('')}>Cancel</button>
               <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-                {saleForm._editId ? <button type="button" className="account-alert-button account-alert-button-danger" onClick={() => handleDelete('sale', () => deleteInvoice(saleForm._editId)).then(() => setActiveModal(''))}>Delete</button> : null}
-                <button type="submit" className="account-alert-button account-alert-button-dark" disabled={submitting.sale}>{submitting.sale ? 'Saving…' : saleForm._editId ? 'Update Sale' : 'Save Sale'}</button>
+                {saleForm._editId && canManageSalesTransactions ? <button type="button" className="account-alert-button account-alert-button-danger" onClick={() => handleDelete('sale', () => deleteInvoice(saleForm._editId)).then(() => setActiveModal(''))}>Delete</button> : null}
+                {saleForm._editId && !canManageSalesTransactions ? null : <button type="submit" className="account-alert-button account-alert-button-dark" disabled={submitting.sale}>{submitting.sale ? 'Saving…' : saleForm._editId ? 'Update Sale' : 'Save Sale'}</button>}
               </div>
             </div>
             {feedback.sale ? <p className={`sales-form-message${feedback.sale === 'Sale saved successfully.' || feedback.sale === 'Sale updated successfully.' ? '' : ' sales-form-message-error'}`}>{feedback.sale}</p> : null}
@@ -4862,8 +4935,8 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
             </div>
             </section>
             <div className="sales-form-actions">
-              {receiptForm._editId ? <button type="button" className="account-alert-button account-alert-button-danger" onClick={() => handleDelete('receipt', () => deletePayment(receiptForm._editId)).then(() => setActiveModal(''))}>Delete</button> : null}
-              <button type="submit" className="account-alert-button account-alert-button-light" disabled={submitting.receipt}>{submitting.receipt ? 'Saving…' : receiptForm._editId ? 'Update Receipt' : 'Record Receipt'}</button>
+              {receiptForm._editId && canManageSalesTransactions ? <button type="button" className="account-alert-button account-alert-button-danger" onClick={() => handleDelete('receipt', () => deletePayment(receiptForm._editId)).then(() => setActiveModal(''))}>Delete</button> : null}
+              {receiptForm._editId && !canManageSalesTransactions ? null : <button type="submit" className="account-alert-button account-alert-button-light" disabled={submitting.receipt}>{submitting.receipt ? 'Saving…' : receiptForm._editId ? 'Update Receipt' : 'Record Receipt'}</button>}
             </div>
             {feedback.receipt ? <p className="sales-form-message">{feedback.receipt}</p> : null}
           </form>
@@ -4873,7 +4946,8 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
 
       {/* ── BATCH MODAL ── */}
       {activeModal === 'batch' && (() => {
-        const expiryPreview = batchForm.productionDate
+        const isDevelopmentBatch = normalizeFilterValue(batchForm.batchType) === 'development'
+        const expiryPreview = batchForm.productionDate && !isDevelopmentBatch
           ? fmtD(new Date(new Date(batchForm.productionDate).getTime() + 55 * 86400000).toISOString().slice(0, 10))
           : '—'
         const rawMaterialPreviewTotal = batchForm.usages.reduce((sum, item) => {
@@ -4893,12 +4967,21 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
               {/* ── Batch header ── */}
               <div className="sales-form-grid sales-form-grid-primary">
                 <label className="sales-field">
+                  <span>Batch Type</span>
+                  <AppSelect
+                    ariaLabel="Batch type"
+                    options={productionBatchTypeOptions}
+                    value={batchForm.batchType}
+                    onChange={value => setBatchForm(current => ({ ...current, batchType: value || 'production' }))}
+                  />
+                </label>
+                <label className="sales-field">
                   <span>Production Date</span>
                   <input type="date" value={batchForm.productionDate} onChange={e => setBatchForm(c => ({ ...c, productionDate: e.target.value }))} />
                 </label>
                 <label className="sales-field">
                   <span>Batch Number</span>
-                  <input type="text" value="Auto-generated" disabled style={{ opacity: 0.5 }} />
+                  <input type="text" value={isDevelopmentBatch ? 'Auto-generated (DEV prefix)' : 'Auto-generated'} disabled style={{ opacity: 0.5 }} />
                 </label>
                 <label className="sales-field">
                   <span>Expiry Date</span>
@@ -4997,8 +5080,8 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
               </section>
 
               <div className="sales-form-actions">
-                <button type="submit" className="account-alert-button account-alert-button-light" disabled={submitting.batch}>{submitting.batch ? 'Saving…' : isEditingBatch ? 'Update Batch' : 'Save Batch'}</button>
-                {batchForm._editId ? <button type="button" className="account-alert-button account-alert-button-danger" onClick={() => handleDelete('batch', () => deleteProductionBatch(batchForm._editId)).then(() => setActiveModal(''))}>Delete</button> : null}
+                {isEditingBatch && !canManageProductionTransactions ? null : <button type="submit" className="account-alert-button account-alert-button-light" disabled={submitting.batch}>{submitting.batch ? 'Saving…' : isEditingBatch ? 'Update Batch' : 'Save Batch'}</button>}
+                {batchForm._editId && canManageProductionTransactions ? <button type="button" className="account-alert-button account-alert-button-danger" onClick={() => handleDelete('batch', () => deleteProductionBatch(batchForm._editId)).then(() => setActiveModal(''))}>Delete</button> : null}
               </div>
               {feedback.batch ? <p className="sales-form-message">{feedback.batch}</p> : null}
             </form>
@@ -5032,8 +5115,8 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
           <form className="sales-form sales-form-redesign" onSubmit={handleFinishedGoodsSubmit}>
             {selectedBatchRecord ? (
               <div className="sales-form-actions" style={{ marginBottom: '12px' }}>
-                <button type="button" className="account-alert-button account-alert-button-light" onClick={() => openModal('batch', selectedBatchRecord)}>Edit Batch</button>
-                <button type="button" className="account-alert-button account-alert-button-danger" onClick={() => handleDelete('batch', () => deleteProductionBatch(selectedBatchRecord.id)).then(() => setActiveModal(''))}>Delete Batch</button>
+                {canManageProductionTransactions ? <button type="button" className="account-alert-button account-alert-button-light" onClick={() => openModal('batch', selectedBatchRecord)}>Edit Batch</button> : null}
+                {canManageProductionTransactions ? <button type="button" className="account-alert-button account-alert-button-danger" onClick={() => handleDelete('batch', () => deleteProductionBatch(selectedBatchRecord.id)).then(() => setActiveModal(''))}>Delete Batch</button> : null}
               </div>
             ) : null}
             <div className="sales-form-grid sales-form-grid-primary">
@@ -5041,7 +5124,7 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
                 <span>Batch Number</span>
                 <AppAutocomplete
                   ariaLabel="Batch number"
-                  options={batchSelectOptions}
+                  options={finishedGoodsBatchOptions}
                   placeholder="Select batch"
                   searchPlaceholder="Search batches..."
                   value={finishedGoodsForm.batch}
@@ -5106,9 +5189,11 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
 
             <div className="sales-form-actions sales-form-actions-split">
               <button type="button" className="account-alert-button account-alert-button-light" onClick={() => setActiveModal('')}>Cancel</button>
-              <button type="submit" className="account-alert-button account-alert-button-dark" disabled={submitting.finished_goods}>
-                {submitting.finished_goods ? 'Saving…' : isEditingFinishedGoods ? 'Update Finished Goods' : 'Save Finished Goods'}
-              </button>
+              {isEditingFinishedGoods && !canManageProductionTransactions ? null : (
+                <button type="submit" className="account-alert-button account-alert-button-dark" disabled={submitting.finished_goods}>
+                  {submitting.finished_goods ? 'Saving…' : isEditingFinishedGoods ? 'Update Finished Goods' : 'Save Finished Goods'}
+                </button>
+              )}
             </div>
             {feedback.finished_goods ? <p className="sales-form-message">{feedback.finished_goods}</p> : null}
           </form>
@@ -5543,25 +5628,27 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
             stat={fmt(selectedReceipt.amount)}
             onClose={() => setSelectedReceipt(null)}
           >
-            <div className="sales-form-actions" style={{ marginBottom: '12px' }}>
-              <button
-                type="button"
-                className="account-alert-button account-alert-button-dark"
-                onClick={() => {
-                  setSelectedReceipt(null)
-                  openModal('receipt', selectedReceipt)
-                }}
-              >
-                Edit Receipt
-              </button>
-              <button
-                type="button"
-                className="account-alert-button account-alert-button-danger"
-                onClick={() => handleDelete('receipt', () => deletePayment(selectedReceipt.id)).then(() => setSelectedReceipt(null))}
-              >
-                Delete Receipt
-              </button>
-            </div>
+            {canManageSalesTransactions ? (
+              <div className="sales-form-actions" style={{ marginBottom: '12px' }}>
+                <button
+                  type="button"
+                  className="account-alert-button account-alert-button-dark"
+                  onClick={() => {
+                    setSelectedReceipt(null)
+                    openModal('receipt', selectedReceipt)
+                  }}
+                >
+                  Edit Receipt
+                </button>
+                <button
+                  type="button"
+                  className="account-alert-button account-alert-button-danger"
+                  onClick={() => handleDelete('receipt', () => deletePayment(selectedReceipt.id)).then(() => setSelectedReceipt(null))}
+                >
+                  Delete Receipt
+                </button>
+              </div>
+            ) : null}
             <div className="detail-receipt-grid">
               <div className="detail-receipt-field">
                 <span>Date</span>
@@ -5612,7 +5699,7 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
                 <div className="detail-modal-totals">
                   <span>Invoice Total: <strong>{fmt(inv.total_amount)}</strong></span>
                   <span>Previously Paid: <strong>{fmt(getInvoicePaidAmount(inv))}</strong></span>
-                  <span>Remaining Balance: <strong style={{ color: getInvoiceOutstanding(inv) > 0 ? '#dc2626' : '#16a34a' }}>{fmt(getInvoiceOutstanding(inv))}</strong></span>
+                  <span>{getInvoiceOutstanding(inv) < 0 ? 'Credit Balance' : 'Remaining Balance'}: <strong style={{ color: getInvoiceOutstanding(inv) > 0 ? '#dc2626' : getInvoiceOutstanding(inv) < 0 ? '#2563eb' : '#16a34a' }}>{fmt(Math.abs(getInvoiceOutstanding(inv)))}</strong></span>
                 </div>
               </div>
             )}
@@ -5625,33 +5712,37 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
         const inv = selectedInvoice
         const totalPaid = getInvoicePaidAmount(inv)
         const outstanding = getInvoiceOutstanding(inv)
+        const collectionState = getInvoiceCollectionState(inv)
+        const overpayment = getInvoiceOverpayment(inv)
         return (
           <ModalShell
             kicker="Invoice Detail"
             title={fmtInv(inv.id)}
             subtitle={`${inv.customer_name} · ${fmtD(inv.invoice_date)}`}
-            stat={fmtStatus(inv.status)}
+            stat={fmtStatus(collectionState)}
             onClose={() => setSelectedInvoice(null)}
           >
-            <div className="sales-form-actions" style={{ marginBottom: '12px' }}>
-              <button
-                type="button"
-                className="account-alert-button account-alert-button-dark"
-                onClick={() => {
-                  setSelectedInvoice(null)
-                  openModal('sale', inv)
-                }}
-              >
-                Edit Sale
-              </button>
-              <button
-                type="button"
-                className="account-alert-button account-alert-button-danger"
-                onClick={() => handleDelete('sale', () => deleteInvoice(inv.id)).then(() => setSelectedInvoice(null))}
-              >
-                Delete Sale
-              </button>
-            </div>
+            {canManageSalesTransactions ? (
+              <div className="sales-form-actions" style={{ marginBottom: '12px' }}>
+                <button
+                  type="button"
+                  className="account-alert-button account-alert-button-dark"
+                  onClick={() => {
+                    setSelectedInvoice(null)
+                    openModal('sale', inv)
+                  }}
+                >
+                  Edit Sale
+                </button>
+                <button
+                  type="button"
+                  className="account-alert-button account-alert-button-danger"
+                  onClick={() => handleDelete('sale', () => deleteInvoice(inv.id)).then(() => setSelectedInvoice(null))}
+                >
+                  Delete Sale
+                </button>
+              </div>
+            ) : null}
             {/* Header info grid */}
             <div className="detail-purchase-header">
               <div className="detail-purchase-field">
@@ -5668,7 +5759,7 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
               </div>
               <div className="detail-purchase-field">
                 <span>Status</span>
-                <strong style={{ color: inv.status === 'paid' ? '#16a34a' : inv.status === 'partially_paid' ? '#d97706' : inv.status === 'cancelled' ? '#6b7280' : '#dc2626' }}>{fmtStatus(inv.status)}</strong>
+                <strong style={{ color: collectionState === 'overpaid' ? '#2563eb' : collectionState === 'paid' ? '#16a34a' : collectionState === 'partial' ? '#d97706' : '#dc2626' }}>{fmtStatus(collectionState)}</strong>
               </div>
               {toNumber(inv.previous_balance) !== 0 && (
                 <div className="detail-purchase-field">
@@ -5697,7 +5788,8 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
               <span>Invoice Total: <strong>{fmt(inv.total_amount)}</strong></span>
               {toNumber(inv.previous_balance) !== 0 && <span>Previous Balance: <strong>{fmt(inv.previous_balance)}</strong></span>}
               <span>Total Paid: <strong>{fmt(totalPaid)}</strong></span>
-              <span>Outstanding: <strong style={{ color: outstanding > 0 ? '#dc2626' : '#16a34a' }}>{fmt(outstanding)}</strong></span>
+              <span>{outstanding < 0 ? 'Credit Balance' : 'Outstanding'}: <strong style={{ color: outstanding > 0 ? '#dc2626' : outstanding < 0 ? '#2563eb' : '#16a34a' }}>{fmt(Math.abs(outstanding))}</strong></span>
+              {overpayment > 0 ? <span>Overpayment: <strong style={{ color: '#2563eb' }}>{fmt(overpayment)}</strong></span> : null}
             </div>
 
             {/* Line items */}
@@ -5737,8 +5829,9 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
                       <span>{p.reference || '—'}</span>
                       <span>{fmt(p.amount)}</span>
                       <span style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                        <button type="button" className="workspace-action-btn" onClick={() => { setSelectedInvoice(null); openModal('receipt', p) }}>Edit</button>
-                        <button type="button" className="workspace-action-btn" onClick={() => handleDelete('receipt', () => deletePayment(p.id)).then(() => setSelectedInvoice(null))}>Delete</button>
+                        {canManageSalesTransactions ? <button type="button" className="workspace-action-btn" onClick={() => { setSelectedInvoice(null); openModal('receipt', p) }}>Edit</button> : null}
+                        {canManageSalesTransactions ? <button type="button" className="workspace-action-btn" onClick={() => handleDelete('receipt', () => deletePayment(p.id)).then(() => setSelectedInvoice(null))}>Delete</button> : null}
+                        {!canManageSalesTransactions ? '—' : null}
                       </span>
                     </div>
                   ))}
@@ -5754,34 +5847,40 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
         <ModalShell
           kicker="Batch Detail"
           title={selectedBatch.batch_number || `Batch #${selectedBatch.id}`}
-          subtitle={`Produced: ${fmtD(selectedBatch.production_date)} · Expires: ${fmtD(selectedBatch.expiry_date)}`}
+          subtitle={`${getBatchTypeLabel(selectedBatch.batch_type || 'production')} · Produced: ${fmtD(selectedBatch.production_date)} · Expires: ${fmtD(selectedBatch.expiry_date)}`}
           stat={`Profit: ${fmt(selectedBatchProductionGain)}`}
           onClose={() => setSelectedBatch(null)}
         >
-          <div className="sales-form-actions" style={{ marginBottom: '12px' }}>
-            <button
-              type="button"
-              className="account-alert-button account-alert-button-dark"
-              onClick={() => {
-                setSelectedBatch(null)
-                openModal('batch', selectedBatch)
-              }}
-            >
-              Edit Batch
-            </button>
-            <button
-              type="button"
-              className="account-alert-button account-alert-button-danger"
-              onClick={() => handleDelete('batch', () => deleteProductionBatch(selectedBatch.id)).then(() => setSelectedBatch(null))}
-            >
-              Delete Batch
-            </button>
-          </div>
+          {canManageProductionTransactions ? (
+            <div className="sales-form-actions" style={{ marginBottom: '12px' }}>
+              <button
+                type="button"
+                className="account-alert-button account-alert-button-dark"
+                onClick={() => {
+                  setSelectedBatch(null)
+                  openModal('batch', selectedBatch)
+                }}
+              >
+                Edit Batch
+              </button>
+              <button
+                type="button"
+                className="account-alert-button account-alert-button-danger"
+                onClick={() => handleDelete('batch', () => deleteProductionBatch(selectedBatch.id)).then(() => setSelectedBatch(null))}
+              >
+                Delete Batch
+              </button>
+            </div>
+          ) : null}
           {/* Batch info grid */}
           <div className="detail-purchase-header">
             <div className="detail-purchase-field">
               <span>Batch Number</span>
               <strong>{selectedBatch.batch_number || `#${selectedBatch.id}`}</strong>
+            </div>
+            <div className="detail-purchase-field">
+              <span>Batch Type</span>
+              <strong>{getBatchTypeLabel(selectedBatch.batch_type || 'production')}</strong>
             </div>
             <div className="detail-purchase-field">
               <span>Production Date</span>
@@ -5848,7 +5947,7 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
                     <span>{fmtQ(o.quantity)}</span>
                     <span>{fmt(o.unit_cost)}</span>
                     <span>{fmt(o.amount)}</span>
-                    <button type="button" className="workspace-action-btn" onClick={() => openModal('finished_goods', { ...o, batch: selectedBatch.id })}>Edit</button>
+                    {canManageProductionTransactions ? <button type="button" className="workspace-action-btn" onClick={() => openModal('finished_goods', { ...o, batch: selectedBatch.id })}>Edit</button> : <span>—</span>}
                   </div>
                   )
                 })}
@@ -6381,7 +6480,7 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
 
             <div className="detail-modal-section" style={{ paddingTop: 0 }}>
               <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-                <button type="button" className="account-alert-button account-alert-button-dark" onClick={() => { setSelectedAccountEntry(null); openModal('account', e) }}>Edit Entry</button>
+                {canManageDataEntryEditDelete ? <button type="button" className="account-alert-button account-alert-button-dark" onClick={() => { setSelectedAccountEntry(null); openModal('account', e) }}>Edit Entry</button> : null}
               </div>
             </div>
           </ModalShell>
@@ -6395,7 +6494,7 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
         const custPayments = data.payments.filter(p => custInvoiceIds.has(String(p.invoice)))
         const totalBilled = sumBy(custInvoices, inv => inv.total_amount)
         const totalPaid = sumBy(custPayments, p => p.amount)
-        const outstanding = sumBy(custInvoices, inv => getInvoiceOutstanding(inv))
+        const outstanding = sumBy(custInvoices, inv => getInvoiceOutstandingDue(inv))
         return (
           <ModalShell
             kicker="Customer Profile"
@@ -6435,7 +6534,7 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
                       <span>{fmtInv(inv.id)}</span>
                       <span>{(inv.lines || []).length} line{(inv.lines || []).length !== 1 ? 's' : ''}</span>
                       <span>{fmt(inv.total_amount)}</span>
-                      <span style={{ color: getInvoiceOutstanding(inv) > 0 ? '#dc2626' : '#16a34a' }}>{fmt(getInvoiceOutstanding(inv))}</span>
+                      <span style={{ color: getInvoiceOutstanding(inv) > 0 ? '#dc2626' : getInvoiceOutstanding(inv) < 0 ? '#2563eb' : '#16a34a' }}>{fmt(Math.abs(getInvoiceOutstanding(inv)))}</span>
                     </div>
                   ))}
                 </div>
