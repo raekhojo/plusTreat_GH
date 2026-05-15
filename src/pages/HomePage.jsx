@@ -3964,6 +3964,7 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
     'customers',
     'suppliers',
     'accounts_pricing',
+    'reporting',
   ])
   const canAccessSection = (sectionKey) => availableSections.some(section => section.key === sectionKey)
   const jumpToSection = (sectionKey, tabKey = null) => {
