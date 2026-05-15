@@ -2425,14 +2425,15 @@
   display: flex;
   align-items: center;
   gap: 14px;
-  padding: 10px 12px;
+  padding: 12px 14px;
   border: 0;
   border-radius: 14px;
   background: transparent;
   color: var(--blue-700);
   font: inherit;
-  font-size: 1.08rem;
+  font-size: clamp(1.18rem, 0.95rem + 0.4vw, 1.34rem);
   font-weight: 700;
+  line-height: 1.2;
   text-align: left;
   cursor: pointer;
   transition: background 0.18s ease, color 0.18s ease;
@@ -6428,7 +6429,7 @@
 
   .account-nav-item {
     gap: 12px;
-    font-size: 1rem;
+    font-size: 1.08rem;
   }
 
   .account-nav-icon {

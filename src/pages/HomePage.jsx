@@ -29,7 +29,8 @@ const SECTIONS = [
   { key: 'supplies_stock',  label: 'Supplies & Stock',   icon: 'inventory', roles: ['admin', 'accounts'],          subtitle: 'Purchases, suppliers, raw materials, and stock control.',                                                   sheets: ['RMPurchases_Entry', 'Purchase_Dtls', 'PurchasePmt_Dtls', 'RawMaterials'] },
   { key: 'customers',       label: 'Customers',          icon: 'customers', roles: ['admin', 'sales'],             subtitle: 'Customer records, invoice history, and outstanding balances.',                                          sheets: ['Customers_Dtls', 'Customers'] },
   { key: 'suppliers',       label: 'Suppliers',          icon: 'suppliers', roles: ['admin', 'accounts'],          subtitle: 'Supplier records, purchases, and payable balances.',                                                       sheets: ['Supplier_Dtls'] },
-  { key: 'accounts_pricing',label: 'Accounts & Pricing', icon: 'finance',   roles: ['admin', 'accounts'],          subtitle: 'Accounts entries, pricing rules, trial balance, and configuration.',                                       sheets: ['Accounts_Entry', 'Accounts_Dtls', 'Trial Balance', 'Pricing'] },
+  { key: 'accounts_pricing',label: 'Accounts & Pricing', icon: 'finance',   roles: ['admin', 'accounts'],          subtitle: 'Accounts entries, pricing rules, and configuration.',                                                      sheets: ['Accounts_Entry', 'Accounts_Dtls', 'Pricing'] },
+  { key: 'reporting',       label: 'Reporting',          icon: 'finance',   roles: ['admin', 'accounts'],          subtitle: 'Financial reporting and workbook-style summaries.',                                                        sheets: ['Trial Balance'] },
   { key: 'user_mgmt',       label: 'User Management',    icon: 'suppliers', roles: ['admin'],                      subtitle: 'Create and manage staff accounts and role assignments.',                                                    sheets: [] },
 ]
 
@@ -388,7 +389,7 @@ const buildSaleForm    = (entity = null, customer = null, staffId = '') => {
     customer: entity.customer ? String(entity.customer) : '',
     pricingCategoryId: customer?.pricing_category_id ? String(customer.pricing_category_id) : '',
     invoiceDate: entity.invoice_date || todayValue(),
-    staff: entity.staff ? String(entity.staff) : (staffId || ''),
+    staff: staffId || (entity.staff ? String(entity.staff) : ''),
     discountAmount: entity.discount_amount ? String(entity.discount_amount) : '0',
     notes: entity.notes || '',
     payments,
@@ -604,7 +605,6 @@ const DELIVERY_PACKAGE_OPTIONS = [
 const ACCOUNT_SECTION_TABS = [
   { key: 'entries', label: 'Account Entries' },
   { key: 'pricing', label: 'Pricing Rules' },
-  { key: 'trial_balance', label: 'Trial Balance' },
 ]
 
 const SECTION_TABS = {
@@ -1676,7 +1676,7 @@ function ModalShell({ kicker, title, subtitle, stat, onClose, children, cardClas
 // ─── HomePage ─────────────────────────────────────────────────────────────────
 
 const ROLES = ['admin', 'sales', 'accounts']
-const mkUserForm = () => ({ first_name: '', last_name: '', username: '', email: '', password: '', role: 'sales', phone: '', is_active: true })
+const mkUserForm = () => ({ first_name: '', last_name: '', username: '', email: '', password: '', role: 'sales', phone: '', is_active: true, is_sales_staff: true })
 
 function UserManagement({ staffProfiles, onSaved }) {
   const [form, setForm] = useState(mkUserForm())
@@ -1701,6 +1701,7 @@ function UserManagement({ staffProfiles, onSaved }) {
       role: profile.role || 'sales',
       phone: profile.phone || '',
       is_active: profile.user?.is_active !== false,
+      is_sales_staff: profile.is_sales_staff !== false,
     })
     setFormError('')
   }
@@ -1737,6 +1738,7 @@ function UserManagement({ staffProfiles, onSaved }) {
         },
         role: form.role,
         phone: form.phone.trim(),
+        is_sales_staff: form.is_sales_staff,
       }
       await onSaved(editing === 'new' ? null : editing, payload)
       cancelEdit()
@@ -1832,6 +1834,13 @@ function UserManagement({ staffProfiles, onSaved }) {
                   </select>
                 </label>
                 <label className="sales-field">
+                  <span>Sales Access</span>
+                  <select value={form.is_sales_staff ? 'enabled' : 'disabled'} onChange={event => setForm(current => ({ ...current, is_sales_staff: event.target.value === 'enabled' }))}>
+                    <option value="enabled">Enabled</option>
+                    <option value="disabled">Disabled</option>
+                  </select>
+                </label>
+                <label className="sales-field">
                   <span>Status</span>
                   <select value={form.is_active ? 'active' : 'inactive'} onChange={event => setForm(current => ({ ...current, is_active: event.target.value === 'active' }))}>
                     <option value="active">Active</option>
@@ -1860,7 +1869,7 @@ function UserManagement({ staffProfiles, onSaved }) {
           cells: [
             `${profile.user?.first_name || ''} ${profile.user?.last_name || ''}`.trim() || profile.user?.username || 'Staff',
             `@${profile.user?.username || 'user'}`,
-            fmtRole(profile.role),
+            `${fmtRole(profile.role)}${profile.is_sales_staff === false ? ' • No sales' : ''}`,
             profile.user?.email || profile.phone || '—',
             profile.user?.is_active === false ? 'Inactive' : 'Active',
             <button key={`edit-${profile.id}`} type="button" className="workspace-action-btn" onClick={event => { event.stopPropagation(); startEdit(profile) }}>Edit</button>,
@@ -1875,6 +1884,7 @@ function UserManagement({ staffProfiles, onSaved }) {
 function HomePage({ initialSection = 'dashboard', allowedSections = null, standaloneMode = false }) {
   const navigate = useNavigate()
   const { user, logout } = useAuth()
+  const loggedInStaffId = user?.staffProfileId || ''
   const mobileMenuRef = useRef(null)
   const accountContentRef = useRef(null)
 
@@ -1888,7 +1898,7 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
   const [isLoading,        setIsLoading]        = useState(true)
   const [loadError,        setLoadError]        = useState('')
 
-  const [saleForm,         setSaleForm]         = useState(() => mkSaleForm(user?.staffProfileId || ''))
+  const [saleForm,         setSaleForm]         = useState(() => mkSaleForm(loggedInStaffId))
   const [receiptForm,      setReceiptForm]      = useState(mkReceiptForm)
   const [batchForm,        setBatchForm]        = useState(mkBatchForm)
   const [finishedGoodsForm,setFinishedGoodsForm]= useState(mkFinishedGoodsForm)
@@ -1968,6 +1978,11 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
       document.removeEventListener('keydown', handleKeyDown)
     }
   }, [])
+
+  useEffect(() => {
+    if (!loggedInStaffId) return
+    setSaleForm(current => current.staff === loggedInStaffId ? current : { ...current, staff: loggedInStaffId })
+  }, [loggedInStaffId])
 
   useLayoutEffect(() => {
     function scrollAllTargets() {
@@ -2100,6 +2115,21 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
       .map(customer => ({ value: String(customer.id), label: customer.name, meta: customer.phone || customer.customer_category_name || '' }))
       .sort((a, b) => a.label.localeCompare(b.label)),
     [data.customers]
+  )
+  const salesStaffSelectOptions = useMemo(
+    () => data.staffProfiles
+      .filter(profile => profile.user?.is_active !== false)
+      .filter(profile => profile.is_sales_staff !== false)
+      .map(profile => {
+        const fullName = `${profile.user?.first_name || ''} ${profile.user?.last_name || ''}`.trim()
+        return {
+          value: String(profile.id),
+          label: fullName || profile.user?.username || 'Staff',
+          meta: fmtRole(profile.role || 'sales'),
+        }
+      })
+      .sort((a, b) => a.label.localeCompare(b.label)),
+    [data.staffProfiles]
   )
   const invoiceSelectOptions = useMemo(() => {
     const options = openInvoiceOptions.map(invoice => ({
@@ -2255,6 +2285,7 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
   const customersDateFilter = sectionDateFilters.customers || EMPTY_DATE_RANGE
   const suppliersDateFilter = sectionDateFilters.suppliers || EMPTY_DATE_RANGE
   const accountsDateFilter = sectionDateFilters.accounts_pricing || EMPTY_DATE_RANGE
+  const reportingDateFilter = sectionDateFilters.reporting || EMPTY_DATE_RANGE
 
   const dashboardInvoices = useMemo(() => filterByDateRange(data.invoices, inv => inv.invoice_date, dashboardDateFilter), [data.invoices, dashboardDateFilter])
   const dashboardPayments = useMemo(() => filterByDateRange(data.payments, p => p.payment_date, dashboardDateFilter), [data.payments, dashboardDateFilter])
@@ -2679,7 +2710,7 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
     setFB(type, '')
     if (type === 'sale') {
       const linkedCustomer = entity ? data.customers.find(customer => String(customer.id) === String(entity.customer)) : null
-      setSaleForm(buildSaleForm(entity, linkedCustomer, user?.staffProfileId || ''))
+      setSaleForm(buildSaleForm(entity, linkedCustomer, loggedInStaffId))
     }
     if (type === 'receipt')     setReceiptForm(buildReceiptForm(entity))
     if (type === 'batch')       setBatchForm(buildBatchForm(entity))
@@ -2805,7 +2836,7 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
       const invoicePayload = {
         invoice_date: saleForm.invoiceDate,
         customer: saleForm.customer,
-        staff: saleForm.staff || null,
+        staff: loggedInStaffId || saleForm.staff || null,
         discount_amount: saleForm.discountAmount || '0',
         previous_balance: '0',
         status: 'issued',
@@ -3312,6 +3343,7 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
     customers: customersSummary.slice(0, 2),
     suppliers: suppliersSummary.slice(0, 2),
     accounts_pricing: accountsSummary.slice(0, 2),
+    reporting: [],
   }
   const mobileHeroStats = mobileHeroStatsBySection[activeSection] || dashboardContent.metrics.slice(0, 2)
   const avatarText = (user?.name || 'PT')
@@ -3583,8 +3615,6 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
     if (!Number.isFinite(ts) || !Number.isFinite(startTs)) return false
     return beforeStart ? ts < startTs : ts >= startTs
   }
-  const isSampleLine = (line) => String(line.pricing_category || '').toLowerCase().includes('sample')
-
   const outputCostBySize = (() => {
     const acc = new Map()
     productionOutputs.forEach(output => {
@@ -3600,20 +3630,18 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
     return avg
   })()
 
-  const sumSalesRevenue = ({ startTs = null, beforeStart = false, samplesOnly = false } = {}) =>
+  const sumSalesRevenue = ({ startTs = null, beforeStart = false } = {}) =>
     sumBy(
       saleLines.filter(line => {
-        if (samplesOnly && !isSampleLine(line)) return false
         if (startTs == null) return true
         return inPeriod(line.invoice_date, startTs, beforeStart)
       }),
       line => line.line_total
     )
 
-  const sumSalesCost = ({ startTs = null, beforeStart = false, samplesOnly = false } = {}) =>
+  const sumSalesCost = ({ startTs = null, beforeStart = false } = {}) =>
     sumBy(
       saleLines.filter(line => {
-        if (samplesOnly && !isSampleLine(line)) return false
         if (startTs == null) return true
         return inPeriod(line.invoice_date, startTs, beforeStart)
       }),
@@ -3623,11 +3651,10 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
       }
     )
 
-  const salesDates = ({ startTs = null, beforeStart = false, samplesOnly = false } = {}) =>
+  const salesDates = ({ startTs = null, beforeStart = false } = {}) =>
     uniqueDatesSorted(
       saleLines
         .filter(line => {
-          if (samplesOnly && !isSampleLine(line)) return false
           if (startTs == null) return true
           return inPeriod(line.invoice_date, startTs, beforeStart)
         })
@@ -3793,7 +3820,6 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
 
   const productionMovement = sumProductionOutputs({ startTs: periodStartTs })
   const soldCostMovement = sumSalesCost({ startTs: periodStartTs })
-  const sampleRevenueMovement = sumSalesRevenue({ startTs: periodStartTs, samplesOnly: true })
 
   const finishedGoodsOpening = accountLedgerBalance('Finished Goods', periodStartTs, true)
   const finishedGoodsMovement = productionMovement - soldCostMovement
@@ -3815,7 +3841,6 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
   const tradeReceivablesMovement = (
     sumSalesRevenue({ startTs: periodStartTs })
     - sumReceipts({ startTs: periodStartTs })
-    - sampleRevenueMovement
   )
 
   const payablesOpening = (
@@ -3836,13 +3861,10 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
 
     { accountId: 'ACC-00021-02', accountType: 'Income Statement', accountClass: 'Direct Cost', subAccounts: 'Cost of Goods Sold', description: 'Production', opening: 0, movement: productionMovement, dates: productionDates({ startTs: periodStartTs }) },
     { accountId: 'ACC-00022-02', accountType: 'Income Statement', accountClass: 'Direct Cost', subAccounts: 'Cost of Goods Sold', description: 'Less: Inventory', opening: 0, movement: -(productionMovement - soldCostMovement), dates: uniqueDatesSorted([...productionDates({ startTs: periodStartTs }), ...salesDates({ startTs: periodStartTs })]) },
-    { accountId: 'ACC-00023-02', accountType: 'Income Statement', accountClass: 'Direct Cost', subAccounts: 'Cost of Goods Sold', description: 'Less: Samples', opening: 0, movement: -sampleRevenueMovement, dates: salesDates({ startTs: periodStartTs, samplesOnly: true }) },
-
     { accountId: 'ACC-00024-02', accountType: 'Income Statement', accountClass: 'Expenses', subAccounts: 'Expenses', description: 'Delivery', opening: 0, movement: expenseByCategory('Delivery', periodStartTs), dates: accountEntryDates({ entryType: 'expense', category: 'Delivery', startTs: periodStartTs }) },
     { accountId: 'ACC-00031-03', accountType: 'Income Statement', accountClass: 'Expenses', subAccounts: 'Expenses', description: 'Fuel and Transport', opening: 0, movement: expenseByCategory('Fuel and Transport', expenseStartTs), dates: accountEntryDates({ entryType: 'expense', category: 'Fuel and Transport', startTs: expenseStartTs }) },
     { accountId: 'ACC-00032-03', accountType: 'Income Statement', accountClass: 'Expenses', subAccounts: 'Expenses', description: 'Staff Salary', opening: 0, movement: expenseByCategory('Staff Salary', expenseStartTs), dates: accountEntryDates({ entryType: 'expense', category: 'Staff Salary', startTs: expenseStartTs }) },
     { accountId: 'ACC-00033-03', accountType: 'Income Statement', accountClass: 'Expenses', subAccounts: 'Expenses', description: 'Marketing', opening: 0, movement: expenseByCategory('Marketing', expenseStartTs), dates: accountEntryDates({ entryType: 'expense', category: 'Marketing', startTs: expenseStartTs }) },
-    { accountId: 'ACC-00034-03', accountType: 'Income Statement', accountClass: 'Expenses', subAccounts: 'Expenses', description: 'Samples', opening: 0, movement: sampleRevenueMovement, dates: salesDates({ startTs: periodStartTs, samplesOnly: true }) },
     { accountId: 'ACC-00035-03', accountType: 'Income Statement', accountClass: 'Expenses', subAccounts: 'Expenses', description: 'Accessories', opening: 0, movement: expenseByCategory('Accessories', expenseStartTs), dates: accountEntryDates({ entryType: 'expense', category: 'Accessories', startTs: expenseStartTs }) },
     { accountId: 'ACC-00036-03', accountType: 'Income Statement', accountClass: 'Expenses', subAccounts: 'Expenses', description: 'Licensing & Certification', opening: 0, movement: expenseByCategory('Licensing & Certification', expenseStartTs), dates: accountEntryDates({ entryType: 'expense', category: 'Licensing & Certification', startTs: expenseStartTs }) },
     { accountId: 'ACC-00037-03', accountType: 'Income Statement', accountClass: 'Expenses', subAccounts: 'Expenses', description: 'Souvenirs and Branding', opening: 0, movement: expenseByCategory('Souvenirs and Branding', expenseStartTs), dates: accountEntryDates({ entryType: 'expense', category: 'Souvenirs and Branding', startTs: expenseStartTs }) },
@@ -3873,11 +3895,12 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
     { accountId: 'ACC-00091-09', accountType: 'Balance Sheet', accountClass: 'Equity', subAccounts: 'Net Worth', description: 'Equity', opening: accountLedgerBalance('Equity', periodStartTs, true), movement: accountLedgerBalance('Equity', periodStartTs), dates: accountLedgerDates('Equity', periodStartTs) },
   ]
 
-  const retainedOpenBaseIncome = sumBy(trialBalanceSheetRows.slice(0, 3), row => row.opening)
-  const retainedOpenBaseCostAndExpenses = sumBy(trialBalanceSheetRows.slice(3, 21), row => row.opening)
-  const retainedMoveIncome = sumBy(trialBalanceSheetRows.slice(0, 3), row => row.movement)
-  const retainedMoveDirect = sumBy(trialBalanceSheetRows.slice(3, 7), row => row.movement)
-  const retainedMoveExpense = sumBy(trialBalanceSheetRows.slice(7, 21), row => row.movement)
+  const incomeStatementRows = trialBalanceSheetRows.filter(row => row.accountType === 'Income Statement')
+  const retainedOpenBaseIncome = sumBy(incomeStatementRows.filter(row => row.accountClass === 'Income'), row => row.opening)
+  const retainedOpenBaseCostAndExpenses = sumBy(incomeStatementRows.filter(row => row.accountClass !== 'Income'), row => row.opening)
+  const retainedMoveIncome = sumBy(incomeStatementRows.filter(row => row.accountClass === 'Income'), row => row.movement)
+  const retainedMoveDirect = sumBy(incomeStatementRows.filter(row => row.accountClass === 'Direct Cost'), row => row.movement)
+  const retainedMoveExpense = sumBy(incomeStatementRows.filter(row => row.accountClass === 'Expenses'), row => row.movement)
   const rmProfitAll = sumBy(data.productionBatches, batch => batch.profit)
 
   trialBalanceSheetRows.push({
@@ -3891,8 +3914,17 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
     dates: uniqueDatesSorted(trialBalanceSheetRows.flatMap(row => row.dates || [])),
   })
 
-  const trialBalanceRows = trialBalanceSheetRows
+  const trialBalanceActiveRows = trialBalanceSheetRows
     .filter(row => Math.abs(toNumber(row.opening)) > 0.000001 || Math.abs(toNumber(row.movement)) > 0.000001)
+
+  const reportingSummary = [
+    { label: 'Accounts', value: String(trialBalanceActiveRows.length), note: 'Active trial balance rows' },
+    { label: 'Opening Bal', value: fmt(sumBy(trialBalanceActiveRows, row => row.opening)), note: `Period starts ${TRIAL_BALANCE_PERIOD_START}` },
+    { label: 'Movement', value: fmt(sumBy(trialBalanceActiveRows, row => row.movement)), note: 'Net movement across accounts' },
+    { label: 'Closing Bal', value: fmt(sumBy(trialBalanceActiveRows, row => row.opening + row.movement)), note: 'Workbook-style available total' },
+  ]
+
+  const trialBalanceRows = trialBalanceActiveRows
     .map(row => {
       const opening = toNumber(row.opening)
       const movement = toNumber(row.movement)
@@ -4013,6 +4045,12 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
           <TableCardSkeleton title="Staff Directory" columns={6} rows={5} />
         </>
       )
+      if (activeSection === 'reporting') return (
+        <>
+          <SummaryGridSkeleton />
+          <TableCardSkeleton title="Trial Balance" columns={10} rows={10} />
+        </>
+      )
       return (
         <>
           <SummaryGridSkeleton />
@@ -4024,7 +4062,6 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
           </section>
           {activeAccountsTab === 'entries' && <TableCardSkeleton title="Account Entries" columns={9} rows={6} />}
           {activeAccountsTab === 'pricing' && <TableCardSkeleton title="Pricing Rules" columns={5} rows={6} />}
-          {activeAccountsTab === 'trial_balance' && <TableCardSkeleton title="Trial Balance" columns={10} rows={10} />}
         </>
       )
     }
@@ -4069,8 +4106,8 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
             title="Business Health"
             subtitle="A quick operating read from collections, margin, ticket size, and stock pressure."
             rows={dashboardContent.dashboardSignals}
-            actionLabel="Open Accounts"
-            onAction={() => { setActiveAccountsTab('trial_balance'); jumpToSection('accounts_pricing') }}
+            actionLabel="Open Reporting"
+            onAction={() => jumpToSection('reporting')}
           />
         </section>
         <DashboardCardCarousel className="dashboard-snippet-grid-compact">
@@ -4080,7 +4117,7 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
           <SnippetCard title="Finished Goods Status"   rows={dashboardContent.finishedGoods} actionLabel="Open Stock" onAction={() => jumpToSection('production_ops', 'inventory')} />
         </DashboardCardCarousel>
         <DashboardCardCarousel className="dashboard-snippet-grid-compact sales-history-grid">
-          <SnippetCard title="P&L Statement (YTD)"     rows={dashboardContent.plStatement} actionLabel="Open Accounts" onAction={() => { setActiveAccountsTab('trial_balance'); jumpToSection('accounts_pricing') }} />
+          <SnippetCard title="P&L Statement (YTD)"     rows={dashboardContent.plStatement} actionLabel="Open Reporting" onAction={() => jumpToSection('reporting')} />
           <SnippetCard title="Top 5 Receivables"       rows={dashboardContent.receivables} actionLabel="Open Receivables" onAction={() => jumpToSection('customers', 'receivables')} />
           <SnippetCard title="Open Invoices"           rows={dashboardContent.openInvoices} actionLabel="Open Sales" onAction={() => jumpToSection('sales_hub', 'sales_list')} />
         </DashboardCardCarousel>
@@ -4365,7 +4402,23 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
       />
     )
 
-    // accounts_pricing
+    if (activeSection === 'reporting') return (
+      <>
+        <DateFilterControl range={reportingDateFilter} onOpen={openDateFilter} onClear={() => clearDateFilter('reporting')} onPresetSelect={preset => applyQuickDatePreset('reporting', preset)} activePreset={sectionDatePresets.reporting || ''} inlineTitle="Reporting" hideInlineTitle={isStandaloneView} />
+        <SummaryGrid items={reportingSummary} />
+        <TableCard
+          title="Trial Balance"
+          subtitle={`Workbook column structure reproduced with period logic from ${TRIAL_BALANCE_PERIOD_START} (expenses baseline ${TRIAL_BALANCE_EXPENSE_START}).`}
+          columns={['Account ID', 'Account Type', 'Account Class', 'Sub-Accounts', 'Account Description', 'Date', 'Opening Bal', 'Acct In', 'Acct Out', 'Available']}
+          colWidths={['140px', '170px', '150px', '170px', '280px', '200px', '140px', '140px', '140px', '140px']}
+          rows={trialBalanceRows}
+          search={searchTerms.trial_balance}
+          onSearch={v => setSearch('trial_balance', v)}
+          defaultRowsPerPage={20}
+        />
+      </>
+    )
+
     return (
       <>
         <DateFilterControl range={accountsDateFilter} onOpen={openDateFilter} onClear={() => clearDateFilter('accounts_pricing')} onPresetSelect={preset => applyQuickDatePreset('accounts_pricing', preset)} activePreset={sectionDatePresets.accounts_pricing || ''} inlineTitle="Accounts & Pricing" hideInlineTitle={isStandaloneView} />
@@ -4430,19 +4483,6 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
               defaultRowsPerPage={20}
             />
           </>
-        )}
-
-        {activeAccountsTab === 'trial_balance' && (
-          <TableCard
-            title="Trial Balance"
-            subtitle={`Workbook column structure reproduced with period logic from ${TRIAL_BALANCE_PERIOD_START} (expenses baseline ${TRIAL_BALANCE_EXPENSE_START}).`}
-            columns={['Account ID', 'Account Type', 'Account Class', 'Sub-Accounts', 'Account Description', 'Date', 'Opening Bal', 'Acct In', 'Acct Out', 'Available']}
-            colWidths={['140px', '170px', '150px', '170px', '280px', '200px', '140px', '140px', '140px', '140px']}
-            rows={trialBalanceRows}
-            search={searchTerms.trial_balance}
-            onSearch={v => setSearch('trial_balance', v)}
-            defaultRowsPerPage={20}
-          />
         )}
 
       </>
@@ -4517,7 +4557,7 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
           </div>
         </div>
 
-        {activeSection !== 'sales_hub' && activeSection !== 'production_ops' && activeSection !== 'dashboard' && activeSection !== 'customers' && activeSection !== 'supplies_stock' && activeSection !== 'suppliers' && activeSection !== 'accounts_pricing' ? (
+        {activeSection !== 'sales_hub' && activeSection !== 'production_ops' && activeSection !== 'dashboard' && activeSection !== 'customers' && activeSection !== 'supplies_stock' && activeSection !== 'suppliers' && activeSection !== 'accounts_pricing' && activeSection !== 'reporting' ? (
           <article className="mobile-section-hero-card">
             <div className="mobile-section-hero-copy">
               <span className="mobile-section-hero-kicker">{activeContent.label}</span>
@@ -4660,10 +4700,11 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
         const activePricingCategoryName = activePricingCatId
           ? data.pricingCategories.find(pc => String(pc.id) === activePricingCatId)?.name || ''
           : ''
-        const selectedSalesperson = data.staffProfiles.find(sp => String(sp.id) === String(saleForm.staff))
-        const salespersonName = selectedSalesperson
-          ? `${selectedSalesperson.user?.first_name || ''} ${selectedSalesperson.user?.last_name || ''}`.trim()
-          : (user?.name || '')
+        const selectedSalesperson = data.staffProfiles.find(sp => String(sp.id) === String(loggedInStaffId || saleForm.staff))
+        const selectedSalespersonName = selectedSalesperson
+          ? `${selectedSalesperson.user?.first_name || ''} ${selectedSalesperson.user?.last_name || ''}`.trim() || selectedSalesperson.user?.username || ''
+          : ''
+        const salespersonName = selectedSalespersonName || user?.username?.trim() || user?.email?.trim() || 'Current User'
         const filteredRules     = activePricingCatId
           ? data.pricingRules.filter(r => String(r.pricing_category) === activePricingCatId)
           : data.pricingRules
@@ -4689,6 +4730,10 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
           <form className="sales-form sales-form-redesign" onSubmit={handleSaleSubmit}>
             <div className="sales-form-grid sales-form-grid-primary">
               <label className="sales-field"><span>Invoice Date</span><input type="date" value={saleForm.invoiceDate} onChange={e => setSaleForm(c => ({ ...c, invoiceDate: e.target.value }))} /></label>
+              <label className="sales-field">
+                <span>Salesperson</span>
+                <input type="text" value={salespersonName || user?.username || user?.email || 'Current User'} readOnly />
+              </label>
               <label className="sales-field">
                 <span>Customer</span>
                 <AppAutocomplete

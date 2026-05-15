@@ -6,7 +6,6 @@ import { useAuth } from '../context/AuthContext'
 function getDefaultAppPath(user) {
   const role = String(user?.role || '').toLowerCase()
   if (role === 'sales') return '/app/sales'
-  if (role === 'accounts') return '/app/accounts'
   return '/app'
 }
 
