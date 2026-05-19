@@ -1,13 +1,16 @@
-import { Children, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { Children, isValidElement, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import plusLogo from '../assets/plusLogo.png'
+import ExcelJS from 'exceljs'
+import { FiDownload } from 'react-icons/fi'
 import { AppAutocomplete, AppFilterPicker, AppSelect } from '../components/FormSelects'
 import {
   createAccountTransaction, createCustomer, createInvoice, createPayment,
   createPricingRule, createProductionBatch, createProductionOutput, createPurchase, createSupplier,
   createPurchasePayment, updatePurchasePayment, createProduct, createRawMaterial, createItemCategory,
   deleteInvoice, deletePayment, deleteProductionBatch, deletePurchase, deletePurchaseItem,
+  deleteProductionOutput,
   updateInvoice, updatePayment, updatePurchase,
   updateCustomer, deleteCustomer,
   updateSupplier, deleteSupplier,
@@ -330,6 +333,60 @@ function buildCustomerLedger(customers, invoices) {
     const outstanding = sumBy(invs, inv => getInvoiceOutstandingDue(inv))
     return { ...c, invoiceCount: invs.length, paid, outstanding }
   }).sort((a, b) => b.outstanding - a.outstanding)
+}
+function extractExportText(value) {
+  if (value === null || value === undefined || typeof value === 'boolean') return ''
+  if (typeof value === 'string' || typeof value === 'number') return String(value)
+  if (Array.isArray(value)) return value.map(extractExportText).filter(Boolean).join(' ')
+  if (isValidElement(value)) return extractExportText(value.props?.children)
+  return ''
+}
+function sanitizeExportFileName(value) {
+  const text = String(value || 'plus_treat_export').trim().toLowerCase()
+  const safe = text.replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '')
+  return safe || 'plus_treat_export'
+}
+async function exportRowsToXlsx(fileName, columns, rows) {
+  if (!rows?.length || !columns?.length) return
+  const workbook = new ExcelJS.Workbook()
+  const worksheet = workbook.addWorksheet(String(fileName || 'Data').slice(0, 31))
+  worksheet.columns = columns.map(column => ({ header: column, key: column, width: Math.max(14, String(column).length + 4) }))
+  rows.forEach(row => worksheet.addRow(row))
+
+  const headerRow = worksheet.getRow(1)
+  headerRow.eachCell((cell) => {
+    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF2492DA' } }
+    cell.font = { name: 'Calibri', bold: true, color: { argb: 'FF111111' } }
+    cell.alignment = { vertical: 'middle', horizontal: 'center' }
+    cell.border = {
+      top: { style: 'thin', color: { argb: 'FF0F2D44' } },
+      left: { style: 'thin', color: { argb: 'FF0F2D44' } },
+      bottom: { style: 'thin', color: { argb: 'FF0F2D44' } },
+      right: { style: 'thin', color: { argb: 'FF0F2D44' } },
+    }
+  })
+  worksheet.eachRow((row, rowNumber) => {
+    if (rowNumber === 1) return
+    row.eachCell((cell) => {
+      cell.alignment = { vertical: 'middle', horizontal: 'left' }
+      cell.border = {
+        top: { style: 'thin', color: { argb: 'FFD1D5DB' } },
+        left: { style: 'thin', color: { argb: 'FFD1D5DB' } },
+        bottom: { style: 'thin', color: { argb: 'FFD1D5DB' } },
+        right: { style: 'thin', color: { argb: 'FFD1D5DB' } },
+      }
+    })
+  })
+  const buffer = await workbook.xlsx.writeBuffer()
+  const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = `${sanitizeExportFileName(fileName)}.xlsx`
+  document.body.appendChild(link)
+  link.click()
+  document.body.removeChild(link)
+  URL.revokeObjectURL(url)
 }
 function buildSupplierLedger(suppliers, purchases) {
   return suppliers.map(s => {
@@ -758,12 +815,24 @@ function SummaryGridSkeleton({ count = 4 }) {
 }
 
 function SnippetCard({ title, rows, onItemClick, actionLabel, onAction }) {
+  const handleExport = async () => {
+    const exportRows = (rows || []).map(item => ({
+      Item: extractExportText(item.title),
+      Details: extractExportText(item.meta),
+      Value: extractExportText(item.value),
+    }))
+    await exportRowsToXlsx(title, ['Item', 'Details', 'Value'], exportRows)
+  }
+
   return (
     <article className="account-feature-card dashboard-snippet-card">
       <div className="account-feature-body">
         <div className="dashboard-card-head">
           <h2>{title}</h2>
-          {onAction ? <button type="button" className="dashboard-card-link" onClick={onAction}>{actionLabel || 'Open'}</button> : null}
+          <div className="workspace-export-actions">
+            {rows.length ? <button type="button" className="dashboard-card-link workspace-export-btn" onClick={handleExport}><FiDownload aria-hidden="true" /> Export XLSX</button> : null}
+            {onAction ? <button type="button" className="dashboard-card-link" onClick={onAction}>{actionLabel || 'Open'}</button> : null}
+          </div>
         </div>
         <div className="dashboard-snippet-list">
           {rows.length
@@ -774,7 +843,7 @@ function SnippetCard({ title, rows, onItemClick, actionLabel, onAction }) {
                   onClick={() => onItemClick && onItemClick(item.id)}
                 >
                   <div><strong>{item.title}</strong><span>{item.meta}</span></div>
-                  <em>{item.value}</em>
+                  <em className="dashboard-snippet-value">{item.value}</em>
                 </div>
               ))
             : <p className="workspace-empty">No records yet.</p>}
@@ -1085,6 +1154,21 @@ function TableCard({
   rowsPerPageOptions = [10, 20, 50],
   mobileVariant = 'default',
 }) {
+  const isNumericLikeCell = (cell) => {
+    if (cell === null || cell === undefined) return false
+    if (typeof cell === 'number') return Number.isFinite(cell)
+    if (typeof cell !== 'string') return false
+    const text = cell.trim()
+    if (!text) return false
+    const normalized = text
+      .replace(/^[-+]/, '')
+      .replace(/^GHS\s*/i, '')
+      .replace(/[,\s]/g, '')
+      .replace(/%$/, '')
+      .replace(/[()]/g, '')
+    return /^\d+(\.\d+)?$/.test(normalized)
+  }
+
   const filtered = search
     ? rows.filter(row => row.cells.some(c => String(c).toLowerCase().includes(search.toLowerCase())))
     : rows
@@ -1099,6 +1183,23 @@ function TableCard({
   const pageStart = (currentPage - 1) * rowsPerPage
   const pageEnd = pageStart + rowsPerPage
   const visibleRows = filtered.slice(pageStart, pageEnd)
+  const numericColumnIndexes = useMemo(() => {
+    const indexes = new Set()
+    const sampleRows = filtered.slice(0, 100)
+    columns.forEach((_, colIndex) => {
+      let numericHits = 0
+      let primitiveHits = 0
+      sampleRows.forEach(row => {
+        const cell = row?.cells?.[colIndex]
+        if (typeof cell === 'string' || typeof cell === 'number') {
+          primitiveHits += 1
+          if (isNumericLikeCell(cell)) numericHits += 1
+        }
+      })
+      if (primitiveHits > 0 && numericHits / primitiveHits >= 0.7) indexes.add(colIndex)
+    })
+    return indexes
+  }, [columns, filtered])
 
   useEffect(() => {
     if (page > totalPages) setPage(totalPages)
@@ -1120,21 +1221,54 @@ function TableCard({
     key: `${col || 'action'}-${index}`,
     label: col || 'Action',
   }))
+  const exportableColumnIndexes = useMemo(
+    () => columns
+      .map((column, index) => ({ column, index }))
+      .filter(({ column }) => {
+        const label = String(column || '').trim()
+        return label && !/^action$/i.test(label)
+      })
+      .map(({ index }) => index),
+    [columns]
+  )
+  const exportableColumns = useMemo(
+    () => exportableColumnIndexes.map(index => String(columns[index]).trim()),
+    [columns, exportableColumnIndexes]
+  )
+  const handleExport = async () => {
+    if (!filtered.length || !exportableColumns.length) return
+    const exportRows = filtered.map(row => {
+      const mapped = {}
+      exportableColumnIndexes.forEach((columnIndex, exportIndex) => {
+        mapped[exportableColumns[exportIndex]] = extractExportText(row.cells?.[columnIndex])
+      })
+      return mapped
+    })
+    await exportRowsToXlsx(title, exportableColumns, exportRows)
+  }
+
   return (
     <article className={`account-feature-card sales-list-card ${className}`.trim()}>
       <div className="workspace-panel-header">
         <div><h2>{title}</h2>{subtitle ? <p className="account-feature-sheets">{subtitle}</p> : null}</div>
         <div className="workspace-panel-controls">
-          {onSearch !== undefined && (
-            <input
-              type="search"
-              className="workspace-search"
-              placeholder="Search…"
-              value={search || ''}
-              onChange={e => onSearch(e.target.value)}
-            />
-          )}
-          <span className="workspace-table-count">{totalRows} row{totalRows === 1 ? '' : 's'}</span>
+          <div className="workspace-panel-controls-top">
+            {onSearch !== undefined && (
+              <input
+                type="search"
+                className="workspace-search"
+                placeholder="Search…"
+                value={search || ''}
+                onChange={e => onSearch(e.target.value)}
+              />
+            )}
+            <span className="workspace-table-count">{totalRows} row{totalRows === 1 ? '' : 's'}</span>
+          </div>
+          {filtered.length ? (
+            <button type="button" className="workspace-action-btn workspace-export-btn" onClick={handleExport}>
+              <FiDownload aria-hidden="true" /> Export XLSX
+            </button>
+          ) : null}
         </div>
       </div>
       <div className="workspace-table-scroll">
@@ -1147,7 +1281,9 @@ function TableCard({
           }}
         >
           <div className="sales-list-head workspace-table-head">
-            {columns.map((col, i) => <span key={i}>{col}</span>)}
+            {columns.map((col, i) => (
+              <span key={i} className={numericColumnIndexes.has(i) ? 'workspace-table-number' : ''}>{col}</span>
+            ))}
           </div>
           {visibleRows.length
             ? visibleRows.map(row => (
@@ -1157,7 +1293,15 @@ function TableCard({
                   onClick={() => onRowClick && onRowClick(row.key)}
                 >
                   {row.cells.map((cell, i) => (
-                    <span key={i} className={i === row.emphasisIndex ? 'workspace-table-strong' : ''}>{cell}</span>
+                    <span
+                      key={i}
+                      className={[
+                        i === row.emphasisIndex ? 'workspace-table-strong' : '',
+                        numericColumnIndexes.has(i) ? 'workspace-table-number' : '',
+                      ].filter(Boolean).join(' ')}
+                    >
+                      {cell}
+                    </span>
                   ))}
                 </div>
               ))
@@ -1477,7 +1621,7 @@ function WorkspaceToolbar({ title, subtitle, actions, className = '' }) {
   )
 }
 
-function DateFilterControl({ range, onOpen, onClear, onPresetSelect, activePreset = '', inlineTitle = '', hideInlineTitle = false }) {
+function DateFilterControl({ range, onOpen, onClear, onPresetSelect, activePreset = '', inlineTitle = '', hideInlineTitle = false, onExport = null }) {
   const active = hasDateRange(range)
   const presetsRef = useRef(null)
 
@@ -1487,31 +1631,34 @@ function DateFilterControl({ range, onOpen, onClear, onPresetSelect, activePrese
     node.scrollBy({ left: direction * 160, behavior: 'smooth' })
   }
 
+  const dateRangeControls = (
+    <div className="workspace-date-actions">
+      <button type="button" className="account-alert-button account-alert-button-light workspace-date-range-button" onClick={onOpen}>
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <rect x="3" y="5" width="18" height="16" rx="3" />
+          <path d="M8 3v4" />
+          <path d="M16 3v4" />
+          <path d="M3 10h18" />
+        </svg>
+        Date Range
+      </button>
+      {onExport ? (
+        <button type="button" className="workspace-action-btn workspace-export-btn workspace-date-export-button" onClick={onExport}>
+          <FiDownload aria-hidden="true" /> Export XLSX
+        </button>
+      ) : null}
+    </div>
+  )
+
   return (
     <section className="workspace-filter-row" aria-label="Section filters">
       {inlineTitle && !hideInlineTitle ? (
         <div className="workspace-filter-header-row">
           <h1>{inlineTitle}</h1>
-          <button type="button" className="account-alert-button account-alert-button-light workspace-date-range-button" onClick={onOpen}>
-            <svg viewBox="0 0 24 24" aria-hidden="true">
-              <rect x="3" y="5" width="18" height="16" rx="3" />
-              <path d="M8 3v4" />
-              <path d="M16 3v4" />
-              <path d="M3 10h18" />
-            </svg>
-            Date Range
-          </button>
+          {dateRangeControls}
         </div>
       ) : (
-        <button type="button" className="account-alert-button account-alert-button-light workspace-date-range-button" onClick={onOpen}>
-          <svg viewBox="0 0 24 24" aria-hidden="true">
-            <rect x="3" y="5" width="18" height="16" rx="3" />
-            <path d="M8 3v4" />
-            <path d="M16 3v4" />
-            <path d="M3 10h18" />
-          </svg>
-          Date Range
-        </button>
+        dateRangeControls
       )}
       <div className="workspace-filter-presets-wrap">
         <button
@@ -2378,7 +2525,7 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
     const allSaleLines = data.invoices.flatMap(inv =>
       (inv.lines || []).map(l => ({ ...l, invoice_date: inv.invoice_date, invoice_id: inv.id, customer_name: inv.customer_name }))
     )
-    return [...sizeSet].sort().map((size, idx) => {
+    const rows = [...sizeSet].map((size) => {
       const outputs   = allOutputs.filter(o => o.product_size === size)
       const saleLines = allSaleLines.filter(l => l.product_size === size)
       const stockIn   = sumBy(outputs, o => o.quantity)
@@ -2395,7 +2542,7 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
       const productionLevel = matchingProduct ? toNumber(matchingProduct.production_level) : 0
       const prodRequired    = productionLevel > 0 && available <= productionLevel
       return {
-        id: `INV-${String(idx + 1).padStart(4, '0')}`,
+        id: '',
         size,
         unit: 'Pcs',
         opening,
@@ -2410,6 +2557,9 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
         salesHistory: saleLines.sort((a, b) => new Date(b.invoice_date) - new Date(a.invoice_date)),
       }
     })
+    return rows
+      .sort((a, b) => (toNumber(b.available) - toNumber(a.available)) || (toNumber(b.stockIn) - toNumber(a.stockIn)) || String(a.size).localeCompare(String(b.size)))
+      .map((item, idx) => ({ ...item, id: `INV-${String(idx + 1).padStart(4, '0')}` }))
   }, [data.pricingRules, data.productionBatches, data.invoices, data.products])
 
   const dashboardContent = useMemo(() => {
@@ -2438,18 +2588,34 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
 
     const prodMap = new Map()
     dashboardInvoices.forEach(inv => (inv.lines || []).forEach(line => {
-      const k = String(line.pricing_rule || line.id)
-      const cur = prodMap.get(k) || { id: k, title: line.product_size || line.pricing_category || 'Product', quantity: 0, amount: 0 }
+      const title = String(line.product_size || line.pricing_category || 'Product').trim()
+      const k = normalizeSizeKey(title) || String(line.pricing_rule || line.id)
+      const cur = prodMap.get(k) || { id: k, title: title || 'Product', quantity: 0, amount: 0 }
       cur.quantity += toNumber(line.quantity)
       cur.amount   += toNumber(line.line_total)
       prodMap.set(k, cur)
     }))
     const prodSales = [...prodMap.values()].sort((a, b) => b.amount - a.amount)
 
-    const finishedGoods = data.products.map(p => {
-      const sold = prodSales.find(s => s.id === String(p.id) || s.title === p.name)
-      return { id: p.id, title: p.name, meta: `${fmtQ(sold?.quantity || 0)} sold`, left: toNumber(p.stock_quantity) }
-    }).sort((a, b) => a.left - b.left)
+    const finishedGoodsBySize = new Map()
+    data.products.forEach(product => {
+      const sizeName = String(product.name || '').trim()
+      const sizeKey = normalizeSizeKey(sizeName)
+      if (!sizeKey) return
+      const existing = finishedGoodsBySize.get(sizeKey) || {
+        id: sizeKey,
+        title: sizeName || 'Product',
+        left: 0,
+      }
+      existing.left += toNumber(product.stock_quantity)
+      finishedGoodsBySize.set(sizeKey, existing)
+    })
+    const finishedGoods = [...finishedGoodsBySize.values()]
+      .map(item => {
+        const sold = prodMap.get(item.id)
+        return { ...item, meta: `${fmtQ(sold?.quantity || 0)} sold` }
+      })
+      .sort((a, b) => b.left - a.left)
 
     const monthlyTrend = Array.from({ length: 6 }, (_, index) => {
       const monthDate = new Date()
@@ -2578,8 +2744,8 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
         { id: 'revenue',   title: 'Revenue',              meta: 'YTD invoice value',        value: fmt(totalSales) },
         { id: 'cogs',      title: 'Cost of Sales',        meta: 'Production batch cost',    value: fmt(totalCost) },
         { id: 'gross',     title: 'Gross Profit',         meta: 'Revenue minus cost',       value: fmt(grossProfit) },
-        { id: 'receipts',  title: 'Receipts Collected',   meta: 'Payments received',        value: fmt(receiptsTotal) },
         { id: 'expenses',  title: 'Operating Expenses',   meta: 'Expense account entries',  value: fmt(expenseTotal) },
+        { id: 'receipts',  title: 'Receipts Collected',   meta: 'Payments received',        value: fmt(receiptsTotal) },
         { id: 'net',       title: 'Net Profit / Loss',    meta: 'Gross profit minus expenses', value: fmt(netProfit) },
       ],
       receivables:    clampRows(custSales.filter(c => c.outstanding > 0)).map(c => ({ id: c.id, title: c.title, meta: 'Amount outstanding', value: fmt(c.outstanding) })),
@@ -3520,6 +3686,16 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
     ],
   }))
   const pricingRows  = filteredPricingRules.map(r => ({ key: r.id, emphasisIndex: 3, cells: [r.product_name || r.size || '—', r.size, r.pricing_category_name || '—', fmt(r.price), ...(canManageDataEntryEditDelete ? [<button key="edit" type="button" className="workspace-action-btn" onClick={e => { e.stopPropagation(); openModal('pricing', r) }}>Edit</button>] : [])] }))
+  const exportTableDataset = async (fileName, columns, rows) => {
+    const exportRows = (rows || []).map(row => {
+      const mapped = {}
+      columns.forEach((column, index) => {
+        mapped[column] = extractExportText(row?.cells?.[index])
+      })
+      return mapped
+    })
+    await exportRowsToXlsx(fileName, columns, exportRows)
+  }
 
   const salesFilterOptions = useMemo(() => {
     if ((sectionTabs.sales_hub || SECTION_DEFAULT_TABS.sales_hub) === 'recent_receipts') {
@@ -4069,7 +4245,10 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
 
     if (activeSection === 'dashboard') return (
       <>
-        <DateFilterControl range={dashboardDateFilter} onOpen={openDateFilter} onClear={() => clearDateFilter('dashboard')} onPresetSelect={preset => applyQuickDatePreset('dashboard', preset)} activePreset={sectionDatePresets.dashboard || ''} inlineTitle="Dashboard" hideInlineTitle={isStandaloneView} />
+        <DateFilterControl range={dashboardDateFilter} onOpen={openDateFilter} onClear={() => clearDateFilter('dashboard')} onPresetSelect={preset => applyQuickDatePreset('dashboard', preset)} activePreset={sectionDatePresets.dashboard || ''} inlineTitle="Dashboard" hideInlineTitle={isStandaloneView} onExport={async () => {
+          const rows = (dashboardContent.plStatement || []).map(item => ({ id: item.id, cells: [item.title, item.meta, item.value] }))
+          await exportTableDataset('Dashboard_PL_Statement', ['Metric', 'Notes', 'Value'], rows)
+        }} />
         <SummaryGrid items={dashboardContent.metrics} />
         <section className="dashboard-snippet-grid dashboard-snippet-grid-hero">
           <TrendChartCard
@@ -4127,7 +4306,9 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
 
     if (activeSection === 'sales_hub') return (
       <>
-        <DateFilterControl range={salesDateFilter} onOpen={openDateFilter} onClear={() => clearDateFilter('sales_hub')} onPresetSelect={preset => applyQuickDatePreset('sales_hub', preset)} activePreset={sectionDatePresets.sales_hub || ''} inlineTitle="Sales Hub" hideInlineTitle={isStandaloneView} />
+        <DateFilterControl range={salesDateFilter} onOpen={openDateFilter} onClear={() => clearDateFilter('sales_hub')} onPresetSelect={preset => applyQuickDatePreset('sales_hub', preset)} activePreset={sectionDatePresets.sales_hub || ''} inlineTitle="Sales Hub" hideInlineTitle={isStandaloneView} onExport={async () => {
+          await exportTableDataset('Sales_List', ['Date', 'Invoice', 'Customer', 'Total', 'Paid', 'Outstanding'], salesRows)
+        }} />
         <WorkspaceToolbar
           className="workspace-toolbar-sales"
           title=""
@@ -4183,7 +4364,14 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
 
     if (activeSection === 'production_ops') return (
       <>
-        <DateFilterControl range={productionDateFilter} onOpen={openDateFilter} onClear={() => clearDateFilter('production_ops')} onPresetSelect={preset => applyQuickDatePreset('production_ops', preset)} activePreset={sectionDatePresets.production_ops || ''} inlineTitle="Production Ops" hideInlineTitle={isStandaloneView} />
+        <DateFilterControl range={productionDateFilter} onOpen={openDateFilter} onClear={() => clearDateFilter('production_ops')} onPresetSelect={preset => applyQuickDatePreset('production_ops', preset)} activePreset={sectionDatePresets.production_ops || ''} inlineTitle="Production Ops" hideInlineTitle={isStandaloneView} onExport={async () => {
+          const isInventoryTab = getSectionTab('production_ops') === 'inventory'
+          if (isInventoryTab) {
+            await exportTableDataset('Finished_Inventory', ['INV ID', 'Item', 'Unit', 'Opening', 'Stock In', 'Stock Out', 'Available', 'Stock Balance', 'Prod Level', 'Prod Required'], inventoryRows)
+            return
+          }
+          await exportTableDataset('Production_Batches', ['Date', 'Batch Number', 'Expiry Date', 'Outputs', 'Total Cost', 'Profit'], batchRows)
+        }} />
         <WorkspaceToolbar
           className="workspace-toolbar-production"
           title=""
@@ -4240,7 +4428,14 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
 
     if (activeSection === 'supplies_stock') return (
       <>
-        <DateFilterControl range={suppliesDateFilter} onOpen={openDateFilter} onClear={() => clearDateFilter('supplies_stock')} onPresetSelect={preset => applyQuickDatePreset('supplies_stock', preset)} activePreset={sectionDatePresets.supplies_stock || ''} inlineTitle="Supplies & Stock" hideInlineTitle={isStandaloneView} />
+        <DateFilterControl range={suppliesDateFilter} onOpen={openDateFilter} onClear={() => clearDateFilter('supplies_stock')} onPresetSelect={preset => applyQuickDatePreset('supplies_stock', preset)} activePreset={sectionDatePresets.supplies_stock || ''} inlineTitle="Supplies & Stock" hideInlineTitle={isStandaloneView} onExport={async () => {
+          const tab = getSectionTab('supplies_stock')
+          if (tab === 'materials') {
+            await exportTableDataset('Raw_Materials', ['Material', 'Category', 'Unit', 'Opening', 'Stock In', 'Available', 'Reorder', 'Status'], materialRows)
+            return
+          }
+          await exportTableDataset('Purchase_Register', ['Date', '#', 'Supplier', 'Category', 'Status', 'Paid', 'Outstanding'], purchaseRows)
+        }} />
         <SummaryGrid items={suppliesSummary} />
         <WorkspaceToolbar
           className="workspace-toolbar-supplies"
@@ -4293,7 +4488,9 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
 
     if (activeSection === 'customers') return (
       <>
-        <DateFilterControl range={customersDateFilter} onOpen={openDateFilter} onClear={() => clearDateFilter('customers')} onPresetSelect={preset => applyQuickDatePreset('customers', preset)} activePreset={sectionDatePresets.customers || ''} inlineTitle="Customers" hideInlineTitle={isStandaloneView} />
+        <DateFilterControl range={customersDateFilter} onOpen={openDateFilter} onClear={() => clearDateFilter('customers')} onPresetSelect={preset => applyQuickDatePreset('customers', preset)} activePreset={sectionDatePresets.customers || ''} inlineTitle="Customers" hideInlineTitle={isStandaloneView} onExport={async () => {
+          await exportTableDataset('Customers', ['Customer', 'Phone', 'Invoices', 'Paid', 'Outstanding'], customerRows)
+        }} />
         <SummaryGrid items={customersSummary} />
         <WorkspaceToolbar
           className="workspace-toolbar-customers"
@@ -4342,7 +4539,9 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
 
     if (activeSection === 'suppliers') return (
       <>
-        <DateFilterControl range={suppliersDateFilter} onOpen={openDateFilter} onClear={() => clearDateFilter('suppliers')} onPresetSelect={preset => applyQuickDatePreset('suppliers', preset)} activePreset={sectionDatePresets.suppliers || ''} inlineTitle="Suppliers" hideInlineTitle={isStandaloneView} />
+        <DateFilterControl range={suppliersDateFilter} onOpen={openDateFilter} onClear={() => clearDateFilter('suppliers')} onPresetSelect={preset => applyQuickDatePreset('suppliers', preset)} activePreset={sectionDatePresets.suppliers || ''} inlineTitle="Suppliers" hideInlineTitle={isStandaloneView} onExport={async () => {
+          await exportTableDataset('Suppliers', ['Supplier', 'Item Category', 'Purchases', 'Paid', 'Outstanding'], supplierRows)
+        }} />
         <SummaryGrid items={suppliersSummary} />
         <WorkspaceToolbar
           className="workspace-toolbar-suppliers"
@@ -4405,7 +4604,9 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
 
     if (activeSection === 'reporting') return (
       <>
-        <DateFilterControl range={reportingDateFilter} onOpen={openDateFilter} onClear={() => clearDateFilter('reporting')} onPresetSelect={preset => applyQuickDatePreset('reporting', preset)} activePreset={sectionDatePresets.reporting || ''} inlineTitle="Reporting" hideInlineTitle={isStandaloneView} />
+        <DateFilterControl range={reportingDateFilter} onOpen={openDateFilter} onClear={() => clearDateFilter('reporting')} onPresetSelect={preset => applyQuickDatePreset('reporting', preset)} activePreset={sectionDatePresets.reporting || ''} inlineTitle="Reporting" hideInlineTitle={isStandaloneView} onExport={async () => {
+          await exportTableDataset('Trial_Balance', ['Account ID', 'Account Type', 'Account Class', 'Sub-Accounts', 'Account Description', 'Date', 'Opening Bal', 'Acct In', 'Acct Out', 'Available'], trialBalanceRows)
+        }} />
         <SummaryGrid items={reportingSummary} />
         <TableCard
           title="Trial Balance"
@@ -4422,7 +4623,13 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
 
     return (
       <>
-        <DateFilterControl range={accountsDateFilter} onOpen={openDateFilter} onClear={() => clearDateFilter('accounts_pricing')} onPresetSelect={preset => applyQuickDatePreset('accounts_pricing', preset)} activePreset={sectionDatePresets.accounts_pricing || ''} inlineTitle="Accounts & Pricing" hideInlineTitle={isStandaloneView} />
+        <DateFilterControl range={accountsDateFilter} onOpen={openDateFilter} onClear={() => clearDateFilter('accounts_pricing')} onPresetSelect={preset => applyQuickDatePreset('accounts_pricing', preset)} activePreset={sectionDatePresets.accounts_pricing || ''} inlineTitle="Accounts & Pricing" hideInlineTitle={isStandaloneView} onExport={async () => {
+          if (activeAccountsTab === 'pricing') {
+            await exportTableDataset('Pricing_Rules', ['Finished Good Size', 'Size', 'Pricing Category', 'Price'], pricingRows)
+            return
+          }
+          await exportTableDataset('Account_Entries', ['Date', 'Transaction ID', 'Type', 'Category', 'Description', 'Amount', 'Payment Account', 'Comments'], accountRows)
+        }} />
         <SummaryGrid items={accountsSummary} />
         <WorkspaceToolbar
           className="workspace-toolbar-accounts"
@@ -5980,25 +6187,68 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
 
           {/* Finished goods produced */}
           <div className="detail-modal-section">
-            <h3>Finished Goods Produced ({(selectedBatch.outputs || []).length})</h3>
-            {(selectedBatch.outputs || []).length ? (
+            {(() => {
+              const outputRows = Object.values(
+                (selectedBatch.outputs || []).reduce((acc, output) => {
+                  const sizeKey = normalizeSizeKey(output.product_size || output.product?.name || '')
+                  const key = sizeKey || String(output.id)
+                  if (!acc[key]) {
+                    acc[key] = {
+                      id: key,
+                      outputIds: [],
+                      product_size: output.product_size || '—',
+                      quantity: 0,
+                      amount: 0,
+                    }
+                  }
+                  acc[key].outputIds.push(output.id)
+                  acc[key].quantity += toNumber(output.quantity)
+                  acc[key].amount += toNumber(output.amount)
+                  return acc
+                }, {})
+              )
+              return (
+                <>
+            <h3>Finished Goods Produced ({outputRows.length})</h3>
+            {outputRows.length ? (
               <div className="sales-list-table workspace-table" style={{ '--table-cols': '1.2fr 1fr 1fr 1fr 88px' }}>
                 <div className="sales-list-head workspace-table-head">
                   <span>Size</span><span>Qty Produced</span><span>Unit Production Price</span><span>Total Production Value</span><span>Action</span>
                 </div>
-                {(selectedBatch.outputs || []).map(o => {
+                {outputRows.map(o => {
+                  const unitCost = toNumber(o.quantity) > 0 ? toNumber(o.amount) / toNumber(o.quantity) : 0
                   return (
                   <div key={o.id} className="sales-list-row workspace-table-row">
                     <span>{o.product_size}</span>
-                    <span>{fmtQ(o.quantity)}</span>
-                    <span>{fmt(o.unit_cost)}</span>
-                    <span>{fmt(o.amount)}</span>
-                    {canManageProductionTransactions ? <button type="button" className="workspace-action-btn" onClick={() => openModal('finished_goods', { ...o, batch: selectedBatch.id })}>Edit</button> : <span>—</span>}
+                    <span className="workspace-row-number">{fmtQ(o.quantity)}</span>
+                    <span className="workspace-row-number">{fmt(unitCost)}</span>
+                    <span className="workspace-row-number">{fmt(o.amount)}</span>
+                    {canManageProductionTransactions ? (
+                      <button
+                        type="button"
+                        className="workspace-action-btn"
+                        onClick={async () => {
+                          if (!window.confirm('Delete this finished goods line? This cannot be undone.')) return
+                          try {
+                            await Promise.all(o.outputIds.map(id => deleteProductionOutput(id)))
+                            await refreshData()
+                            setSelectedBatch(null)
+                          } catch (err) {
+                            alert(err.message || 'Failed to delete finished goods line.')
+                          }
+                        }}
+                      >
+                        Delete
+                      </button>
+                    ) : <span>—</span>}
                   </div>
                   )
                 })}
               </div>
             ) : <p className="workspace-empty">No outputs recorded.</p>}
+                </>
+              )
+            })()}
           </div>
         </ModalShell>
       )}

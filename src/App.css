@@ -3094,6 +3094,12 @@
   transition: color 0.18s ease;
 }
 
+.workspace-table-number {
+  justify-self: end;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
 .sales-list-head {
   font-size: 0.76rem;
   font-weight: 800;
@@ -4386,6 +4392,15 @@
   color: #15344d;
 }
 
+.dashboard-snippet-value {
+  text-align: right;
+  min-width: 120px;
+}
+
+.workspace-row-number {
+  text-align: right;
+}
+
 .dashboard-skeleton-card {
   overflow: hidden;
 }
@@ -4849,10 +4864,24 @@
 
 .workspace-panel-controls {
   display: flex;
-  align-items: center;
+  align-items: flex-end;
   gap: 10px;
   margin-bottom: 12px;
   flex-wrap: wrap;
+}
+
+.workspace-panel-controls-top {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.workspace-date-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
 }
 
 .workspace-table-count {
@@ -6558,6 +6587,40 @@
   background: var(--accent, #6366f1);
   color: #fff;
   border-color: var(--accent, #6366f1);
+}
+
+.workspace-export-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.workspace-export-btn {
+  background: #2492da;
+  color: #111111;
+  border-color: #1b76b2;
+  font-weight: 800;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.workspace-export-btn:hover {
+  background: #1b76b2;
+  color: #111111;
+  border-color: #155f90;
+}
+
+.workspace-date-export-button {
+  min-width: 148px;
+  justify-content: center;
+}
+
+.workspace-export-btn svg {
+  width: 14px;
+  height: 14px;
 }
 
 /* ─── Workspace error banner ──────────────────────────────────────────────────── */
