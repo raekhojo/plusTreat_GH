@@ -507,20 +507,27 @@ const buildBatchForm   = (entity = null) => {
     _editId: entity.id,
   }
 }
-const mkFinishedGoodsLine = (productSize = '', overrides = {}) => ({ productSize, quantity: '', productId: '', _lineId: null, ...overrides })
+const mkFinishedGoodsLine = (productSize = '', overrides = {}) => ({ productSize, quantity: '', productId: '', _lineId: null, outputIds: [], ...overrides })
 const mkFinishedGoodsForm = ()           => ({ batch: '', lines: FINISHED_GOODS_SIZE_TEMPLATES.map(size => mkFinishedGoodsLine(size)), _editId: null })
 const buildFinishedGoodsForm = (entity = null) => {
   if (!entity) return mkFinishedGoodsForm()
 
+  const outputIds = Array.isArray(entity.outputIds)
+    ? entity.outputIds.map(id => String(id)).filter(Boolean)
+    : entity.id
+      ? [String(entity.id)]
+      : []
+
   return {
     ...mkFinishedGoodsForm(),
-    batch: entity.batch ? String(entity.batch) : '',
+    batch: entity.batch ? String(entity.batch) : entity.batch_id ? String(entity.batch_id) : '',
     lines: [mkFinishedGoodsLine(entity.product_size || '', {
       quantity: entity.quantity ? String(entity.quantity) : '',
       productId: entity.product ? String(entity.product) : '',
-      _lineId: entity.id || null,
+      _lineId: outputIds[0] || entity.id || null,
+      outputIds,
     })],
-    _editId: entity.id || null,
+    _editId: outputIds[0] || entity.id || null,
   }
 }
 const mkPurchaseItem   = ()              => ({ rawMaterial: '', isNewRM: false, newRMName: '', newRMCategory: '', newRMUnit: '', newRMOpeningStock: '0', newRMReorderLevel: '0', quantity: '', unitPerItem: '1', pricePerItem: '', _lineId: null })
@@ -3170,8 +3177,15 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
           batch_litres: String(litres),
           total_litres: String(litres),
         }
-        if (finishedGoodsForm._editId || line._lineId) {
-          await updateProductionOutput(line._lineId || finishedGoodsForm._editId, payload)
+        const existingOutputIds = Array.isArray(line.outputIds) && line.outputIds.length
+          ? line.outputIds
+          : [line._lineId || finishedGoodsForm._editId].filter(Boolean)
+        if (existingOutputIds.length) {
+          const [primaryOutputId, ...extraOutputIds] = existingOutputIds
+          await updateProductionOutput(primaryOutputId, payload)
+          if (extraOutputIds.length) {
+            await Promise.all(extraOutputIds.map(outputId => deleteProductionOutput(outputId)))
+          }
           return
         }
         await createProductionOutput(payload)
@@ -6196,6 +6210,8 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
                     acc[key] = {
                       id: key,
                       outputIds: [],
+                      batch_id: selectedBatch.id,
+                      product: output.product || '',
                       product_size: output.product_size || '—',
                       quantity: 0,
                       amount: 0,
@@ -6211,9 +6227,9 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
                 <>
             <h3>Finished Goods Produced ({outputRows.length})</h3>
             {outputRows.length ? (
-              <div className="sales-list-table workspace-table" style={{ '--table-cols': '1.2fr 1fr 1fr 1fr 88px' }}>
+              <div className="sales-list-table workspace-table batch-output-table">
                 <div className="sales-list-head workspace-table-head">
-                  <span>Size</span><span>Qty Produced</span><span>Unit Production Price</span><span>Total Production Value</span><span>Action</span>
+                  <span>Size</span><span>Qty Produced</span><span>Unit Production Price</span><span>Total Production Value</span><span>Actions</span>
                 </div>
                 {outputRows.map(o => {
                   const unitCost = toNumber(o.quantity) > 0 ? toNumber(o.amount) / toNumber(o.quantity) : 0
@@ -6224,22 +6240,34 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
                     <span className="workspace-row-number">{fmt(unitCost)}</span>
                     <span className="workspace-row-number">{fmt(o.amount)}</span>
                     {canManageProductionTransactions ? (
-                      <button
-                        type="button"
-                        className="workspace-action-btn"
-                        onClick={async () => {
-                          if (!window.confirm('Delete this finished goods line? This cannot be undone.')) return
-                          try {
-                            await Promise.all(o.outputIds.map(id => deleteProductionOutput(id)))
-                            await refreshData()
+                      <span className="batch-output-actions">
+                        <button
+                          type="button"
+                          className="workspace-action-btn"
+                          onClick={() => {
                             setSelectedBatch(null)
-                          } catch (err) {
-                            alert(err.message || 'Failed to delete finished goods line.')
-                          }
-                        }}
-                      >
-                        Delete
-                      </button>
+                            openModal('finished_goods', o)
+                          }}
+                        >
+                          Edit
+                        </button>
+                        <button
+                          type="button"
+                          className="workspace-action-btn"
+                          onClick={async () => {
+                            if (!window.confirm('Delete this finished goods line? This cannot be undone.')) return
+                            try {
+                              await Promise.all(o.outputIds.map(id => deleteProductionOutput(id)))
+                              await refreshData()
+                              setSelectedBatch(null)
+                            } catch (err) {
+                              alert(err.message || 'Failed to delete finished goods line.')
+                            }
+                          }}
+                        >
+                          Delete
+                        </button>
+                      </span>
                     ) : <span>—</span>}
                   </div>
                   )

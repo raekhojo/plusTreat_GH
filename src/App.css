@@ -6708,6 +6708,42 @@
   background: color-mix(in srgb, var(--accent, #6366f1) 6%, transparent);
 }
 
+.batch-output-table .workspace-table-head,
+.batch-output-table .workspace-table-row {
+  grid-template-columns: minmax(0, 0.9fr) minmax(84px, 0.8fr) minmax(108px, 0.95fr) minmax(118px, 0.95fr) minmax(96px, 0.72fr);
+  gap: 8px;
+  padding-left: 14px;
+  padding-right: 14px;
+}
+
+.batch-output-table .workspace-table-head span {
+  white-space: normal;
+  line-height: 1.2;
+  font-size: 0.72rem;
+}
+
+.batch-output-table .workspace-table-head span:last-child,
+.batch-output-table .workspace-table-row > :last-child {
+  justify-self: end;
+}
+
+.batch-output-table .workspace-table-row {
+  font-size: 0.86rem;
+}
+
+.batch-output-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 4px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.batch-output-actions .workspace-action-btn {
+  padding: 2px 8px;
+  font-size: 0.72rem;
+}
+
 .supplies-purchases-card .workspace-table-scroll {
   overflow-x: hidden;
 }
