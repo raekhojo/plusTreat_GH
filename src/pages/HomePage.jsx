@@ -19,7 +19,7 @@ import {
   updateRawMaterial, deleteRawMaterial,
   createStaffProfile, updateStaffProfile,
   replaceProductionBatch, updateProductionBatch,
-  getAnalyticsSummary, getDashboardOverview,
+  getAnalyticsSummary, getDashboardOverview, getTrialBalanceDetail,
 } from '../lib/api'
 
 // ─── Section config ───────────────────────────────────────────────────────────
@@ -2156,6 +2156,8 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
   const [selectedSupplier,      setSelectedSupplier]      = useState(null)
   const [selectedInventoryItem, setSelectedInventoryItem] = useState(null)
   const [selectedAccountEntry,  setSelectedAccountEntry]  = useState(null)
+  const [trialBalanceDetail,    setTrialBalanceDetail]    = useState(null)
+  const [trialBalanceDetailLoading, setTrialBalanceDetailLoading] = useState(false)
   const batchUsageTailRef = useRef(null)
   const purchaseItemsTailRef = useRef(null)
   const normalizedRole = String(user?.role || 'sales').toLowerCase()
@@ -4476,6 +4478,37 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
       }),
     }))
 
+  async function openTrialBalanceDetail(accountId) {
+    const row = (data.trialBalanceReport?.rows || []).find(item => String(item.account_id) === String(accountId))
+    const description = row?.description || accountId
+    setTrialBalanceDetail({ accountId, description, rows: null, total_in: 0, total_out: 0 })
+    setTrialBalanceDetailLoading(true)
+    try {
+      const detail = await getTrialBalanceDetail({
+        account_id: accountId,
+        period_start: data.trialBalanceReport?.period_start || TRIAL_BALANCE_PERIOD_START,
+        expense_start: data.trialBalanceReport?.expense_start || TRIAL_BALANCE_EXPENSE_START,
+      })
+      setTrialBalanceDetail({
+        accountId,
+        description,
+        rows: Array.isArray(detail?.rows) ? detail.rows : [],
+        total_in: toNumber(detail?.total_in),
+        total_out: toNumber(detail?.total_out),
+      })
+    } catch {
+      setTrialBalanceDetail({
+        accountId,
+        description,
+        rows: [],
+        total_in: 0,
+        total_out: 0,
+      })
+    } finally {
+      setTrialBalanceDetailLoading(false)
+    }
+  }
+
   const activeContent = useMemo(() => availableSections.find(s => s.key === activeSection) || availableSections[0], [activeSection, availableSections])
   const getSectionTab = (sectionKey) => sectionTabs[sectionKey] || SECTION_DEFAULT_TABS[sectionKey]
   const setSectionTab = (sectionKey, tabKey) => setSectionTabs(cur => ({ ...cur, [sectionKey]: tabKey }))
@@ -4961,14 +4994,15 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
           await exportTableDataset('Trial_Balance', ['Account ID', 'Account Type', 'Account Class', 'Sub-Accounts', 'Account Description', 'Transaction Description', 'Opening Bal', 'Acct In', 'Acct Out', 'Available'], compactTrialBalanceRows)
         }} />
         <SummaryGrid items={reportingSummary} />
-          <TableCard
+        <TableCard
           title="Trial Balance"
-          subtitle={`Workbook column structure reproduced with period logic from ${TRIAL_BALANCE_PERIOD_START} (expenses baseline ${TRIAL_BALANCE_EXPENSE_START}).`}
+          subtitle={`Workbook column structure reproduced with period logic from ${TRIAL_BALANCE_PERIOD_START} (expenses baseline ${TRIAL_BALANCE_EXPENSE_START}). Click a row to view transaction detail.`}
           columns={['Account ID', 'Account Type', 'Account Class', 'Sub-Accounts', 'Account Description', 'Transaction Description', 'Opening Bal', 'Acct In', 'Acct Out', 'Available']}
           colWidths={['140px', '170px', '150px', '170px', '240px', '420px', '140px', '140px', '140px', '140px']}
           rows={compactTrialBalanceRows}
           search={searchTerms.trial_balance}
           onSearch={v => setSearch('trial_balance', v)}
+          onRowClick={openTrialBalanceDetail}
           defaultRowsPerPage={20}
         />
       </>
@@ -7085,6 +7119,118 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
       })()}
 
       {/* ── ACCOUNT ENTRY DETAIL MODAL ── */}
+      {trialBalanceDetail && (
+        <ModalShell
+          kicker="Trial Balance Detail"
+          title={trialBalanceDetail.description}
+          subtitle={trialBalanceDetail.accountId}
+          stat={trialBalanceDetailLoading ? 'Loading detail' : `${(trialBalanceDetail.rows || []).length} transactions`}
+          onClose={() => setTrialBalanceDetail(null)}
+          cardClassName="sales-modal-card-xwide"
+        >
+          {trialBalanceDetailLoading ? (
+            <div className="detail-modal-section">
+              <p className="workspace-empty">Loading transactions...</p>
+            </div>
+          ) : !trialBalanceDetail.rows || trialBalanceDetail.rows.length === 0 ? (
+            <div className="detail-modal-section">
+              <p className="workspace-empty">No transactions found for this trial balance line.</p>
+            </div>
+          ) : (
+            <>
+              <div className="detail-modal-section">
+                <div className="detail-modal-totals" style={{ flexWrap: 'wrap', gap: '16px 32px' }}>
+                  <span>Total In: <strong style={{ color: '#16a34a' }}>{fmt(trialBalanceDetail.total_in)}</strong></span>
+                  <span>Total Out: <strong style={{ color: '#dc2626' }}>{fmt(trialBalanceDetail.total_out)}</strong></span>
+                  <span>Net: <strong>{fmt(trialBalanceDetail.total_in - trialBalanceDetail.total_out)}</strong></span>
+                </div>
+              </div>
+
+              <div className="detail-modal-section">
+                <div className="sales-list-table workspace-table" style={{ '--table-cols': '120px 140px minmax(260px, 1fr) 140px 140px' }}>
+                  <div className="sales-list-head workspace-table-head">
+                    <span>Date</span><span>Reference</span><span>Description</span><span>Amount In</span><span>Amount Out</span>
+                  </div>
+                  {trialBalanceDetail.rows.map((row, index) => (
+                    <div key={`${row.ref || 'ref'}-${row.date || 'date'}-${index}`} className="sales-list-row workspace-table-row">
+                      <span>{fmtD(row.date)}</span>
+                      <span style={{ fontFamily: 'monospace', fontSize: '0.8rem' }}>{row.ref || 'â€”'}</span>
+                      <span>{row.description || 'â€”'}</span>
+                      <span style={{ color: toNumber(row.amount_in) > 0 ? '#16a34a' : '#9ca3af' }}>{toNumber(row.amount_in) > 0 ? fmt(row.amount_in) : 'â€”'}</span>
+                      <span style={{ color: toNumber(row.amount_out) > 0 ? '#dc2626' : '#9ca3af' }}>{toNumber(row.amount_out) > 0 ? fmt(row.amount_out) : 'â€”'}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="detail-modal-section" style={{ paddingTop: 0 }}>
+                <div className="sales-form-actions" style={{ justifyContent: 'space-between', flexWrap: 'wrap', gap: '12px' }}>
+                  <span className="account-feature-sheets">Backend drill-down for the selected trial balance account.</span>
+                  <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                    <button
+                      type="button"
+                      className="account-alert-button account-alert-button-light"
+                      onClick={() => {
+                        const header = ['Date', 'Reference', 'Description', 'Amount In', 'Amount Out']
+                        const csv = [header, ...trialBalanceDetail.rows.map(row => [
+                          row.date || '',
+                          row.ref || '',
+                          row.description || '',
+                          toNumber(row.amount_in) > 0 ? toNumber(row.amount_in).toFixed(2) : '',
+                          toNumber(row.amount_out) > 0 ? toNumber(row.amount_out).toFixed(2) : '',
+                        ])]
+                          .map(line => line.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(','))
+                          .join('\n')
+                        const link = document.createElement('a')
+                        link.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8;' }))
+                        link.download = `${String(trialBalanceDetail.description || trialBalanceDetail.accountId).replace(/\s+/g, '_')}_detail.csv`
+                        link.click()
+                      }}
+                    >
+                      Export CSV
+                    </button>
+                    <button
+                      type="button"
+                      className="account-alert-button account-alert-button-dark"
+                      onClick={() => {
+                        const popup = window.open('', '_blank')
+                        if (!popup) return
+                        const formatAmount = value => (toNumber(value) > 0 ? `GHS ${toNumber(value).toFixed(2)}` : 'â€”')
+                        popup.document.write(`<!DOCTYPE html><html><head><title>${trialBalanceDetail.description}</title>
+                          <style>
+                            body { font-family: Arial, sans-serif; font-size: 12px; padding: 24px; color: #111827; }
+                            h2 { margin: 0 0 4px; }
+                            p { margin: 0 0 16px; color: #6b7280; }
+                            table { width: 100%; border-collapse: collapse; }
+                            th, td { border: 1px solid #d1d5db; padding: 8px 10px; text-align: left; }
+                            th { background: #f3f4f6; font-weight: 700; }
+                            td.in { color: #16a34a; }
+                            td.out { color: #dc2626; }
+                            .footer { margin-top: 16px; font-weight: 600; }
+                          </style>
+                        </head><body>
+                          <h2>${trialBalanceDetail.description}</h2>
+                          <p>${trialBalanceDetail.accountId}</p>
+                          <table>
+                            <thead><tr><th>Date</th><th>Reference</th><th>Description</th><th>Amount In</th><th>Amount Out</th></tr></thead>
+                            <tbody>${trialBalanceDetail.rows.map(row => `<tr><td>${row.date || ''}</td><td>${row.ref || ''}</td><td>${row.description || ''}</td><td class="in">${formatAmount(row.amount_in)}</td><td class="out">${formatAmount(row.amount_out)}</td></tr>`).join('')}</tbody>
+                          </table>
+                          <div class="footer">Total In: GHS ${trialBalanceDetail.total_in.toFixed(2)} | Total Out: GHS ${trialBalanceDetail.total_out.toFixed(2)} | Net: GHS ${(trialBalanceDetail.total_in - trialBalanceDetail.total_out).toFixed(2)}</div>
+                          <script>window.onload=()=>window.print()<\/script>
+                        </body></html>`)
+                        popup.document.close()
+                      }}
+                    >
+                      Print / PDF
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </>
+          )}
+        </ModalShell>
+      )}
+
       {selectedAccountEntry && (() => {
         const e = selectedAccountEntry
         const typeColor = { income: '#16a34a', expense: '#dc2626', asset: '#2563eb', liability: '#d97706', equity: '#7c3aed' }[e.entry_type] || '#6b7280'

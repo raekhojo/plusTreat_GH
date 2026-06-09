@@ -456,3 +456,8 @@ export function getTrialBalanceReport(params = {}) {
   const qs = new URLSearchParams(params).toString()
   return request(`/trial-balance/${qs ? `?${qs}` : ''}`)
 }
+
+export function getTrialBalanceDetail(params = {}) {
+  const qs = new URLSearchParams(params).toString()
+  return request(`/trial-balance/detail/${qs ? `?${qs}` : ''}`)
+}
