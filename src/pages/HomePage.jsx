@@ -7,10 +7,9 @@ import { FiDownload } from 'react-icons/fi'
 import { AppAutocomplete, AppFilterPicker, AppSelect } from '../components/FormSelects'
 import {
   createAccountTransaction, createCustomer, createInvoice, createPayment,
-  createPricingRule, createProductionBatch, createProductionOutput, createPurchase, createSupplier,
+  createPricingRule, createProductionBatch, createPurchase, createSupplier,
   createPurchasePayment, updatePurchasePayment, createProduct, createRawMaterial, createItemCategory,
   deleteInvoice, deletePayment, deleteProductionBatch, deletePurchase, deletePurchaseItem,
-  deleteProductionOutput,
   updateInvoice, updatePayment, updatePurchase,
   updateCustomer, deleteCustomer,
   updateSupplier, deleteSupplier,
@@ -19,8 +18,8 @@ import {
   updateProduct, deleteProduct,
   updateRawMaterial, deleteRawMaterial,
   createStaffProfile, updateStaffProfile,
-  updateProductionBatch, updateProductionOutput,
-  getAnalyticsSummary,
+  replaceProductionBatch, updateProductionBatch,
+  getAnalyticsSummary, getDashboardOverview,
 } from '../lib/api'
 
 // ─── Section config ───────────────────────────────────────────────────────────
@@ -42,6 +41,7 @@ const INITIAL_DATA = {
   purchasePayments: [], productionBatches: [], rawMaterials: [],
   accountTransactions: [], pricingRules: [], customers: [], staffProfiles: [],
   pricingCategories: [], customerCategories: [], itemCategories: [],
+  dashboardOverview: null, trialBalanceReport: null,
 }
 
 const PRODUCTION_RAW_MATERIAL_TEMPLATES = [
@@ -243,6 +243,31 @@ function formatDateRange(values) {
   if (unique.length === 1) return fmtD(unique[0])
   return `${fmtD(unique[0])} - ${fmtD(unique[unique.length - 1])}`
 }
+function collapseDateRange(values) {
+  const unique = [...new Set((values || []).filter(Boolean))]
+  if (!unique.length) return 'â€”'
+  unique.sort((a, b) => new Date(a).getTime() - new Date(b).getTime())
+
+  const start = new Date(unique[0])
+  const end = new Date(unique[unique.length - 1])
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return formatDateRange(unique)
+  if (unique.length === 1 || start.getTime() === end.getTime()) return fmtD(unique[0])
+
+  const sameYear = start.getFullYear() === end.getFullYear()
+  const sameMonth = sameYear && start.getMonth() === end.getMonth()
+  const shortMonth = new Intl.DateTimeFormat('en-US', { month: 'short' })
+
+  if (sameMonth) return `${shortMonth.format(start)} ${start.getDate()}-${end.getDate()}, ${start.getFullYear()}`
+  if (sameYear) return `${shortMonth.format(start)} ${start.getDate()}-${shortMonth.format(end)} ${end.getDate()}, ${start.getFullYear()}`
+  return `${shortMonth.format(start)} ${start.getDate()}, ${start.getFullYear()}-${shortMonth.format(end)} ${end.getDate()}, ${end.getFullYear()}`
+}
+function collapseDateText(value) {
+  const text = String(value || '').trim()
+  if (!text || text === 'â€”') return 'â€”'
+  if (!text.includes(' - ')) return fmtD(text)
+  const [start, end] = text.split(' - ').map(part => part.trim())
+  return collapseDateRange([start, end])
+}
 function hasDateRange(range) {
   return Boolean(range?.start || range?.end)
 }
@@ -325,6 +350,18 @@ function resolveSupplierItemCategory(supplier, purchases = [], rawMaterials = []
 
   if (!uniqueCategories.length) return directCategory || 'General'
   return uniqueCategories.slice(0, 2).join(', ')
+}
+function resolveSupplierMaterials(supplier, rawMaterials = []) {
+  const supplierId = String(supplier?.id || '')
+  const materials = rawMaterials
+    .filter(material => String(material.supplier) === supplierId)
+    .map(material => String(material.name || '').trim())
+    .filter(Boolean)
+
+  const uniqueMaterials = [...new Set(materials)]
+  if (!uniqueMaterials.length) return '—'
+  if (uniqueMaterials.length <= 2) return uniqueMaterials.join(', ')
+  return `${uniqueMaterials.slice(0, 2).join(', ')} +${uniqueMaterials.length - 2}`
 }
 function buildCustomerLedger(customers, invoices) {
   return customers.map(c => {
@@ -530,6 +567,41 @@ const buildFinishedGoodsForm = (entity = null) => {
     _editId: outputIds[0] || entity.id || null,
   }
 }
+const buildProductionOutputPayload = (source, productBySizeKey, resolveProductionPriceFn) => {
+  const productSize = source.product_size ?? source.productSize ?? ''
+  const quantity = toNumber(source.quantity)
+  const matchedProduct = productBySizeKey.get(normalizeSizeKey(productSize))
+  const resolvedProductId = source.product ?? source.productId ?? matchedProduct?.id ?? null
+  const unitCost = source.unit_cost ?? source.unitCost ?? resolveProductionPriceFn(productSize, matchedProduct)
+  const litres = source.batch_litres ?? source.batchLitres ?? source.total_litres ?? source.totalLitres ?? inferTotalLitres(productSize, quantity)
+  const totalLitres = source.total_litres ?? source.totalLitres ?? litres
+
+  return {
+    ...(source.id || source._lineId ? { id: source.id || source._lineId } : {}),
+    product: resolvedProductId || null,
+    product_size: productSize,
+    quantity: toFixedDecimalString(quantity, 2, 12, `${productSize || 'Finished goods'} quantity`),
+    unit_cost: toFixedDecimalString(unitCost, 2, 12, `${productSize || 'Finished goods'} unit cost`),
+    batch_litres: toFixedDecimalString(litres, 3, 12, `${productSize || 'Finished goods'} batch litres`),
+    total_litres: toFixedDecimalString(totalLitres, 3, 12, `${productSize || 'Finished goods'} total litres`),
+  }
+}
+const buildProductionBatchReplacePayload = (batch, outputs, productBySizeKey, resolveProductionPriceFn) => ({
+  batch_number: batch.batch_number || '',
+  production_date: batch.production_date || '',
+  notes: batch.notes || '',
+  electricity_cost: String(toNumber(batch.electricity_cost)),
+  gas_cost: String(toNumber(batch.gas_cost)),
+  production_wages: String(toNumber(batch.production_wages)),
+  material_usages: (batch.material_usages || []).map(usage => ({
+    ...(usage.id ? { id: usage.id } : {}),
+    raw_material: usage.raw_material,
+    quantity_used: String(toNumber(usage.quantity_used)),
+    amount: String(toNumber(usage.amount)),
+    notes: usage.notes || '',
+  })),
+  outputs: outputs.map(output => buildProductionOutputPayload(output, productBySizeKey, resolveProductionPriceFn)),
+})
 const mkPurchaseItem   = ()              => ({ rawMaterial: '', isNewRM: false, newRMName: '', newRMCategory: '', newRMUnit: '', newRMOpeningStock: '0', newRMReorderLevel: '0', quantity: '', unitPerItem: '1', pricePerItem: '', _lineId: null })
 const mkPurchaseForm   = ()              => ({ purchaseDate: todayValue(), supplier: '', category: '', notes: '', items: [mkPurchaseItem()], paymentAmount: '', paymentMethod: 'cash', paymentNotes: '', paymentDate: todayValue(), _paymentId: null, _editId: null, status: 'open' })
 const buildPurchaseForm = (entity = null) => {
@@ -2446,6 +2518,24 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
   const dashboardBatches = useMemo(() => filterByDateRange(data.productionBatches, b => b.production_date, dashboardDateFilter), [data.productionBatches, dashboardDateFilter])
   const dashboardAccounts = useMemo(() => filterByDateRange(data.accountTransactions, e => e.transaction_date, dashboardDateFilter), [data.accountTransactions, dashboardDateFilter])
 
+  useEffect(() => {
+    let active = true
+    getDashboardOverview({
+      ...(dashboardDateFilter.start ? { start_date: dashboardDateFilter.start } : {}),
+      ...(dashboardDateFilter.end ? { end_date: dashboardDateFilter.end } : {}),
+    })
+      .then((dashboardOverview) => {
+        if (!active) return
+        setData(current => ({ ...current, dashboardOverview }))
+      })
+      .catch(() => {
+        if (!active) return
+        setLoadError('Dashboard report refresh failed. Showing the latest available data.')
+      })
+
+    return () => { active = false }
+  }, [dashboardDateFilter.end, dashboardDateFilter.start])
+
   const salesInvoices = useMemo(() => filterByDateRange(data.invoices, inv => inv.invoice_date, salesDateFilter), [data.invoices, salesDateFilter])
   const salesPayments = useMemo(() => filterByDateRange(data.payments, p => p.payment_date, salesDateFilter), [data.payments, salesDateFilter])
   const productionBatchesFiltered = useMemo(() => filterByDateRange(data.productionBatches, b => b.production_date, productionDateFilter), [data.productionBatches, productionDateFilter])
@@ -2570,6 +2660,185 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
   }, [data.pricingRules, data.productionBatches, data.invoices, data.products])
 
   const dashboardContent = useMemo(() => {
+    const ytdInvForCharts = dashboardInvoices.filter(inv => isThisYear(inv.invoice_date))
+    const ytdBatchForCharts = dashboardBatches.filter(b => isThisYear(b.production_date))
+    const ytdAcctForCharts = dashboardAccounts.filter(e => isThisYear(e.transaction_date))
+    const totalSalesForCharts = sumBy(ytdInvForCharts, inv => inv.total_amount)
+    const totalCostForCharts = sumBy(ytdBatchForCharts, b => b.total_cost)
+    const receiptsTotalForCharts = sumBy(dashboardPayments, p => p.amount)
+    const expenseTotalForCharts = sumBy(ytdAcctForCharts.filter(e => e.entry_type === 'expense'), e => e.amount)
+    const grossProfitForCharts = totalSalesForCharts - totalCostForCharts
+    const avgInvoiceValueForCharts = ytdInvForCharts.length ? totalSalesForCharts / ytdInvForCharts.length : 0
+    const collectionRateForCharts = ratioPct(receiptsTotalForCharts, Math.max(totalSalesForCharts, receiptsTotalForCharts))
+    const grossMarginPctForCharts = ratioPct(grossProfitForCharts, totalSalesForCharts)
+    const lowStockCountForCharts = lowStockRows.filter(m => toNumber(m.available) <= toNumber(m.reorder_level || 0)).length
+    const stockRiskPctForCharts = ratioPct(lowStockCountForCharts, Math.max(data.rawMaterials.length, 1))
+
+    const monthlyTrendForCharts = Array.from({ length: 6 }, (_, index) => {
+      const monthDate = new Date()
+      monthDate.setDate(1)
+      monthDate.setMonth(monthDate.getMonth() - (5 - index))
+      const month = monthDate.getMonth()
+      const year = monthDate.getFullYear()
+
+      const monthSales = sumBy(dashboardInvoices.filter(inv => {
+        const invoiceDate = new Date(inv.invoice_date)
+        return !Number.isNaN(invoiceDate.getTime()) && invoiceDate.getMonth() === month && invoiceDate.getFullYear() === year
+      }), inv => inv.total_amount)
+
+      const monthReceipts = sumBy(dashboardPayments.filter(payment => {
+        const paymentDate = new Date(payment.payment_date)
+        return !Number.isNaN(paymentDate.getTime()) && paymentDate.getMonth() === month && paymentDate.getFullYear() === year
+      }), payment => payment.amount)
+
+      return {
+        label: monthDate.toLocaleString('en-US', { month: 'short' }),
+        sales: monthSales,
+        receipts: monthReceipts,
+      }
+    })
+
+    const invoiceStatusSegmentsForCharts = [
+      {
+        label: 'Collected',
+        value: sumBy(dashboardInvoices.filter(inv => getInvoiceOutstandingDue(inv) <= 0), inv => inv.total_amount),
+        meta: `${dashboardInvoices.filter(inv => getInvoiceOutstandingDue(inv) <= 0).length} invoices settled`,
+        color: '#2492da',
+      },
+      {
+        label: 'Partially Paid',
+        value: sumBy(dashboardInvoices.filter(inv => {
+          const paidAmount = getInvoicePaidAmount(inv)
+          return getInvoiceOutstandingDue(inv) > 0 && paidAmount > 0
+        }), inv => getInvoiceOutstandingDue(inv)),
+        meta: `${dashboardInvoices.filter(inv => {
+          const paidAmount = getInvoicePaidAmount(inv)
+          return getInvoiceOutstandingDue(inv) > 0 && paidAmount > 0
+        }).length} invoices still collecting`,
+        color: '#f2b13a',
+      },
+      {
+        label: 'Unpaid',
+        value: sumBy(dashboardInvoices.filter(inv => {
+          const paidAmount = getInvoicePaidAmount(inv)
+          return getInvoiceOutstandingDue(inv) > 0 && paidAmount <= 0
+        }), inv => getInvoiceOutstandingDue(inv)),
+        meta: `${dashboardInvoices.filter(inv => {
+          const paidAmount = getInvoicePaidAmount(inv)
+          return getInvoiceOutstandingDue(inv) > 0 && paidAmount <= 0
+        }).length} invoices untouched`,
+        color: '#ef4444',
+      },
+    ]
+
+    const paymentMethodSegmentsForCharts = Object.entries(
+      dashboardPayments.reduce((acc, payment) => {
+        const key = fmtStatus(payment.method || 'other')
+        acc[key] = (acc[key] || 0) + toNumber(payment.amount)
+        return acc
+      }, {})
+    )
+      .map(([label, value]) => ({
+        label,
+        value,
+        meta: `${fmt(value)} collected`,
+      }))
+      .sort((a, b) => b.value - a.value)
+      .map((segment, index) => ({
+        ...segment,
+        color: ['#2492da', '#f2b13a', '#14b8a6', '#7c3aed', '#ef4444'][index % 5],
+      }))
+
+    const dashboardSignalsForCharts = [
+      {
+        label: 'Collection Rate',
+        value: `${collectionRateForCharts.toFixed(0)}%`,
+        meta: 'Receipts collected versus sales booked',
+        percent: collectionRateForCharts,
+        color: 'linear-gradient(90deg, #2492da, #48b1ec)',
+      },
+      {
+        label: 'Gross Margin',
+        value: `${grossMarginPctForCharts.toFixed(0)}%`,
+        meta: 'Sales left after production cost',
+        percent: grossMarginPctForCharts,
+        color: 'linear-gradient(90deg, #f2b13a, #c7851d)',
+      },
+      {
+        label: 'Average Invoice',
+        value: fmt(avgInvoiceValueForCharts),
+        meta: `${ytdInvForCharts.length} YTD invoices averaged`,
+        percent: ratioPct(avgInvoiceValueForCharts, Math.max(...ytdInvForCharts.map(inv => toNumber(inv.total_amount)), avgInvoiceValueForCharts, 1)),
+        color: 'linear-gradient(90deg, #14b8a6, #0f766e)',
+      },
+      {
+        label: 'Raw Material Risk',
+        value: `${lowStockCountForCharts} low stock`,
+        meta: 'Materials at or below reorder level',
+        percent: stockRiskPctForCharts,
+        color: 'linear-gradient(90deg, #ef4444, #b91c1c)',
+      },
+    ]
+
+    if (data.dashboardOverview) {
+      const overview = data.dashboardOverview
+      const kpis = overview.kpis || {}
+      return {
+        metrics: [
+          { label: 'Total Sales (YTD)', value: fmt(kpis.total_sales_ytd), note: `${overview.period?.start_date || 'YTD'} to ${overview.period?.end_date || 'today'}` },
+          { label: 'Outstanding Receivables', value: fmt(kpis.outstanding_receivables), note: `${(overview.open_invoices || []).length} open invoices` },
+          { label: 'Production Batches (YTD)', value: fmtQ(kpis.batches), note: 'Batches recorded in selected period' },
+          { label: 'Production Cost (YTD)', value: fmt(kpis.total_cost), note: 'Sum of batch costs' },
+          { label: 'Profit / Loss (YTD)', value: fmt(kpis.profit_loss), note: 'Sales minus production cost' },
+        ],
+        monthlyTrend: monthlyTrendForCharts,
+        invoiceStatusSegments: invoiceStatusSegmentsForCharts,
+        paymentMethodSegments: paymentMethodSegmentsForCharts,
+        dashboardSignals: dashboardSignalsForCharts,
+        topCustomers: (overview.top_customers_by_value || []).map((row, index) => ({
+          id: index,
+          title: row.customer__name || 'Customer',
+          meta: 'Total sales',
+          value: fmt(row.total_sales),
+        })),
+        topProducts: (overview.top_products_sold || []).map((row, index) => ({
+          id: index,
+          title: row.pricing_rule__size || row.description || 'Product',
+          meta: `${fmtQ(row.total_qty)} sold`,
+          value: fmt(row.total_amount),
+        })),
+        rawMaterials: (overview.raw_materials_status || []).map((row, index) => ({
+          id: index,
+          title: row.name || 'Raw Material',
+          meta: 'Available quantity',
+          value: fmtQ(row.qty_available),
+        })),
+        finishedGoods: (overview.finished_goods_status || []).map((row, index) => ({
+          id: index,
+          title: row.pricing_rule__size || row.item || 'Finished Good',
+          meta: `${fmtQ(row.qty_sold)} sold`,
+          value: fmtQ(row.qty_left),
+        })),
+        plStatement: [
+          { id: 'revenue', title: 'Revenue', meta: 'Invoice value in selected period', value: fmt(kpis.total_sales_ytd) },
+          { id: 'cogs', title: 'Cost of Sales', meta: 'Production batch cost', value: fmt(kpis.total_cost) },
+          { id: 'profit', title: 'Profit / Loss', meta: 'Revenue minus production cost', value: fmt(kpis.profit_loss) },
+        ],
+        receivables: (overview.top_receivables || []).map((row, index) => ({
+          id: index,
+          title: row.customer__name || 'Customer',
+          meta: 'Amount outstanding',
+          value: fmt(row.amount_outstanding),
+        })),
+        openInvoices: (overview.open_invoices || []).map((row, index) => ({
+          id: row.id || index,
+          title: row.invoice_number || fmtInv(row.id),
+          meta: row.customer__name || 'Customer',
+          value: fmt(row.amount_outstanding),
+        })),
+      }
+    }
+
     const ytdInv   = dashboardInvoices.filter(inv => isThisYear(inv.invoice_date))
     const ytdBatch = dashboardBatches.filter(b => isThisYear(b.production_date))
     const ytdAcct  = dashboardAccounts.filter(e => isThisYear(e.transaction_date))
@@ -2758,7 +3027,7 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
       receivables:    clampRows(custSales.filter(c => c.outstanding > 0)).map(c => ({ id: c.id, title: c.title, meta: 'Amount outstanding', value: fmt(c.outstanding) })),
       openInvoices:   clampRows(openInvoices).map(inv => ({ id: inv.id, title: fmtInv(inv.id), meta: inv.customer_name || 'Customer', value: fmt(getInvoiceOutstandingDue(inv)) })),
     }
-  }, [dashboardAccounts, dashboardBatches, dashboardInvoices, dashboardPayments, data.customers, data.products, data.rawMaterials.length, lowStockRows])
+  }, [dashboardAccounts, dashboardBatches, dashboardInvoices, dashboardPayments, data.customers, data.dashboardOverview, data.products, data.rawMaterials.length, lowStockRows])
 
   // ── Modal helpers ─────────────────────────────────────────────────────────
 
@@ -3158,38 +3427,45 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
       if (finishedGoodsForm._editId && !canManageProductionTransactions) throw new Error('Data Entry staff can record finished goods, but cannot edit existing ones.')
       if (!finishedGoodsForm.batch) throw new Error('Select a batch number first.')
       const selectedBatchRecord = data.productionBatches.find(batch => String(batch.id) === String(finishedGoodsForm.batch))
+      if (!selectedBatchRecord) throw new Error('The selected batch could not be found.')
       if (normalizeFilterValue(selectedBatchRecord?.batch_type || 'production') === 'development') {
         throw new Error('Finished goods can only be posted to production batches.')
       }
       const validLines = finishedGoodsForm.lines.filter(it => it.productSize && toNumber(it.quantity) > 0)
       if (!validLines.length) throw new Error('Add at least one finished good with quantity.')
-      await Promise.all(validLines.map(async (line) => {
-        const targetSize = normalizeSizeKey(line.productSize)
-        const matchedProduct = productBySizeKey.get(targetSize)
-        const litres = inferTotalLitres(line.productSize, line.quantity)
-        const unitCost = resolveProductionPrice(line.productSize, matchedProduct)
-        const payload = {
-          batch: finishedGoodsForm.batch,
-          product: matchedProduct ? matchedProduct.id : null,
-          product_size: line.productSize,
-          quantity: line.quantity,
-          unit_cost: String(unitCost),
-          batch_litres: String(litres),
-          total_litres: String(litres),
-        }
-        const existingOutputIds = Array.isArray(line.outputIds) && line.outputIds.length
+      const existingOutputIds = new Set(
+        finishedGoodsForm.lines.flatMap(line => (
+          Array.isArray(line.outputIds) && line.outputIds.length
+            ? line.outputIds
+            : [line._lineId || finishedGoodsForm._editId].filter(Boolean)
+        )).map(id => String(id))
+      )
+      const preservedOutputs = (selectedBatchRecord.outputs || []).filter(output => !existingOutputIds.has(String(output.id)))
+      const replacementOutputs = validLines.map(line => {
+        const existingOutputIdsForLine = Array.isArray(line.outputIds) && line.outputIds.length
           ? line.outputIds
           : [line._lineId || finishedGoodsForm._editId].filter(Boolean)
-        if (existingOutputIds.length) {
-          const [primaryOutputId, ...extraOutputIds] = existingOutputIds
-          await updateProductionOutput(primaryOutputId, payload)
-          if (extraOutputIds.length) {
-            await Promise.all(extraOutputIds.map(outputId => deleteProductionOutput(outputId)))
-          }
-          return
-        }
-        await createProductionOutput(payload)
-      }))
+        return buildProductionOutputPayload(
+          { ...line, id: existingOutputIdsForLine[0] || line.id || null },
+          productBySizeKey,
+          resolveProductionPrice
+        )
+      })
+      const nextOutputs = finishedGoodsForm._editId
+        ? [...preservedOutputs, ...replacementOutputs]
+        : [...(selectedBatchRecord.outputs || []), ...replacementOutputs]
+
+      try {
+        await updateProductionBatch(
+          selectedBatchRecord.id,
+          buildProductionBatchReplacePayload(selectedBatchRecord, nextOutputs, productBySizeKey, resolveProductionPrice)
+        )
+      } catch (error) {
+        await replaceProductionBatch(
+          selectedBatchRecord.id,
+          buildProductionBatchReplacePayload(selectedBatchRecord, nextOutputs, productBySizeKey, resolveProductionPrice)
+        )
+      }
       await refreshData(); setFB('finished_goods', finishedGoodsForm._editId ? 'Finished goods updated.' : 'Finished goods recorded.'); setActiveModal('')
     } catch (err) { setFB('finished_goods', err.message || 'Could not record finished goods.') }
     finally { setSub('finished_goods', false) }
@@ -3683,7 +3959,7 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
     }
   })
   const customerRows = filteredCustomerLedger.map(c => ({ key: c.id, emphasisIndex: 4, cells: [c.name, c.phone || '—', String(c.invoiceCount), fmt(c.paid), fmt(c.outstanding), <button key="edit" type="button" className="workspace-action-btn" onClick={e => { e.stopPropagation(); openModal('customer', c) }}>Edit</button>] }))
-  const supplierRows = filteredSupplierLedger.map(s => ({ key: s.id, emphasisIndex: 4, cells: [s.name, resolveSupplierItemCategory(s, data.purchases, data.rawMaterials), String(s.purchaseCount), fmt(s.paid), fmt(s.outstanding), ...(canManageDataEntryEditDelete ? [<button key="edit" type="button" className="workspace-action-btn" onClick={e => { e.stopPropagation(); openModal('supplier', s) }}>Edit</button>] : [])] }))
+  const supplierRows = filteredSupplierLedger.map(s => ({ key: s.id, emphasisIndex: 5, cells: [s.name, resolveSupplierMaterials(s, data.rawMaterials), resolveSupplierItemCategory(s, data.purchases, data.rawMaterials), String(s.purchaseCount), fmt(s.paid), fmt(s.outstanding), ...(canManageDataEntryEditDelete ? [<button key="edit" type="button" className="workspace-action-btn" onClick={e => { e.stopPropagation(); openModal('supplier', s) }}>Edit</button>] : [])] }))
   const accountRows  = accountTransactionsFiltered.map(e => ({
     key: e.id,
     emphasisIndex: 5,
@@ -4107,37 +4383,99 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
   const trialBalanceActiveRows = trialBalanceSheetRows
     .filter(row => Math.abs(toNumber(row.opening)) > 0.000001 || Math.abs(toNumber(row.movement)) > 0.000001)
 
-  const reportingSummary = [
-    { label: 'Accounts', value: String(trialBalanceActiveRows.length), note: 'Active trial balance rows' },
-    { label: 'Opening Bal', value: fmt(sumBy(trialBalanceActiveRows, row => row.opening)), note: `Period starts ${TRIAL_BALANCE_PERIOD_START}` },
-    { label: 'Movement', value: fmt(sumBy(trialBalanceActiveRows, row => row.movement)), note: 'Net movement across accounts' },
-    { label: 'Closing Bal', value: fmt(sumBy(trialBalanceActiveRows, row => row.opening + row.movement)), note: 'Workbook-style available total' },
-  ]
+  const reportingSummary = data.trialBalanceReport?.rows?.length
+    ? (() => {
+      const rows = data.trialBalanceReport.rows.filter(row =>
+        Math.abs(toNumber(row.opening)) > 0.000001
+        || Math.abs(toNumber(row.acct_in)) > 0.000001
+        || Math.abs(toNumber(row.acct_out)) > 0.000001
+      )
+      return [
+        { label: 'Accounts', value: String(rows.length), note: 'Active trial balance rows' },
+        { label: 'Opening Bal', value: fmt(sumBy(rows, row => row.opening)), note: `Period starts ${data.trialBalanceReport.period_start || TRIAL_BALANCE_PERIOD_START}` },
+        { label: 'Acct In', value: fmt(sumBy(rows, row => row.acct_in)), note: 'Gross movement into accounts' },
+        { label: 'Available', value: fmt(sumBy(rows, row => row.available)), note: 'Opening plus net movement' },
+      ]
+    })()
+    : [
+      { label: 'Accounts', value: String(trialBalanceActiveRows.length), note: 'Active trial balance rows' },
+      { label: 'Opening Bal', value: fmt(sumBy(trialBalanceActiveRows, row => row.opening)), note: `Period starts ${TRIAL_BALANCE_PERIOD_START}` },
+      { label: 'Movement', value: fmt(sumBy(trialBalanceActiveRows, row => row.movement)), note: 'Net movement across accounts' },
+      { label: 'Closing Bal', value: fmt(sumBy(trialBalanceActiveRows, row => row.opening + row.movement)), note: 'Workbook-style available total' },
+    ]
 
-  const trialBalanceRows = trialBalanceActiveRows
-    .map(row => {
-      const opening = toNumber(row.opening)
-      const movement = toNumber(row.movement)
-      const acctIn = movement > 0 ? movement : 0
-      const acctOut = movement < 0 ? Math.abs(movement) : 0
-      const available = opening + acctIn - acctOut
-      return {
-        key: row.accountId,
+  const trialBalanceRows = data.trialBalanceReport?.rows?.length
+    ? data.trialBalanceReport.rows
+      .filter(row => Math.abs(toNumber(row.opening)) > 0.000001 || Math.abs(toNumber(row.acct_in)) > 0.000001 || Math.abs(toNumber(row.acct_out)) > 0.000001)
+      .map(row => ({
+      key: row.account_id,
+      emphasisIndex: 9,
+      cells: [
+        row.account_id,
+        row.account_type,
+        row.account_class,
+        row.sub_accounts,
+        row.description,
+        row.date || '—',
+        fmt(row.opening_balance),
+        fmt(row.acct_in),
+        fmt(row.acct_out),
+        fmt(row.available),
+      ],
+    }))
+    : trialBalanceActiveRows
+      .map(row => {
+        const opening = toNumber(row.opening)
+        const movement = toNumber(row.movement)
+        const acctIn = movement > 0 ? movement : 0
+        const acctOut = movement < 0 ? Math.abs(movement) : 0
+        const available = opening + acctIn - acctOut
+        return {
+          key: row.accountId,
+          emphasisIndex: 9,
+          cells: [
+            row.accountId,
+            row.accountType,
+            row.accountClass,
+            row.subAccounts,
+            row.description,
+            formatDateRange(row.dates),
+            fmt(opening),
+            fmt(acctIn),
+            fmt(acctOut),
+            fmt(available),
+          ],
+        }
+      })
+
+  const compactTrialBalanceRows = data.trialBalanceReport?.rows?.length
+    ? data.trialBalanceReport.rows
+      .filter(row => Math.abs(toNumber(row.opening)) > 0.000001 || Math.abs(toNumber(row.acct_in)) > 0.000001 || Math.abs(toNumber(row.acct_out)) > 0.000001)
+      .map(row => ({
+        key: row.account_id,
         emphasisIndex: 9,
         cells: [
-          row.accountId,
-          row.accountType,
-          row.accountClass,
-          row.subAccounts,
+          row.account_id,
+          row.account_type,
+          row.account_class,
+          row.sub_accounts,
           row.description,
-          formatDateRange(row.dates),
-          fmt(opening),
-          fmt(acctIn),
-          fmt(acctOut),
-          fmt(available),
+          row.source || '—',
+          fmt(row.opening),
+          fmt(row.acct_in),
+          fmt(row.acct_out),
+          fmt(row.available),
         ],
-      }
-    })
+      }))
+    : trialBalanceRows.map(row => ({
+      ...row,
+      cells: row.cells.map((cell, index) => {
+        if (index !== 5) return cell
+        return typeof cell === 'string' && cell.includes(' - ')
+          ? collapseDateText(cell)
+          : fmtD(cell)
+      }),
+    }))
 
   const activeContent = useMemo(() => availableSections.find(s => s.key === activeSection) || availableSections[0], [activeSection, availableSections])
   const getSectionTab = (sectionKey) => sectionTabs[sectionKey] || SECTION_DEFAULT_TABS[sectionKey]
@@ -4554,7 +4892,7 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
     if (activeSection === 'suppliers') return (
       <>
         <DateFilterControl range={suppliersDateFilter} onOpen={openDateFilter} onClear={() => clearDateFilter('suppliers')} onPresetSelect={preset => applyQuickDatePreset('suppliers', preset)} activePreset={sectionDatePresets.suppliers || ''} inlineTitle="Suppliers" hideInlineTitle={isStandaloneView} onExport={async () => {
-          await exportTableDataset('Suppliers', ['Supplier', 'Item Category', 'Purchases', 'Paid', 'Outstanding'], supplierRows)
+          await exportTableDataset('Suppliers', ['Supplier', 'Material', 'Item Category', 'Purchases', 'Paid', 'Outstanding'], supplierRows)
         }} />
         <SummaryGrid items={suppliersSummary} />
         <WorkspaceToolbar
@@ -4579,9 +4917,11 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
         </section>
         {getSectionTab('suppliers') === 'suppliers' && (
           <TableCard
+            className="suppliers-table-card"
             title="Suppliers"
             subtitle="Balances and purchase history. Click Edit to update."
-            columns={canManageDataEntryEditDelete ? ['Supplier', 'Item Category', 'Purchases', 'Paid', 'Outstanding', ''] : ['Supplier', 'Item Category', 'Purchases', 'Paid', 'Outstanding']}
+            columns={canManageDataEntryEditDelete ? ['Supplier', 'Material', 'Item Category', 'Purchases', 'Paid', 'Outstanding', ''] : ['Supplier', 'Material', 'Item Category', 'Purchases', 'Paid', 'Outstanding']}
+            colWidths={canManageDataEntryEditDelete ? ['180px', '320px', '180px', '110px', '150px', '170px', '88px'] : ['180px', '320px', '180px', '110px', '150px', '170px']}
             rows={supplierRows}
             mobileVariant="suppliers-list"
             onRowClick={id => {
@@ -4619,15 +4959,15 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
     if (activeSection === 'reporting') return (
       <>
         <DateFilterControl range={reportingDateFilter} onOpen={openDateFilter} onClear={() => clearDateFilter('reporting')} onPresetSelect={preset => applyQuickDatePreset('reporting', preset)} activePreset={sectionDatePresets.reporting || ''} inlineTitle="Reporting" hideInlineTitle={isStandaloneView} onExport={async () => {
-          await exportTableDataset('Trial_Balance', ['Account ID', 'Account Type', 'Account Class', 'Sub-Accounts', 'Account Description', 'Date', 'Opening Bal', 'Acct In', 'Acct Out', 'Available'], trialBalanceRows)
+          await exportTableDataset('Trial_Balance', ['Account ID', 'Account Type', 'Account Class', 'Sub-Accounts', 'Account Description', 'Transaction Description', 'Opening Bal', 'Acct In', 'Acct Out', 'Available'], compactTrialBalanceRows)
         }} />
         <SummaryGrid items={reportingSummary} />
-        <TableCard
+          <TableCard
           title="Trial Balance"
           subtitle={`Workbook column structure reproduced with period logic from ${TRIAL_BALANCE_PERIOD_START} (expenses baseline ${TRIAL_BALANCE_EXPENSE_START}).`}
-          columns={['Account ID', 'Account Type', 'Account Class', 'Sub-Accounts', 'Account Description', 'Date', 'Opening Bal', 'Acct In', 'Acct Out', 'Available']}
-          colWidths={['140px', '170px', '150px', '170px', '280px', '200px', '140px', '140px', '140px', '140px']}
-          rows={trialBalanceRows}
+          columns={['Account ID', 'Account Type', 'Account Class', 'Sub-Accounts', 'Account Description', 'Transaction Description', 'Opening Bal', 'Acct In', 'Acct Out', 'Available']}
+          colWidths={['140px', '170px', '150px', '170px', '240px', '420px', '140px', '140px', '140px', '140px']}
+          rows={compactTrialBalanceRows}
           search={searchTerms.trial_balance}
           onSearch={v => setSearch('trial_balance', v)}
           defaultRowsPerPage={20}
@@ -6257,7 +6597,19 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
                           onClick={async () => {
                             if (!window.confirm('Delete this finished goods line? This cannot be undone.')) return
                             try {
-                              await Promise.all(o.outputIds.map(id => deleteProductionOutput(id)))
+                              const removedOutputIds = new Set((o.outputIds || []).map(id => String(id)))
+                              const nextOutputs = (selectedBatch.outputs || []).filter(output => !removedOutputIds.has(String(output.id)))
+                              try {
+                                await updateProductionBatch(
+                                  selectedBatch.id,
+                                  buildProductionBatchReplacePayload(selectedBatch, nextOutputs, productBySizeKey, resolveProductionPrice)
+                                )
+                              } catch (error) {
+                                await replaceProductionBatch(
+                                  selectedBatch.id,
+                                  buildProductionBatchReplacePayload(selectedBatch, nextOutputs, productBySizeKey, resolveProductionPrice)
+                                )
+                              }
                               await refreshData()
                               setSelectedBatch(null)
                             } catch (err) {

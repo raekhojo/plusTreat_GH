@@ -51,8 +51,10 @@ async function request(path, options = {}) {
 
   if (!response.ok) {
     let message = `API request failed: ${response.status}`
+    let details = null
     try {
       const errorPayload = await response.json()
+      details = errorPayload
       if (typeof errorPayload?.detail === 'string') {
         message = errorPayload.detail
       } else if (Array.isArray(errorPayload)) {
@@ -64,7 +66,12 @@ async function request(path, options = {}) {
     } catch {
       // keep fallback message
     }
-    throw new Error(message)
+    const error = new Error(message)
+    error.status = response.status
+    error.method = method
+    error.path = path
+    error.details = details
+    throw error
   }
 
   if (response.status === 204) return null
@@ -243,12 +250,39 @@ export function updateProductionBatch(id, payload) {
   return request(`/production-batches/${id}/`, { method: 'PATCH', body: JSON.stringify(payload) })
 }
 
+export function replaceProductionBatch(id, payload) {
+  return request(`/production-batches/${id}/`, { method: 'PUT', body: JSON.stringify(payload) })
+}
+
 export function createProductionOutput(payload) {
   return request('/production-outputs/', { method: 'POST', body: JSON.stringify(payload) })
 }
 
 export function updateProductionOutput(id, payload) {
   return request(`/production-outputs/${id}/`, { method: 'PATCH', body: JSON.stringify(payload) })
+    .then((response) => {
+      if (!response || typeof response !== 'object') return response
+
+      const requestedQuantity = payload?.quantity != null ? String(payload.quantity) : null
+      const requestedSize = payload?.product_size != null ? String(payload.product_size) : null
+      const requestedUnitCost = payload?.unit_cost != null ? String(payload.unit_cost) : null
+
+      const responseQuantity = response?.quantity != null ? String(response.quantity) : null
+      const responseSize = response?.product_size != null ? String(response.product_size) : null
+      const responseUnitCost = response?.unit_cost != null ? String(response.unit_cost) : null
+
+      const quantityMismatch = requestedQuantity !== null && responseQuantity !== null && requestedQuantity !== responseQuantity
+      const sizeMismatch = requestedSize !== null && responseSize !== null && requestedSize !== responseSize
+      const unitCostMismatch = requestedUnitCost !== null && responseUnitCost !== null && requestedUnitCost !== responseUnitCost
+
+      if (!quantityMismatch && !sizeMismatch && !unitCostMismatch) return response
+
+      return request(`/production-outputs/${id}/`, { method: 'PUT', body: JSON.stringify(payload) })
+    })
+    .catch((error) => {
+      if (![404, 405, 501].includes(Number(error?.status))) throw error
+      return request(`/production-outputs/${id}/`, { method: 'PUT', body: JSON.stringify(payload) })
+    })
 }
 
 export function deleteProductionOutput(id) {
@@ -384,11 +418,14 @@ export function getAnalyticsSummary() {
     getPricingCategories(),
     getCustomerCategories(),
     getItemCategories(),
+    getDashboardOverview(),
+    getTrialBalanceReport(),
   ]).then(([
     invoices, payments, products, suppliers, purchases,
     purchasePayments, productionBatches, rawMaterials,
     accountTransactions, pricingRules, customers, staffProfiles,
     pricingCategories, customerCategories, itemCategories,
+    dashboardOverview, trialBalanceReport,
   ]) => ({
     invoices: asCollection(invoices),
     payments: asCollection(payments),
@@ -405,5 +442,17 @@ export function getAnalyticsSummary() {
     pricingCategories: asCollection(pricingCategories),
     customerCategories: asCollection(customerCategories),
     itemCategories: asCollection(itemCategories),
+    dashboardOverview,
+    trialBalanceReport,
   }))
+}
+
+export function getDashboardOverview(params = {}) {
+  const qs = new URLSearchParams(params).toString()
+  return request(`/dashboard/summary/${qs ? `?${qs}` : ''}`)
+}
+
+export function getTrialBalanceReport(params = {}) {
+  const qs = new URLSearchParams(params).toString()
+  return request(`/trial-balance/${qs ? `?${qs}` : ''}`)
 }

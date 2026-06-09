@@ -4907,6 +4907,16 @@
   align-items: center;
 }
 
+.suppliers-table-card .workspace-table-head,
+.suppliers-table-card .workspace-table-row {
+  column-gap: 18px;
+}
+
+.suppliers-table-card .workspace-table-head span:nth-child(2),
+.suppliers-table-card .workspace-table-row > :nth-child(2) {
+  padding-right: 10px;
+}
+
 .workspace-table-strong {
   font-weight: 800;
   color: #15344d;
