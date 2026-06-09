@@ -2633,8 +2633,7 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
       const price     = sizeRules.length ? Math.min(...sizeRules.map(r => toNumber(r.price))) : 0
       // Production level from Product whose name matches the size
       const matchingProduct = data.products.find(p => normalizeSizeKey(p.name) === normalizeSizeKey(size))
-      const availableByMovements = opening + stockIn - stockOut
-      const available = matchingProduct ? toNumber(matchingProduct.stock_quantity) : availableByMovements
+      const available = stockIn - stockOut
       const stockBalance = price * available
       const productionLevel = matchingProduct ? toNumber(matchingProduct.production_level) : 0
       const prodRequired    = productionLevel > 0 && available <= productionLevel
