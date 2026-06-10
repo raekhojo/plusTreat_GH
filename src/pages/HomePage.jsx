@@ -2659,6 +2659,13 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
       .sort((a, b) => (toNumber(b.available) - toNumber(a.available)) || (toNumber(b.stockIn) - toNumber(a.stockIn)) || String(a.size).localeCompare(String(b.size)))
       .map((item, idx) => ({ ...item, id: `INV-${String(idx + 1).padStart(4, '0')}` }))
   }, [data.pricingRules, data.productionBatches, data.invoices, data.products])
+  const finishedGoodsAvailableBySizeKey = useMemo(
+    () => inventoryLedger.reduce((map, item) => {
+      map.set(normalizeSizeKey(item.size), toNumber(item.available))
+      return map
+    }, new Map()),
+    [inventoryLedger]
+  )
 
   const dashboardContent = useMemo(() => {
     const ytdInvForCharts = dashboardInvoices.filter(inv => isThisYear(inv.invoice_date))
@@ -3266,9 +3273,9 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
       if (!saleForm.customer || !lines.length) throw new Error('Choose a customer and at least one valid product line.')
       const currentInvoice = saleForm._editId ? data.invoices.find(invoice => String(invoice.id) === String(saleForm._editId)) : null
       const outOfStockSizes = Array.from(requestedBySize.entries()).flatMap(([sizeKey, requestedQty]) => {
-        const matchedProduct = data.products.find(product => normalizeSizeKey(product.name) === sizeKey)
         const restoredQty = sumBy((currentInvoice?.lines || []).filter(line => normalizeSizeKey(line.product_size) === sizeKey), line => line.quantity)
-        const availableStock = matchedProduct ? toNumber(matchedProduct.stock_quantity) : 0
+        const matchedProduct = data.products.find(product => normalizeSizeKey(product.name) === sizeKey)
+        const availableStock = finishedGoodsAvailableBySizeKey.get(sizeKey) ?? toNumber(matchedProduct?.available_quantity)
         const availableForEdit = availableStock + restoredQty
         if (availableForEdit >= requestedQty) return []
         return [`${matchedProduct?.name || sizeKey} - ${fmtQ(availableForEdit)} available, ${fmtQ(requestedQty)} requested`]
@@ -5390,7 +5397,7 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
                   const matchedRule = filteredRules.find(r => r.size === line.productSize)
                   const noRule = line.productSize && !matchedRule
                   const matchedProduct = data.products.find(product => normalizeSizeKey(product.name) === normalizeSizeKey(line.productSize))
-                  const currentStock = toNumber(matchedProduct?.stock_quantity)
+                  const currentStock = finishedGoodsAvailableBySizeKey.get(normalizeSizeKey(line.productSize)) ?? toNumber(matchedProduct?.available_quantity)
                   const requestedQty = toNumber(line.quantity)
                   const projectedStock = currentStock - requestedQty
                   return (
@@ -5807,7 +5814,7 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
                     {(() => {
                       const matchedProduct = productBySizeKey.get(normalizeSizeKey(line.productSize))
                       const unitValue = resolveProductionPrice(line.productSize, matchedProduct)
-                      const currentStock = toNumber(matchedProduct?.stock_quantity)
+                      const currentStock = finishedGoodsAvailableBySizeKey.get(normalizeSizeKey(line.productSize)) ?? toNumber(matchedProduct?.available_quantity)
                       const projectedStock = currentStock + toNumber(line.quantity)
                       const lineValue = toNumber(line.quantity) * unitValue
                       return (
