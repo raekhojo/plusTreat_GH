@@ -7339,37 +7339,50 @@
 .sale-customer-info {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px 20px;
-  padding: 10px 14px;
-  background: #f9fafb;
-  border: 1px solid #e5e7eb;
-  border-radius: 10px;
-  margin-bottom: 4px;
+  gap: 8px;
+  padding: 6px 0 2px;
+  margin-bottom: 2px;
 }
 
 .sale-customer-info-item {
   display: flex;
-  flex-direction: column;
-  gap: 2px;
-  min-width: 120px;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 8px 12px;
+  border: 1px solid #e5e7eb;
+  border-radius: 999px;
+  background: #fff;
 }
 
 .sale-customer-info-item span {
-  font-size: 0.68rem;
-  font-weight: 700;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
-  color: #9ca3af;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  text-transform: none;
+  color: #6b7280;
+  white-space: nowrap;
 }
 
 .sale-customer-info-item strong {
-  font-size: 0.88rem;
+  font-size: 0.8rem;
   font-weight: 600;
   color: #111827;
+  white-space: nowrap;
 }
 
 .sale-customer-info-warn strong {
   color: #d97706;
+}
+
+.sale-customer-info-item-accent {
+  border-color: #c7d2fe;
+  background: #eef2ff;
+}
+
+.sale-customer-info-item-accent span,
+.sale-customer-info-item-accent strong {
+  color: #3730a3;
 }
 
 /* Tier badge next to section heading */
@@ -8505,7 +8518,6 @@
   .purchase-payment-total,
   .purchase-outstanding-badge,
   .detail-modal-totals,
-  .sale-customer-info,
   .rm-stock-card {
     border: 1px solid #e4ebf0;
     border-radius: 14px;
@@ -8839,4 +8851,18 @@
   .workspace-mobile-production-list-meta {
     font-size: 0.72rem;
   }
+}
+
+.supplies-materials-card .workspace-table-head span:nth-child(4),
+.supplies-materials-card .workspace-table-head span:nth-child(5),
+.supplies-materials-card .workspace-table-head span:nth-child(6),
+.supplies-materials-card .workspace-table-head span:nth-child(7),
+.supplies-materials-card .workspace-table-head span:nth-child(8),
+.supplies-materials-card .workspace-table-row > :nth-child(4),
+.supplies-materials-card .workspace-table-row > :nth-child(5),
+.supplies-materials-card .workspace-table-row > :nth-child(6),
+.supplies-materials-card .workspace-table-row > :nth-child(7),
+.supplies-materials-card .workspace-table-row > :nth-child(8) {
+  justify-self: end;
+  text-align: right;
 }

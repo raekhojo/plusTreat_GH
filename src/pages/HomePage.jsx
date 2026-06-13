@@ -117,8 +117,31 @@ const TRIAL_BALANCE_EXPENSE_START = '2025-10-01'
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 const todayValue  = () => new Date().toISOString().slice(0, 10)
+const EMPTY_TEXT = '--'
 
 function toNumber(v) { const n = Number(v); return Number.isFinite(n) ? n : 0 }
+function normalizePlainText(value) {
+  return String(value ?? '')
+    .replace(/[\u00a0\u2007\u202f]/g, ' ')
+    .replace(/â€”|Ã¢â‚¬â€|—|–/g, '-')
+    .replace(/â€¦|…/g, '...')
+    .replace(/â€º|Ã¢â‚¬Âº|›/g, '>')
+    .replace(/â€¹|‹/g, '<')
+    .replace(/â–¾|▾/g, 'v')
+    .replace(/×/g, 'x')
+    .replace(/•/g, ' - ')
+    .replace(/Â·|·/g, ' - ')
+    .replace(/[ \t]+/g, ' ')
+    .trim()
+}
+function escapeHtml(value) {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+}
 function sanitizeDecimalInput(value, maxDecimalPlaces) {
   const text = String(value ?? '').replace(/[^\d.]/g, '')
   if (!text) return ''
@@ -153,22 +176,11 @@ function isThisYear(v) {
 
 function fmt(v)   { return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'GHS', maximumFractionDigits: 2 }).format(toNumber(v)) }
 function fmtQ(v)  { return new Intl.NumberFormat('en-US', { maximumFractionDigits: 3 }).format(toNumber(v)) }
-function fmtD(v)  {
-  if (!v) return '—'
-  const d = new Date(v)
-  return Number.isNaN(d.getTime()) ? String(v) : new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric' }).format(d)
-}
 function fmtStatus(v) { return String(v || '').replaceAll('_', ' ').replace(/\b\w/g, m => m.toUpperCase()) }
 function fmtRole(v) {
   const normalized = String(v || '').trim().toLowerCase()
   if (normalized === 'accounts') return 'Data Entry'
   return fmtStatus(v)
-}
-function truncateText(value, maxLength = 12) {
-  const text = String(value || '').trim()
-  if (!text) return '—'
-  if (text.length <= maxLength) return text
-  return `${text.slice(0, maxLength).trimEnd()}…`
 }
 function normalizeFilterValue(value) {
   return String(value || '').trim().toLowerCase()
@@ -199,6 +211,9 @@ function getInvoiceCollectionState(invoice) {
   if (outstanding === 0 && total > 0) return 'paid'
   if (outstanding > 0 && paidAmount > 0) return 'partial'
   return 'unpaid'
+}
+function isOpeningReceivableInvoice(invoice) {
+  return String(invoice?.notes || '').trim().toUpperCase() === 'OPENING_BALANCE'
 }
 function getPriceBand(price) {
   const amount = toNumber(price)
@@ -235,38 +250,6 @@ function formatLocalDateInput(date) {
   const month = String(date.getMonth() + 1).padStart(2, '0')
   const day = String(date.getDate()).padStart(2, '0')
   return `${year}-${month}-${day}`
-}
-function formatDateRange(values) {
-  const unique = [...new Set((values || []).filter(Boolean))]
-  if (!unique.length) return '—'
-  unique.sort((a, b) => new Date(a).getTime() - new Date(b).getTime())
-  if (unique.length === 1) return fmtD(unique[0])
-  return `${fmtD(unique[0])} - ${fmtD(unique[unique.length - 1])}`
-}
-function collapseDateRange(values) {
-  const unique = [...new Set((values || []).filter(Boolean))]
-  if (!unique.length) return 'â€”'
-  unique.sort((a, b) => new Date(a).getTime() - new Date(b).getTime())
-
-  const start = new Date(unique[0])
-  const end = new Date(unique[unique.length - 1])
-  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return formatDateRange(unique)
-  if (unique.length === 1 || start.getTime() === end.getTime()) return fmtD(unique[0])
-
-  const sameYear = start.getFullYear() === end.getFullYear()
-  const sameMonth = sameYear && start.getMonth() === end.getMonth()
-  const shortMonth = new Intl.DateTimeFormat('en-US', { month: 'short' })
-
-  if (sameMonth) return `${shortMonth.format(start)} ${start.getDate()}-${end.getDate()}, ${start.getFullYear()}`
-  if (sameYear) return `${shortMonth.format(start)} ${start.getDate()}-${shortMonth.format(end)} ${end.getDate()}, ${start.getFullYear()}`
-  return `${shortMonth.format(start)} ${start.getDate()}, ${start.getFullYear()}-${shortMonth.format(end)} ${end.getDate()}, ${end.getFullYear()}`
-}
-function collapseDateText(value) {
-  const text = String(value || '').trim()
-  if (!text || text === 'â€”') return 'â€”'
-  if (!text.includes(' - ')) return fmtD(text)
-  const [start, end] = text.split(' - ').map(part => part.trim())
-  return collapseDateRange([start, end])
 }
 function hasDateRange(range) {
   return Boolean(range?.start || range?.end)
@@ -351,6 +334,63 @@ function resolveSupplierItemCategory(supplier, purchases = [], rawMaterials = []
   if (!uniqueCategories.length) return directCategory || 'General'
   return uniqueCategories.slice(0, 2).join(', ')
 }
+function buildCustomerLedger(customers, invoices) {
+  return customers.map(c => {
+    const invs = invoices.filter(inv => String(inv.customer) === String(c.id))
+    const totalBilled = sumBy(invs, inv => inv.total_amount)
+    const paid = sumBy(invs, inv => getInvoicePaidAmount(inv))
+    const outstanding = sumBy(invs, inv => getInvoiceOutstandingDue(inv))
+    return { ...c, invoiceCount: invs.length, totalBilled, paid, outstanding }
+  }).sort((a, b) => b.outstanding - a.outstanding)
+}
+function sanitizeExportFileName(value) {
+  const text = String(value || 'plus_treat_export').trim().toLowerCase()
+  const safe = text.replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '')
+  return safe || 'plus_treat_export'
+}
+function fmtD(v)  {
+  if (!v) return EMPTY_TEXT
+  const d = new Date(v)
+  return Number.isNaN(d.getTime()) ? String(v) : new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric' }).format(d)
+}
+function truncateText(value, maxLength = 12) {
+  const text = String(value || '').trim()
+  if (!text) return EMPTY_TEXT
+  if (text.length <= maxLength) return text
+  return `${text.slice(0, maxLength).trimEnd()}...`
+}
+function formatDateRange(values) {
+  const unique = [...new Set((values || []).filter(Boolean))]
+  if (!unique.length) return EMPTY_TEXT
+  unique.sort((a, b) => new Date(a).getTime() - new Date(b).getTime())
+  if (unique.length === 1) return fmtD(unique[0])
+  return `${fmtD(unique[0])} - ${fmtD(unique[unique.length - 1])}`
+}
+function collapseDateRange(values) {
+  const unique = [...new Set((values || []).filter(Boolean))]
+  if (!unique.length) return EMPTY_TEXT
+  unique.sort((a, b) => new Date(a).getTime() - new Date(b).getTime())
+
+  const start = new Date(unique[0])
+  const end = new Date(unique[unique.length - 1])
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return formatDateRange(unique)
+  if (unique.length === 1 || start.getTime() === end.getTime()) return fmtD(unique[0])
+
+  const sameYear = start.getFullYear() === end.getFullYear()
+  const sameMonth = sameYear && start.getMonth() === end.getMonth()
+  const shortMonth = new Intl.DateTimeFormat('en-US', { month: 'short' })
+
+  if (sameMonth) return `${shortMonth.format(start)} ${start.getDate()}-${end.getDate()}, ${start.getFullYear()}`
+  if (sameYear) return `${shortMonth.format(start)} ${start.getDate()}-${shortMonth.format(end)} ${end.getDate()}, ${start.getFullYear()}`
+  return `${shortMonth.format(start)} ${start.getDate()}, ${start.getFullYear()}-${shortMonth.format(end)} ${end.getDate()}, ${end.getFullYear()}`
+}
+function collapseDateText(value) {
+  const text = String(value || '').trim()
+  if (!text || text === EMPTY_TEXT) return EMPTY_TEXT
+  if (!text.includes(' - ')) return fmtD(text)
+  const [start, end] = text.split(' - ').map(part => part.trim())
+  return collapseDateRange([start, end])
+}
 function resolveSupplierMaterials(supplier, rawMaterials = []) {
   const supplierId = String(supplier?.id || '')
   const materials = rawMaterials
@@ -359,36 +399,32 @@ function resolveSupplierMaterials(supplier, rawMaterials = []) {
     .filter(Boolean)
 
   const uniqueMaterials = [...new Set(materials)]
-  if (!uniqueMaterials.length) return '—'
+  if (!uniqueMaterials.length) return EMPTY_TEXT
   if (uniqueMaterials.length <= 2) return uniqueMaterials.join(', ')
   return `${uniqueMaterials.slice(0, 2).join(', ')} +${uniqueMaterials.length - 2}`
 }
-function buildCustomerLedger(customers, invoices) {
-  return customers.map(c => {
-    const invs = invoices.filter(inv => String(inv.customer) === String(c.id))
-    const paid = sumBy(invs, inv => getInvoicePaidAmount(inv))
-    const outstanding = sumBy(invs, inv => getInvoiceOutstandingDue(inv))
-    return { ...c, invoiceCount: invs.length, paid, outstanding }
-  }).sort((a, b) => b.outstanding - a.outstanding)
-}
 function extractExportText(value) {
   if (value === null || value === undefined || typeof value === 'boolean') return ''
-  if (typeof value === 'string' || typeof value === 'number') return String(value)
+  if (typeof value === 'string' || typeof value === 'number') return normalizePlainText(value)
   if (Array.isArray(value)) return value.map(extractExportText).filter(Boolean).join(' ')
   if (isValidElement(value)) return extractExportText(value.props?.children)
   return ''
-}
-function sanitizeExportFileName(value) {
-  const text = String(value || 'plus_treat_export').trim().toLowerCase()
-  const safe = text.replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '')
-  return safe || 'plus_treat_export'
 }
 async function exportRowsToXlsx(fileName, columns, rows) {
   if (!rows?.length || !columns?.length) return
   const workbook = new ExcelJS.Workbook()
   const worksheet = workbook.addWorksheet(String(fileName || 'Data').slice(0, 31))
-  worksheet.columns = columns.map(column => ({ header: column, key: column, width: Math.max(14, String(column).length + 4) }))
-  rows.forEach(row => worksheet.addRow(row))
+  const safeColumns = columns.map(column => normalizePlainText(column) || 'Value')
+  worksheet.columns = safeColumns.map(column => ({ header: column, key: column, width: Math.max(14, String(column).length + 4) }))
+
+  rows.forEach((row) => {
+    const safeRow = {}
+    safeColumns.forEach((column, index) => {
+      const sourceValue = row?.[columns[index]] ?? row?.[column] ?? ''
+      safeRow[column] = extractExportText(sourceValue)
+    })
+    worksheet.addRow(safeRow)
+  })
 
   const headerRow = worksheet.getRow(1)
   headerRow.eachCell((cell) => {
@@ -1411,7 +1447,7 @@ function TableCard({
               }
 
               if (mobileVariant === 'production-batches') {
-                const [date, batchNumber, expiryDate, outputs, totalCost, profit] = row.cells
+                const [date, batchNumber, expiryDate, outputs, productionCost, totalCost, profit] = row.cells
                 return (
                   <article
                     key={`mobile-${row.key}`}
@@ -1425,7 +1461,7 @@ function TableCard({
                     <div className="workspace-mobile-sales-bottom">
                       <div className="workspace-mobile-production-list-copy">
                         <span className="workspace-mobile-sales-customer">{outputs} outputs</span>
-                        <span className="workspace-mobile-production-list-meta">Expiry {expiryDate}</span>
+                        <span className="workspace-mobile-production-list-meta">Production {productionCost} · Expiry {expiryDate}</span>
                       </div>
                     </div>
                   </article>
@@ -1441,7 +1477,7 @@ function TableCard({
                         <strong className="workspace-mobile-production-title">{batchNumber}</strong>
                         <span className="workspace-mobile-production-meta">{date}</span>
                       </div>
-                      <span className="workspace-mobile-sales-arrow" aria-hidden="true">â€º</span>
+                      <span className="workspace-mobile-sales-arrow" aria-hidden="true">{'>'}</span>
                     </div>
                     <div className="workspace-mobile-production-grid">
                       <div className="workspace-mobile-production-stat">
@@ -1457,7 +1493,7 @@ function TableCard({
                         <strong>{totalCost}</strong>
                       </div>
                       <div className="workspace-mobile-production-stat">
-                        <span>Profit</span>
+                        <span>Production Gain</span>
                         <strong>{profit}</strong>
                       </div>
                     </div>
@@ -1466,7 +1502,7 @@ function TableCard({
               }
 
               if (mobileVariant === 'customers-list') {
-                const [customer, phone, invoices, paid, outstanding] = row.cells
+                const [customer, phone, invoices, totalBilled, paid, outstanding] = row.cells
                 return (
                   <article
                     key={`mobile-${row.key}`}
@@ -1559,7 +1595,7 @@ function TableCard({
               }
 
               if (mobileVariant === 'materials-list') {
-                const [material, category, unit, opening, stockIn, available, reorder, status] = row.cells
+                const [material, category, unit, opening, stockIn, stockOut, available, reorder, status] = row.cells
                 return (
                   <article
                     key={`mobile-${row.key}`}
@@ -1597,7 +1633,7 @@ function TableCard({
                         <strong className="workspace-mobile-production-title">{item}</strong>
                         <span className="workspace-mobile-production-meta">{inventoryId} · {unit}</span>
                       </div>
-                      <span className="workspace-mobile-sales-arrow" aria-hidden="true">â€º</span>
+                      <span className="workspace-mobile-sales-arrow" aria-hidden="true">{'>'}</span>
                     </div>
                     <div className="workspace-mobile-production-grid">
                       <div className="workspace-mobile-production-stat">
@@ -1798,7 +1834,7 @@ function ScrollableTabsControl({ tabs = [], activeKey = '', onSelect, ariaLabel 
         aria-label="Scroll tabs left"
         onClick={() => scrollTabs(-1)}
       >
-        â€¹
+              {'<'}
       </button>
       <section ref={tabsRef} className="workspace-inline-tabs" role="tablist" aria-label={ariaLabel}>
         {tabs.map(tab => (
@@ -1820,7 +1856,7 @@ function ScrollableTabsControl({ tabs = [], activeKey = '', onSelect, ariaLabel 
         aria-label="Scroll tabs right"
         onClick={() => scrollTabs(1)}
       >
-        â€º
+              {'>'}
       </button>
     </section>
   )
@@ -2371,7 +2407,7 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
       if (currentInvoice) {
         options.unshift({
           value: String(currentInvoice.id),
-          label: `${fmtInv(currentInvoice.id)} â€” ${currentInvoice.customer_name || 'Customer'}`,
+        label: `${fmtInv(currentInvoice.id)} - ${currentInvoice.customer_name || 'Customer'}`,
           meta: fmt(getInvoiceOutstandingDue(currentInvoice)),
           searchText: `${fmtInv(currentInvoice.id)} ${currentInvoice.customer_name || 'Customer'} ${fmt(getInvoiceOutstandingDue(currentInvoice))}`,
         })
@@ -3783,15 +3819,38 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
 
   // ── Row data ──────────────────────────────────────────────────────────────
 
+  const sampleSalesInvoices = filteredSalesInvoices.filter(invoice => invoice.is_sample_sale)
+  const openingReceivableInvoices = filteredSalesInvoices.filter(isOpeningReceivableInvoice)
   const salesSummary      = [
-    { label: 'Invoices',    value: String(filteredSalesInvoices.length),                                  note: `${filteredSalesInvoices.filter(i => i.status === 'issued').length} open` },
-    { label: 'Total Billed',value: fmt(sumBy(filteredSalesInvoices, inv => inv.total_amount)),           note: `${filteredSalesInvoices.length} invoices` },
-    { label: 'Total Paid',  value: fmt(sumBy(filteredSalesPayments, p => p.amount)),                     note: `${filteredSalesPayments.length} receipts` },
+    { label: 'Invoices', value: String(filteredSalesInvoices.length), note: `${filteredSalesInvoices.filter(i => i.status === 'issued').length} open` },
+    { label: 'Total Billed', value: fmt(sumBy(filteredSalesInvoices, inv => inv.total_amount)), note: `${filteredSalesInvoices.length} invoices` },
+    { label: 'Total Paid', value: fmt(sumBy(filteredSalesPayments, p => p.amount)), note: `${filteredSalesPayments.length} receipts` },
     { label: 'Outstanding', value: fmt(sumBy(filteredSalesInvoices, inv => getInvoiceOutstandingDue(inv))), note: `${filteredSalesInvoices.filter(i => getInvoiceOutstandingDue(i) > 0).length} unpaid` },
+    { label: 'Test Sample Value', value: fmt(sumBy(sampleSalesInvoices, inv => inv.subtotal)), note: `${sampleSalesInvoices.length} sample invoices` },
+    { label: 'Opening Receivables', value: fmt(sumBy(openingReceivableInvoices, inv => getInvoiceOutstandingDue(inv))), note: `${openingReceivableInvoices.filter(i => getInvoiceOutstandingDue(i) > 0).length} opening balances` },
   ]
-  const productionSummary = [{ label: 'Batches', value: String(productionBatchesFiltered.length), note: 'Production_Dtls' }, { label: 'RM Cost', value: fmt(sumBy(productionBatchesFiltered, b => b.total_raw_material_cost)), note: 'Material usage' }, { label: 'Production Gain', value: fmt(sumBy(productionBatchesFiltered, b => getBatchProductionGain(b))), note: 'Output value less total cost' }, { label: 'Stock Units', value: fmtQ(sumBy(data.products, p => p.stock_quantity)), note: 'Finished goods on hand' }]
-  const suppliesSummary   = [{ label: 'Suppliers', value: String(data.suppliers.length), note: 'Supplier_Dtls' }, { label: 'Raw Materials', value: String(data.rawMaterials.length), note: 'RawMaterials tracked' }, { label: 'Purchases', value: fmt(sumBy(purchasesFiltered, p => p.total_amount)), note: `${purchasesFiltered.length} records` }, { label: 'Supplier Due', value: fmt(sumBy(purchasesFiltered, p => getPurchaseOutstanding(p))), note: 'Open balances' }]
-  const customersSummary  = [{ label: 'Customers', value: String(data.customers.length), note: `${filteredCustomerLedger.filter(c => c.invoiceCount > 0).length} already billed` }, { label: 'Outstanding', value: fmt(sumBy(filteredCustomerLedger, c => c.outstanding)), note: 'Total receivables due' }, { label: 'Receipts', value: fmt(sumBy(customerPaymentsFiltered, p => p.amount)), note: 'Total collected' }, { label: 'Open Invoices', value: String(customerInvoicesFiltered.filter(inv => getInvoiceOutstandingDue(inv) > 0).length), note: 'Invoices with balance' }]
+  const productionSummary = [
+    { label: 'Batches', value: String(productionBatchesFiltered.length), note: 'Production_Dtls' },
+    { label: 'RM Cost', value: fmt(sumBy(productionBatchesFiltered, b => b.total_raw_material_cost)), note: 'Material usage' },
+    { label: 'Production Cost', value: fmt(sumBy(productionBatchesFiltered, b => b.total_cost)), note: 'Sum of batch costs' },
+    { label: 'Production Gain', value: fmt(sumBy(productionBatchesFiltered, b => getBatchProductionGain(b))), note: 'Output value less total cost' },
+    { label: 'Stock Units', value: fmtQ(sumBy(data.products, p => p.stock_quantity)), note: 'Finished goods on hand' },
+    { label: 'Finished Goods Balance', value: fmt(sumBy(inventoryLedger, item => item.stockBalance)), note: 'Current finished goods value' },
+  ]
+  const suppliesSummary   = [
+    { label: 'Suppliers', value: String(data.suppliers.length), note: 'Supplier_Dtls' },
+    { label: 'Raw Materials', value: String(data.rawMaterials.length), note: 'RawMaterials tracked' },
+    { label: 'Raw Material Balance', value: fmt(sumBy(data.rawMaterials, material => toNumber(material.stock_available) * toNumber(material.unit_price))), note: 'Current stock value on hand' },
+    { label: 'Purchases', value: fmt(sumBy(purchasesFiltered, p => p.total_amount)), note: `${purchasesFiltered.length} records` },
+    { label: 'Supplier Due', value: fmt(sumBy(purchasesFiltered, p => getPurchaseOutstanding(p))), note: 'Open balances' },
+  ]
+  const customersSummary  = [
+    { label: 'Customers', value: String(data.customers.length), note: `${filteredCustomerLedger.filter(c => c.invoiceCount > 0).length} already billed` },
+    { label: 'Total Invoiced', value: fmt(sumBy(customerInvoicesFiltered, inv => inv.total_amount)), note: `${customerInvoicesFiltered.length} invoices billed` },
+    { label: 'Outstanding', value: fmt(sumBy(filteredCustomerLedger, c => c.outstanding)), note: 'Total receivables due' },
+    { label: 'Receipts', value: fmt(sumBy(customerPaymentsFiltered, p => p.amount)), note: 'Total collected' },
+    { label: 'Open Invoices', value: String(customerInvoicesFiltered.filter(inv => getInvoiceOutstandingDue(inv) > 0).length), note: 'Invoices with balance' },
+  ]
   const suppliersSummary  = [{ label: 'Suppliers', value: String(data.suppliers.length), note: 'Vendor records' }, { label: 'Purchases', value: fmt(sumBy(supplierPurchasesFiltered, p => p.total_amount)), note: `${supplierPurchasesFiltered.length} purchase records` }, { label: 'Paid', value: fmt(sumBy(supplierPurchasesFiltered, p => p.total_paid)), note: 'Total paid to suppliers' }, { label: 'Due', value: fmt(sumBy(filteredSupplierLedger, s => s.outstanding)), note: 'Outstanding payables' }]
   const accountsIncomeTotal = sumBy(accountInvoicesFiltered, invoice => invoice.total_amount) + sumBy(accountTransactionsFiltered.filter(e => e.entry_type === 'income'), e => e.amount)
   const accountsSummary   = [{ label: 'Entries', value: String(accountTransactionsFiltered.length), note: 'Accounts_Dtls rows' }, { label: 'Income', value: fmt(accountsIncomeTotal), note: `${accountInvoicesFiltered.length} sales + other income` }, { label: 'Expenses', value: fmt(sumBy(accountTransactionsFiltered.filter(e => e.entry_type === 'expense'), e => e.amount)), note: 'Expense rows' }, { label: 'Pricing Rules', value: String(filteredPricingRules.length), note: 'Filtered pricing sheet' }]
@@ -3859,6 +3918,7 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
       b.batch_number || `#${b.id}`,
       fmtD(b.expiry_date),
       String(b.outputs?.length || 0),
+      fmt(b.total_cost),
       fmt(b.total_cost),
       fmt(b.profit),
       ...(canManageProductionTransactions
@@ -3950,14 +4010,27 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
     const stockColor = isOut ? '#dc2626' : isLow ? '#d97706' : '#16a34a'
     return {
       key: m.id,
-      emphasisIndex: 5,
+      emphasisIndex: 6,
       cells: [
         m.name,
         m.category || '—',
         m.unit || '—',
         fmtQ(m.opening_stock),
         fmtQ(m.stock_in),
-        <span key="avail" style={{ color: stockColor, fontWeight: 600 }}>{fmtQ(m.available)}</span>,
+        fmtQ(m.stock_out),
+        <span
+          key="avail"
+          style={{
+            color: stockColor,
+            fontWeight: 600,
+            display: 'block',
+            width: '100%',
+            textAlign: 'right',
+            fontVariantNumeric: 'tabular-nums',
+          }}
+        >
+          {fmtQ(m.available)}
+        </span>,
         fmtQ(m.reorder_level),
         <span key="status" style={{ color: stockColor, fontSize: '0.78rem', fontWeight: 700 }}>{isOut ? 'Out' : isLow ? 'Low' : 'OK'}</span>,
         ...(canManageDataEntryEditDelete
@@ -3966,7 +4039,7 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
       ],
     }
   })
-  const customerRows = filteredCustomerLedger.map(c => ({ key: c.id, emphasisIndex: 4, cells: [c.name, c.phone || '—', String(c.invoiceCount), fmt(c.paid), fmt(c.outstanding), <button key="edit" type="button" className="workspace-action-btn" onClick={e => { e.stopPropagation(); openModal('customer', c) }}>Edit</button>] }))
+  const customerRows = filteredCustomerLedger.map(c => ({ key: c.id, emphasisIndex: 5, cells: [c.name, c.phone || '—', String(c.invoiceCount), fmt(c.totalBilled), fmt(c.paid), fmt(c.outstanding), <button key="edit" type="button" className="workspace-action-btn" onClick={e => { e.stopPropagation(); openModal('customer', c) }}>Edit</button>] }))
   const supplierRows = filteredSupplierLedger.map(s => ({ key: s.id, emphasisIndex: 5, cells: [s.name, resolveSupplierMaterials(s, data.rawMaterials), resolveSupplierItemCategory(s, data.purchases, data.rawMaterials), String(s.purchaseCount), fmt(s.paid), fmt(s.outstanding), ...(canManageDataEntryEditDelete ? [<button key="edit" type="button" className="workspace-action-btn" onClick={e => { e.stopPropagation(); openModal('supplier', s) }}>Edit</button>] : [])] }))
   const accountRows  = accountTransactionsFiltered.map(e => ({
     key: e.id,
@@ -4290,7 +4363,11 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
 
   const incomeCreditSalesMovement = sumBy(data.invoices.filter(inv => getInvoiceOutstandingDue(inv) > 0), inv => inv.total_amount)
   const incomeCashSalesMovement = sumBy(data.invoices.filter(inv => getInvoiceOutstandingDue(inv) <= 0), inv => inv.total_amount)
-  const otherIncomeMovement = sumAccountEntries({ entryType: 'income', category: 'Other Income', startTs: expenseStartTs })
+  const productionGainMovement = sumBy(
+    data.productionBatches.filter(batch => inPeriod(batch.production_date, expenseStartTs, false)),
+    batch => getBatchProductionGain(batch),
+  )
+  const otherIncomeMovement = sumAccountEntries({ entryType: 'income', category: 'Other Income', startTs: expenseStartTs }) + productionGainMovement
 
   const productionMovement = sumProductionOutputs({ startTs: periodStartTs })
   const soldCostMovement = sumSalesCost({ startTs: periodStartTs })
@@ -4331,7 +4408,7 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
   const trialBalanceSheetRows = [
     { accountId: 'ACC-00011-01', accountType: 'Income Statement', accountClass: 'Income', subAccounts: 'Sales', description: 'Credit Sales', opening: 0, movement: incomeCreditSalesMovement, dates: invoiceDates({ onlyOutstanding: true }) },
     { accountId: 'ACC-00012-01', accountType: 'Income Statement', accountClass: 'Income', subAccounts: 'Sales', description: 'Cash Sales', opening: 0, movement: incomeCashSalesMovement, dates: invoiceDates({ onlyOutstanding: false }) },
-    { accountId: 'ACC-00013-01', accountType: 'Income Statement', accountClass: 'Income', subAccounts: 'Sales', description: 'Other Income', opening: 0, movement: otherIncomeMovement, dates: accountEntryDates({ entryType: 'income', category: 'Other Income', startTs: expenseStartTs }) },
+    { accountId: 'ACC-00013-01', accountType: 'Income Statement', accountClass: 'Income', subAccounts: 'Sales', description: 'Other Income', opening: 0, movement: otherIncomeMovement, dates: uniqueDatesSorted([...accountEntryDates({ entryType: 'income', category: 'Other Income', startTs: expenseStartTs }), ...productionDates({ startTs: expenseStartTs })]) },
 
     { accountId: 'ACC-00021-02', accountType: 'Income Statement', accountClass: 'Direct Cost', subAccounts: 'Cost of Goods Sold', description: 'Production', opening: 0, movement: productionMovement, dates: productionDates({ startTs: periodStartTs }) },
     { accountId: 'ACC-00022-02', accountType: 'Income Statement', accountClass: 'Direct Cost', subAccounts: 'Cost of Goods Sold', description: 'Less: Inventory', opening: 0, movement: -(productionMovement - soldCostMovement), dates: uniqueDatesSorted([...productionDates({ startTs: periodStartTs }), ...salesDates({ startTs: periodStartTs })]) },
@@ -4375,8 +4452,6 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
   const retainedMoveIncome = sumBy(incomeStatementRows.filter(row => row.accountClass === 'Income'), row => row.movement)
   const retainedMoveDirect = sumBy(incomeStatementRows.filter(row => row.accountClass === 'Direct Cost'), row => row.movement)
   const retainedMoveExpense = sumBy(incomeStatementRows.filter(row => row.accountClass === 'Expenses'), row => row.movement)
-  const rmProfitAll = sumBy(data.productionBatches, batch => batch.profit)
-
   trialBalanceSheetRows.push({
     accountId: 'ACC-00092-09',
     accountType: 'Balance Sheet',
@@ -4384,7 +4459,7 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
     subAccounts: 'Net Worth',
     description: 'Retained (Profit) Loss',
     opening: -(retainedOpenBaseIncome - retainedOpenBaseCostAndExpenses),
-    movement: -(retainedMoveIncome - retainedMoveDirect - retainedMoveExpense) - rmProfitAll,
+    movement: -(retainedMoveIncome - retainedMoveDirect - retainedMoveExpense),
     dates: uniqueDatesSorted(trialBalanceSheetRows.flatMap(row => row.dates || [])),
   })
 
@@ -4424,7 +4499,7 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
         row.account_class,
         row.sub_accounts,
         row.description,
-        row.date || '—',
+        row.date || EMPTY_TEXT,
         fmt(row.opening_balance),
         fmt(row.acct_in),
         fmt(row.acct_out),
@@ -4468,7 +4543,7 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
           row.account_class,
           row.sub_accounts,
           row.description,
-          row.source || '—',
+          row.source || EMPTY_TEXT,
           fmt(row.opening),
           fmt(row.acct_in),
           fmt(row.acct_out),
@@ -4553,7 +4628,7 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
       if (activeSection === 'dashboard') return <><SummaryGridSkeleton count={5} /><section className="dashboard-snippet-grid"><SnippetCardSkeleton title="Top Customers" /><SnippetCardSkeleton title="Top Products" /><SnippetCardSkeleton title="Raw Materials" /><SnippetCardSkeleton title="Finished Goods" /></section><section className="dashboard-snippet-grid sales-history-grid"><SnippetCardSkeleton title="P&L Statement" rows={6} /><SnippetCardSkeleton title="Receivables" /><SnippetCardSkeleton title="Open Invoices" /></section></>
       if (activeSection === 'sales_hub') return (
         <>
-          <SummaryGridSkeleton />
+          <SummaryGridSkeleton count={6} />
           <WorkspaceToolbarSkeleton />
           <section className="workspace-inline-tabs">
           {SECTION_TABS.sales_hub.map(tab => <span key={tab.key} className={`workspace-inline-tab ${tab.key === getSectionTab('sales_hub') ? 'active' : ''}`}>{tab.label}</span>)}
@@ -4564,7 +4639,7 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
       )
       if (activeSection === 'production_ops') return (
         <>
-          <SummaryGridSkeleton />
+          <SummaryGridSkeleton count={6} />
           <WorkspaceToolbarSkeleton />
           <section className="workspace-inline-tabs">
             {SECTION_TABS.production_ops.map(tab => <span key={tab.key} className={`workspace-inline-tab ${tab.key === getSectionTab('production_ops') ? 'active' : ''}`}>{tab.label}</span>)}
@@ -4575,7 +4650,7 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
       )
       if (activeSection === 'supplies_stock') return (
         <>
-          <SummaryGridSkeleton />
+          <SummaryGridSkeleton count={5} />
           <WorkspaceToolbarSkeleton />
           <section className="workspace-inline-tabs">
             {SECTION_TABS.supplies_stock.map(tab => <span key={tab.key} className={`workspace-inline-tab ${tab.key === getSectionTab('supplies_stock') ? 'active' : ''}`}>{tab.label}</span>)}
@@ -4587,7 +4662,7 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
       )
       if (activeSection === 'customers') return (
         <>
-          <SummaryGridSkeleton />
+          <SummaryGridSkeleton count={5} />
           <WorkspaceToolbarSkeleton />
           <section className="workspace-inline-tabs">
           {SECTION_TABS.customers.map(tab => <span key={tab.key} className={`workspace-inline-tab ${tab.key === getSectionTab('customers') ? 'active' : ''}`}>{tab.label}</span>)}
@@ -4761,7 +4836,7 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
             await exportTableDataset('Finished_Inventory', ['INV ID', 'Item', 'Unit', 'Opening', 'Stock In', 'Stock Out', 'Available', 'Stock Balance', 'Prod Level', 'Prod Required'], inventoryRows)
             return
           }
-          await exportTableDataset('Production_Batches', ['Date', 'Batch Number', 'Expiry Date', 'Outputs', 'Total Cost', 'Profit'], batchRows)
+          await exportTableDataset('Production_Batches', ['Date', 'Batch Number', 'Expiry Date', 'Outputs', 'Production Cost', 'Total Cost', 'Production Gain'], batchRows)
         }} />
         <WorkspaceToolbar
           className="workspace-toolbar-production"
@@ -4793,7 +4868,7 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
           <TableCard
             title="Production Batches"
             subtitle="Track batch production and finished stock."
-            columns={canManageProductionTransactions ? ['Date', 'Batch Number', 'Expiry Date', 'Outputs', 'Total Cost', 'Profit', 'Actions'] : ['Date', 'Batch Number', 'Expiry Date', 'Outputs', 'Total Cost', 'Profit']}
+            columns={canManageProductionTransactions ? ['Date', 'Batch Number', 'Expiry Date', 'Outputs', 'Production Cost', 'Total Cost', 'Production Gain', 'Actions'] : ['Date', 'Batch Number', 'Expiry Date', 'Outputs', 'Production Cost', 'Total Cost', 'Production Gain']}
             rows={batchRows}
             mobileVariant="production-batches"
             search={searchTerms.production_ops}
@@ -4822,7 +4897,7 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
         <DateFilterControl range={suppliesDateFilter} onOpen={openDateFilter} onClear={() => clearDateFilter('supplies_stock')} onPresetSelect={preset => applyQuickDatePreset('supplies_stock', preset)} activePreset={sectionDatePresets.supplies_stock || ''} inlineTitle="Supplies & Stock" hideInlineTitle={isStandaloneView} onExport={async () => {
           const tab = getSectionTab('supplies_stock')
           if (tab === 'materials') {
-            await exportTableDataset('Raw_Materials', ['Material', 'Category', 'Unit', 'Opening', 'Stock In', 'Available', 'Reorder', 'Status'], materialRows)
+            await exportTableDataset('Raw_Materials', ['Material', 'Category', 'Unit', 'Opening', 'Stock In', 'Stock Out', 'Available', 'Reorder', 'Status'], materialRows)
             return
           }
           await exportTableDataset('Purchase_Register', ['Date', '#', 'Supplier', 'Category', 'Status', 'Paid', 'Outstanding'], purchaseRows)
@@ -4862,7 +4937,8 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
             className="supplies-materials-card"
             title="Raw Materials"
             subtitle="Stock levels (RawMaterials sheet). Click a row for full details."
-            columns={canManageDataEntryEditDelete ? ['Material', 'Category', 'Unit', 'Opening', 'Stock In', 'Available', 'Reorder', 'Status', ''] : ['Material', 'Category', 'Unit', 'Opening', 'Stock In', 'Available', 'Reorder', 'Status']}
+            columns={canManageDataEntryEditDelete ? ['Material', 'Category', 'Unit', 'Opening', 'Stock In', 'Stock Out', 'Available', 'Reorder', 'Status', ''] : ['Material', 'Category', 'Unit', 'Opening', 'Stock In', 'Stock Out', 'Available', 'Reorder', 'Status']}
+            colWidths={canManageDataEntryEditDelete ? ['220px', '150px', '90px', '110px', '110px', '110px', '120px', '110px', '100px', '88px'] : ['220px', '150px', '90px', '110px', '110px', '110px', '120px', '110px', '100px']}
             rows={materialRows}
             mobileVariant="materials-list"
             onRowClick={id => setSelectedRawMaterial(data.rawMaterials.find(m => m.id === id) || null)}
@@ -4880,7 +4956,7 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
     if (activeSection === 'customers') return (
       <>
         <DateFilterControl range={customersDateFilter} onOpen={openDateFilter} onClear={() => clearDateFilter('customers')} onPresetSelect={preset => applyQuickDatePreset('customers', preset)} activePreset={sectionDatePresets.customers || ''} inlineTitle="Customers" hideInlineTitle={isStandaloneView} onExport={async () => {
-          await exportTableDataset('Customers', ['Customer', 'Phone', 'Invoices', 'Paid', 'Outstanding'], customerRows)
+          await exportTableDataset('Customers', ['Customer', 'Phone', 'Invoices', 'Total Billed', 'Paid', 'Outstanding'], customerRows)
         }} />
         <SummaryGrid items={customersSummary} />
         <WorkspaceToolbar
@@ -4907,7 +4983,7 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
           <TableCard
             title="Customers"
             subtitle="Click a row to view full history. Click Edit to update."
-            columns={['Customer', 'Phone', 'Invoices', 'Paid', 'Outstanding', '']}
+            columns={['Customer', 'Phone', 'Invoices', 'Total Billed', 'Paid', 'Outstanding', '']}
             rows={customerRows}
             mobileVariant="customers-list"
             search={searchTerms.customers}
@@ -5356,15 +5432,19 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
             {/* Customer info strip */}
             {selectedCust && (
               <div className="sale-customer-info">
+                <div className="sale-customer-info-item">
+                  <span>Customer</span>
+                  <strong>{selectedCust.name}</strong>
+                </div>
                 {selectedCust.customer_category_name && (
                   <div className="sale-customer-info-item">
-                    <span>Customer Category</span>
+                    <span>Category</span>
                     <strong>{selectedCust.customer_category_name}</strong>
                   </div>
                 )}
                 {selectedCust.pricing_category && (
                   <div className="sale-customer-info-item">
-                    <span>Default Pricing Tier</span>
+                    <span>Default Tier</span>
                     <strong>{selectedCust.pricing_category}</strong>
                   </div>
                 )}
@@ -5372,6 +5452,12 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
                   <div className="sale-customer-info-item">
                     <span>Phone</span>
                     <strong>{selectedCust.phone}</strong>
+                  </div>
+                )}
+                {activePricingCategoryName && (
+                  <div className="sale-customer-info-item sale-customer-info-item-accent">
+                    <span>Using Tier</span>
+                    <strong>{activePricingCategoryName}</strong>
                   </div>
                 )}
               </div>
@@ -6495,7 +6581,7 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
           kicker="Batch Detail"
           title={selectedBatch.batch_number || `Batch #${selectedBatch.id}`}
           subtitle={`${getBatchTypeLabel(selectedBatch.batch_type || 'production')} · Produced: ${fmtD(selectedBatch.production_date)} · Expires: ${fmtD(selectedBatch.expiry_date)}`}
-          stat={`Profit: ${fmt(selectedBatchProductionGain)}`}
+          stat={`Production Gain: ${fmt(selectedBatchProductionGain)}`}
           onClose={() => setSelectedBatch(null)}
         >
           {canManageProductionTransactions ? (
@@ -6556,8 +6642,8 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
             <span>Electricity: <strong>{fmt(selectedBatch.electricity_cost)}</strong></span>
             <span>Gas: <strong>{fmt(selectedBatch.gas_cost)}</strong></span>
             <span>Total Cost: <strong>{fmt(selectedBatch.total_cost)}</strong></span>
-            <span>Output Value: <strong>{fmt(selectedBatchOutputValue)}</strong></span>
-            <span>Profit: <strong style={{ color: selectedBatchProductionGain >= 0 ? '#16a34a' : '#dc2626' }}>{fmt(selectedBatchProductionGain)}</strong></span>
+            <span>Production Cost: <strong>{fmt(selectedBatchOutputValue)}</strong></span>
+            <span>Production Gain: <strong style={{ color: selectedBatchProductionGain >= 0 ? '#16a34a' : '#dc2626' }}>{fmt(selectedBatchProductionGain)}</strong></span>
           </div>
 
           {/* Raw material usage */}
@@ -7161,10 +7247,10 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
                   {trialBalanceDetail.rows.map((row, index) => (
                     <div key={`${row.ref || 'ref'}-${row.date || 'date'}-${index}`} className="sales-list-row workspace-table-row">
                       <span>{fmtD(row.date)}</span>
-                      <span style={{ fontFamily: 'monospace', fontSize: '0.8rem' }}>{row.ref || 'â€”'}</span>
-                      <span>{row.description || 'â€”'}</span>
-                      <span style={{ color: toNumber(row.amount_in) > 0 ? '#16a34a' : '#9ca3af' }}>{toNumber(row.amount_in) > 0 ? fmt(row.amount_in) : 'â€”'}</span>
-                      <span style={{ color: toNumber(row.amount_out) > 0 ? '#dc2626' : '#9ca3af' }}>{toNumber(row.amount_out) > 0 ? fmt(row.amount_out) : 'â€”'}</span>
+                      <span style={{ fontFamily: 'monospace', fontSize: '0.8rem' }}>{row.ref || EMPTY_TEXT}</span>
+                      <span>{row.description || EMPTY_TEXT}</span>
+                      <span style={{ color: toNumber(row.amount_in) > 0 ? '#16a34a' : '#9ca3af' }}>{toNumber(row.amount_in) > 0 ? fmt(row.amount_in) : EMPTY_TEXT}</span>
+                      <span style={{ color: toNumber(row.amount_out) > 0 ? '#dc2626' : '#9ca3af' }}>{toNumber(row.amount_out) > 0 ? fmt(row.amount_out) : EMPTY_TEXT}</span>
                     </div>
                   ))}
                 </div>
@@ -7202,7 +7288,7 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
                       onClick={() => {
                         const popup = window.open('', '_blank')
                         if (!popup) return
-                        const formatAmount = value => (toNumber(value) > 0 ? `GHS ${toNumber(value).toFixed(2)}` : 'â€”')
+                        const formatAmount = value => (toNumber(value) > 0 ? `GHS ${toNumber(value).toFixed(2)}` : EMPTY_TEXT)
                         popup.document.write(`<!DOCTYPE html><html><head><title>${trialBalanceDetail.description}</title>
                           <style>
                             body { font-family: Arial, sans-serif; font-size: 12px; padding: 24px; color: #111827; }
@@ -7253,7 +7339,7 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
             <div className="detail-modal-section">
               <div className="detail-modal-totals" style={{ flexWrap: 'wrap', gap: '16px 32px' }}>
                 <span>Type: <strong style={{ color: typeColor }}>{fmtStatus(e.entry_type)}</strong></span>
-                <span>Category: <strong>{e.category || '—'}</strong></span>
+                <span>Category: <strong>{e.category || EMPTY_TEXT}</strong></span>
                 <span>Amount: <strong>{fmt(e.amount)}</strong></span>
                 {e.payment_method && <span>Payment Method: <strong>{fmtStatus(e.payment_method)}</strong></span>}
               </div>
@@ -7271,11 +7357,11 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
                 </div>
                 <div className="detail-purchase-field">
                   <span>Category</span>
-                  <strong>{e.category || '—'}</strong>
+                  <strong>{e.category || EMPTY_TEXT}</strong>
                 </div>
                 <div className="detail-purchase-field">
                   <span>Payment Method</span>
-                  <strong>{e.payment_method ? fmtStatus(e.payment_method) : '—'}</strong>
+                  <strong>{e.payment_method ? fmtStatus(e.payment_method) : EMPTY_TEXT}</strong>
                 </div>
                 {e.production_batch ? (
                   <div className="detail-purchase-field">
@@ -7295,7 +7381,7 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
             {/* Description */}
             <div className="detail-modal-section">
               <h3>Description</h3>
-              <p style={{ margin: '6px 0 0', lineHeight: 1.55 }}>{e.description || '—'}</p>
+              <p style={{ margin: '6px 0 0', lineHeight: 1.55 }}>{e.description || EMPTY_TEXT}</p>
             </div>
 
             {/* Comments — only when present */}
@@ -7442,3 +7528,4 @@ function FilterSelectRow({ filters = [], values = {}, onChange, onClear, classNa
 }
 
 export default HomePage
+
