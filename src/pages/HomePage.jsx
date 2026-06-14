@@ -690,9 +690,6 @@ const ACCOUNT_TRANS_TYPE_OPTIONS = [
   { value: 'expense', label: 'Expenses' },
   { value: 'income', label: 'Income' },
   { value: 'transfers', label: 'Transfers' },
-  { value: 'asset', label: 'Assets' },
-  { value: 'liability', label: 'Liabilities' },
-  { value: 'equity', label: 'Equity' },
 ]
 
 const ACCOUNT_SUB_ACCOUNTS_BY_TYPE = {
@@ -714,6 +711,15 @@ const ACCOUNT_SUB_ACCOUNTS_BY_TYPE = {
     'Rent and Utilities',
     'Transportation',
     'Marketing and Advertising',
+    'Advertisement',
+    'Accessories',
+    'Souvenirs and Branding',
+    'Internet & Communication',
+    'Licensing & Certification',
+    'Gifts and Donation',
+    'Delivery',
+    'Product Development',
+    'Cleaning and Sanitation',
     'Repairs and Maintenance',
     'Depreciation',
     'Raw Material Expenses',
@@ -724,31 +730,6 @@ const ACCOUNT_SUB_ACCOUNTS_BY_TYPE = {
     'Miscellaneous Expenses',
   ],
   income: ['Other Income', 'Other Sales'],
-  asset: [
-    'Cash',
-    'MoMo Wallet',
-    'CalBank',
-    'GhanaPay',
-    'Inventory',
-    'Raw Materials',
-    'Finished Goods',
-    'Equipment',
-    'PPE',
-    'Other Receivables',
-  ],
-  liability: [
-    'Trade Payables',
-    'Other Payables',
-    'Taxes and Levies',
-    'Loans',
-    'Accrued Expenses',
-  ],
-  equity: [
-    'Owner Capital',
-    'Equity',
-    'Retained Profit',
-    'Drawings',
-  ],
 }
 
 const ACCOUNT_PAYMENT_RECEIPT_OPTIONS = [
@@ -4493,15 +4474,14 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
       .filter(row => Math.abs(toNumber(row.opening)) > 0.000001 || Math.abs(toNumber(row.acct_in)) > 0.000001 || Math.abs(toNumber(row.acct_out)) > 0.000001)
       .map(row => ({
       key: row.account_id,
-      emphasisIndex: 9,
+      emphasisIndex: 8,
       cells: [
         row.account_id,
         row.account_type,
         row.account_class,
         row.sub_accounts,
         row.description,
-        row.date || EMPTY_TEXT,
-        fmt(row.opening_balance),
+        fmt(row.opening),
         fmt(row.acct_in),
         fmt(row.acct_out),
         fmt(row.available),
@@ -4516,14 +4496,13 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
         const available = opening + acctIn - acctOut
         return {
           key: row.accountId,
-          emphasisIndex: 9,
+          emphasisIndex: 8,
           cells: [
             row.accountId,
             row.accountType,
             row.accountClass,
             row.subAccounts,
             row.description,
-            formatDateRange(row.dates),
             fmt(opening),
             fmt(acctIn),
             fmt(acctOut),
@@ -4537,29 +4516,20 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
       .filter(row => Math.abs(toNumber(row.opening)) > 0.000001 || Math.abs(toNumber(row.acct_in)) > 0.000001 || Math.abs(toNumber(row.acct_out)) > 0.000001)
       .map(row => ({
         key: row.account_id,
-        emphasisIndex: 9,
+        emphasisIndex: 8,
         cells: [
           row.account_id,
           row.account_type,
           row.account_class,
           row.sub_accounts,
           row.description,
-          row.source || EMPTY_TEXT,
           fmt(row.opening),
           fmt(row.acct_in),
           fmt(row.acct_out),
           fmt(row.available),
         ],
       }))
-    : trialBalanceRows.map(row => ({
-      ...row,
-      cells: row.cells.map((cell, index) => {
-        if (index !== 5) return cell
-        return typeof cell === 'string' && cell.includes(' - ')
-          ? collapseDateText(cell)
-          : fmtD(cell)
-      }),
-    }))
+    : trialBalanceRows
 
   async function openTrialBalanceDetail(accountId) {
     const row = (data.trialBalanceReport?.rows || []).find(item => String(item.account_id) === String(accountId))
@@ -5075,14 +5045,14 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
     if (activeSection === 'reporting') return (
       <>
         <DateFilterControl range={reportingDateFilter} onOpen={openDateFilter} onClear={() => clearDateFilter('reporting')} onPresetSelect={preset => applyQuickDatePreset('reporting', preset)} activePreset={sectionDatePresets.reporting || ''} inlineTitle="Reporting" hideInlineTitle={isStandaloneView} onExport={async () => {
-          await exportTableDataset('Trial_Balance', ['Account ID', 'Account Type', 'Account Class', 'Sub-Accounts', 'Account Description', 'Transaction Description', 'Opening Bal', 'Acct In', 'Acct Out', 'Available'], compactTrialBalanceRows)
+          await exportTableDataset('Trial_Balance', ['Account ID', 'Account Type', 'Account Class', 'Sub-Accounts', 'Account Description', 'Opening Bal', 'Acct In', 'Acct Out', 'Available'], compactTrialBalanceRows)
         }} />
         <SummaryGrid items={reportingSummary} />
         <TableCard
           title="Trial Balance"
           subtitle={`Workbook column structure reproduced with period logic from ${TRIAL_BALANCE_PERIOD_START} (expenses baseline ${TRIAL_BALANCE_EXPENSE_START}). Click a row to view transaction detail.`}
-          columns={['Account ID', 'Account Type', 'Account Class', 'Sub-Accounts', 'Account Description', 'Transaction Description', 'Opening Bal', 'Acct In', 'Acct Out', 'Available']}
-          colWidths={['140px', '170px', '150px', '170px', '240px', '420px', '140px', '140px', '140px', '140px']}
+          columns={['Account ID', 'Account Type', 'Account Class', 'Sub-Accounts', 'Account Description', 'Opening Bal', 'Acct In', 'Acct Out', 'Available']}
+          colWidths={['140px', '170px', '150px', '170px', '280px', '140px', '140px', '140px', '140px']}
           rows={compactTrialBalanceRows}
           search={searchTerms.trial_balance}
           onSearch={v => setSearch('trial_balance', v)}
@@ -7243,7 +7213,7 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
               <div className="detail-modal-section">
                 <div className="sales-list-table workspace-table" style={{ '--table-cols': '120px 140px minmax(260px, 1fr) 140px 140px' }}>
                   <div className="sales-list-head workspace-table-head">
-                    <span>Date</span><span>Reference</span><span>Description</span><span>Amount In</span><span>Amount Out</span>
+                    <span>Date</span><span>Reference</span><span>Description</span><span className="workspace-table-number">Amount In</span><span className="workspace-table-number">Amount Out</span>
                   </div>
                   {trialBalanceDetail.rows.map((row, index) => (
                     <div key={`${row.ref || 'ref'}-${row.date || 'date'}-${index}`} className="sales-list-row workspace-table-row">
