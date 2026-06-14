@@ -3839,8 +3839,9 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
   ]
   const suppliesSummary   = [
     { label: 'Suppliers', value: String(data.suppliers.length), note: 'Supplier_Dtls' },
+    { label: 'RM Balance Qty', value: fmtQ(sumBy(data.rawMaterials, material => material.stock_available)), note: 'Total raw material stock on hand' },
+    { label: 'RM Balance Value', value: fmt(sumBy(data.rawMaterials, material => toNumber(material.stock_available) * toNumber(material.unit_price))), note: 'Current stock value on hand' },
     { label: 'Raw Materials', value: String(data.rawMaterials.length), note: 'RawMaterials tracked' },
-    { label: 'Raw Material Balance', value: fmt(sumBy(data.rawMaterials, material => toNumber(material.stock_available) * toNumber(material.unit_price))), note: 'Current stock value on hand' },
     { label: 'Purchases', value: fmt(sumBy(purchasesFiltered, p => p.total_amount)), note: `${purchasesFiltered.length} records` },
     { label: 'Supplier Due', value: fmt(sumBy(purchasesFiltered, p => getPurchaseOutstanding(p))), note: 'Open balances' },
   ]
@@ -6538,8 +6539,8 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
                       <span>{line.product_size || '—'}</span>
                       <span>{line.pricing_category || '—'}</span>
                       <span>{fmtQ(line.quantity)}</span>
-                      <span>{fmt(line.unit_price)}</span>
-                      <span>{fmt(line.line_total)}</span>
+                      <span className="workspace-table-number">{fmt(line.unit_price)}</span>
+                      <span className="workspace-table-number">{fmt(line.line_total)}</span>
                     </div>
                   ))}
                 </div>
@@ -6560,7 +6561,7 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
                       <span>#{p.id}</span>
                       <span>{fmtStatus(p.method)}</span>
                       <span>{p.reference || '—'}</span>
-                      <span>{fmt(p.amount)}</span>
+                      <span className="workspace-table-number">{fmt(p.amount)}</span>
                       <span style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
                         {canManageSalesTransactions ? <button type="button" className="workspace-action-btn" onClick={() => { setSelectedInvoice(null); openModal('receipt', p) }}>Edit</button> : null}
                         {canManageSalesTransactions ? <button type="button" className="workspace-action-btn" onClick={() => handleDelete('receipt', () => deletePayment(p.id)).then(() => setSelectedInvoice(null))}>Delete</button> : null}
@@ -6658,7 +6659,7 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
                   <div key={u.id} className="sales-list-row workspace-table-row">
                     <span>{u.raw_material_name || '—'}</span>
                     <span>{fmtQ(u.quantity_used)}</span>
-                    <span>{fmt(u.amount)}</span>
+                    <span className="workspace-table-number">{fmt(u.amount)}</span>
                   </div>
                 ))}
               </div>
@@ -6858,8 +6859,8 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
                       <span>{it.supplier_name || '—'}</span>
                       <span>{fmtQ(it.quantity)}</span>
                       <span>{fmtQ(it.unit_per_item)}</span>
-                      <span>{fmt(it.price_per_item)}</span>
-                      <span>{fmt(it.line_total)}</span>
+                      <span className="workspace-table-number">{fmt(it.price_per_item)}</span>
+                      <span className="workspace-table-number">{fmt(it.line_total)}</span>
                     </div>
                   ))}
                 </div>
@@ -6879,7 +6880,7 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
                       <span>{fmtD(u.production_date)}</span>
                       <span>#{u.batch_id}</span>
                       <span>{fmtQ(u.quantity_used)} {m.unit || ''}</span>
-                      <span>{fmt(u.amount)}</span>
+                      <span className="workspace-table-number">{fmt(u.amount)}</span>
                     </div>
                   ))}
                 </div>
@@ -6951,8 +6952,8 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
                       <div key={item.id} className="sales-list-row workspace-table-row">
                         <span>{item.item_name || item.raw_material_name || '—'}</span>
                         <span>{fmtQ(item.quantity)}</span>
-                        <span>{fmt(item.price_per_item)}</span>
-                        <span>{fmt(item.line_total)}</span>
+                        <span className="workspace-table-number">{fmt(item.price_per_item)}</span>
+                        <span className="workspace-table-number">{fmt(item.line_total)}</span>
                       </div>
                     ))
                   : <div className="workspace-empty-row">No items.</div>}
@@ -6972,7 +6973,7 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
                         <span>{fmtD(pay.payment_date)}</span>
                         <span>#{pay.id}</span>
                         <span>{fmtStatus(pay.payment_method)}</span>
-                        <span>{fmt(pay.amount)}</span>
+                        <span className="workspace-table-number">{fmt(pay.amount)}</span>
                         <span>{pay.notes || '—'}</span>
                       </div>
                     ))
@@ -7062,8 +7063,8 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
                         <span>{m.category || '—'}</span>
                         <span>{m.unit || '—'}</span>
                         <span style={{ color: available <= 0 ? '#dc2626' : isLow ? '#d97706' : '#16a34a' }}>{fmtQ(available)} {m.unit || ''}</span>
-                        <span>{fmt(m.item_price)}</span>
-                        <span>{fmt(m.unit_price)}</span>
+                        <span className="workspace-table-number">{fmt(m.item_price)}</span>
+                        <span className="workspace-table-number">{fmt(m.unit_price)}</span>
                       </div>
                     )
                   })}
@@ -7085,8 +7086,8 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
                       <span>#{p.id}</span>
                       <span>{p.category || '—'}</span>
                       <span>{(p.items || []).length} item{(p.items || []).length !== 1 ? 's' : ''}</span>
-                      <span>{fmt(p.total_amount)}</span>
-                      <span>{fmt(p.total_paid)}</span>
+                      <span className="workspace-table-number">{fmt(p.total_amount)}</span>
+                      <span className="workspace-table-number">{fmt(p.total_paid)}</span>
                       <span style={{ color: p.status === 'paid' ? '#16a34a' : p.status === 'partially_paid' ? '#d97706' : '#dc2626' }}>{fmtStatus(p.status)}</span>
                     </div>
                   ))}
@@ -7107,7 +7108,7 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
                       <span>{fmtD(pay.payment_date)}</span>
                       <span>#{pay.purchase_id}</span>
                       <span>{fmtStatus(pay.payment_method)}</span>
-                      <span>{fmt(pay.amount)}</span>
+                      <span className="workspace-table-number">{fmt(pay.amount)}</span>
                       <span>{pay.notes || '—'}</span>
                     </div>
                   ))}
@@ -7200,8 +7201,8 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
                       <span>{fmtInv(l.invoice_id)}</span>
                       <span>{l.customer_name || '—'}</span>
                       <span>{fmtQ(l.quantity)}</span>
-                      <span>{fmt(l.unit_price)}</span>
-                      <span>{fmt(l.line_total)}</span>
+                      <span className="workspace-table-number">{fmt(l.unit_price)}</span>
+                      <span className="workspace-table-number">{fmt(l.line_total)}</span>
                     </div>
                   ))}
                 </div>
@@ -7249,8 +7250,8 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
                       <span>{fmtD(row.date)}</span>
                       <span style={{ fontFamily: 'monospace', fontSize: '0.8rem' }}>{row.ref || EMPTY_TEXT}</span>
                       <span>{row.description || EMPTY_TEXT}</span>
-                      <span style={{ color: toNumber(row.amount_in) > 0 ? '#16a34a' : '#9ca3af' }}>{toNumber(row.amount_in) > 0 ? fmt(row.amount_in) : EMPTY_TEXT}</span>
-                      <span style={{ color: toNumber(row.amount_out) > 0 ? '#dc2626' : '#9ca3af' }}>{toNumber(row.amount_out) > 0 ? fmt(row.amount_out) : EMPTY_TEXT}</span>
+                      <span className="workspace-table-number" style={{ color: toNumber(row.amount_in) > 0 ? '#16a34a' : '#9ca3af' }}>{toNumber(row.amount_in) > 0 ? fmt(row.amount_in) : EMPTY_TEXT}</span>
+                      <span className="workspace-table-number" style={{ color: toNumber(row.amount_out) > 0 ? '#dc2626' : '#9ca3af' }}>{toNumber(row.amount_out) > 0 ? fmt(row.amount_out) : EMPTY_TEXT}</span>
                     </div>
                   ))}
                 </div>
@@ -7447,8 +7448,8 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
                       <span>{fmtD(inv.invoice_date)}</span>
                       <span>{fmtInv(inv.id)}</span>
                       <span>{(inv.lines || []).length} line{(inv.lines || []).length !== 1 ? 's' : ''}</span>
-                      <span>{fmt(inv.total_amount)}</span>
-                      <span style={{ color: getInvoiceOutstanding(inv) > 0 ? '#dc2626' : getInvoiceOutstanding(inv) < 0 ? '#2563eb' : '#16a34a' }}>{fmt(Math.abs(getInvoiceOutstanding(inv)))}</span>
+                      <span className="workspace-table-number">{fmt(inv.total_amount)}</span>
+                      <span className="workspace-table-number" style={{ color: getInvoiceOutstanding(inv) > 0 ? '#dc2626' : getInvoiceOutstanding(inv) < 0 ? '#2563eb' : '#16a34a' }}>{fmt(Math.abs(getInvoiceOutstanding(inv)))}</span>
                     </div>
                   ))}
                 </div>
@@ -7464,7 +7465,7 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
                       <span>{fmtD(p.payment_date)}</span>
                       <span>{fmtInv(p.invoice)}</span>
                       <span>{fmtStatus(p.method)}</span>
-                      <span>{fmt(p.amount)}</span>
+                      <span className="workspace-table-number">{fmt(p.amount)}</span>
                     </div>
                   ))}
                 </div>
