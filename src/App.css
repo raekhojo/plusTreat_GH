@@ -4392,6 +4392,13 @@
   color: #15344d;
 }
 
+.snippet-card-recent-receipts .dashboard-snippet-row strong,
+.snippet-card-recent-receipts .dashboard-snippet-row span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .dashboard-snippet-value {
   text-align: right;
   min-width: 120px;
@@ -4879,8 +4886,9 @@
 
 .workspace-date-actions {
   display: flex;
-  flex-direction: column;
-  align-items: flex-end;
+  flex-direction: row;
+  align-items: center;
+  flex-wrap: wrap;
   gap: 8px;
 }
 
@@ -5492,15 +5500,15 @@
   }
 
   .dashboard-snippet-stats {
-    display: none;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+    margin-top: 8px;
+    margin-bottom: 10px;
   }
 
   .summary-mobile-carousel {
-    display: grid;
-    gap: 12px;
-    margin-top: 10px;
-    margin-bottom: 10px;
-    padding: 0 2px;
+    display: none;
   }
 
   .summary-mobile-carousel .dashboard-mobile-carousel-head {
@@ -6532,9 +6540,10 @@
   }
 
   .dashboard-snippet-row {
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 6px;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: start;
+    gap: 8px 10px;
     padding-bottom: 10px;
   }
 
@@ -6555,7 +6564,9 @@
 
   .dashboard-snippet-row em {
     font-size: 0.8rem;
-    align-self: flex-start;
+    align-self: start;
+    min-width: 96px;
+    text-align: right;
   }
 }
 
@@ -8686,11 +8697,11 @@
   }
 
   .workspace-toolbar-sales .workspace-toolbar-actions {
-    grid-template-columns: 1fr;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .workspace-toolbar-production .workspace-toolbar-actions {
-    grid-template-columns: 1fr;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .workspace-filter-row-secondary {
@@ -8774,7 +8785,7 @@
   .workspace-toolbar-sales .workspace-toolbar-actions,
   .workspace-toolbar-production .workspace-toolbar-actions,
   .workspace-toolbar-accounts .workspace-toolbar-actions {
-    grid-template-columns: 1fr;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .workspace-toolbar-actions .account-alert-button {
@@ -8858,11 +8869,13 @@
 .supplies-materials-card .workspace-table-head span:nth-child(6),
 .supplies-materials-card .workspace-table-head span:nth-child(7),
 .supplies-materials-card .workspace-table-head span:nth-child(8),
+.supplies-materials-card .workspace-table-head span:nth-child(9),
 .supplies-materials-card .workspace-table-row > :nth-child(4),
 .supplies-materials-card .workspace-table-row > :nth-child(5),
 .supplies-materials-card .workspace-table-row > :nth-child(6),
 .supplies-materials-card .workspace-table-row > :nth-child(7),
-.supplies-materials-card .workspace-table-row > :nth-child(8) {
+.supplies-materials-card .workspace-table-row > :nth-child(8),
+.supplies-materials-card .workspace-table-row > :nth-child(9) {
   justify-self: end;
   text-align: right;
 }

@@ -8,8 +8,9 @@ import { AppAutocomplete, AppFilterPicker, AppSelect } from '../components/FormS
 import {
   createAccountTransaction, createCustomer, createInvoice, createPayment,
   createPricingRule, createProductionBatch, createPurchase, createSupplier,
+  createProductionOutput,
   createPurchasePayment, updatePurchasePayment, createProduct, createRawMaterial, createItemCategory,
-  deleteInvoice, deletePayment, deleteProductionBatch, deletePurchase, deletePurchaseItem,
+  deleteInvoice, deletePayment, deleteProductionBatch, deleteProductionOutput, deletePurchase, deletePurchaseItem,
   updateInvoice, updatePayment, updatePurchase,
   updateCustomer, deleteCustomer,
   updateSupplier, deleteSupplier,
@@ -18,7 +19,7 @@ import {
   updateProduct, deleteProduct,
   updateRawMaterial, deleteRawMaterial,
   createStaffProfile, updateStaffProfile,
-  replaceProductionBatch, updateProductionBatch,
+  updateProductionBatch, updateProductionOutput,
   getAnalyticsSummary, getDashboardOverview, getTrialBalanceDetail,
 } from '../lib/api'
 
@@ -622,22 +623,6 @@ const buildProductionOutputPayload = (source, productBySizeKey, resolveProductio
     total_litres: toFixedDecimalString(totalLitres, 3, 12, `${productSize || 'Finished goods'} total litres`),
   }
 }
-const buildProductionBatchReplacePayload = (batch, outputs, productBySizeKey, resolveProductionPriceFn) => ({
-  batch_number: batch.batch_number || '',
-  production_date: batch.production_date || '',
-  notes: batch.notes || '',
-  electricity_cost: String(toNumber(batch.electricity_cost)),
-  gas_cost: String(toNumber(batch.gas_cost)),
-  production_wages: String(toNumber(batch.production_wages)),
-  material_usages: (batch.material_usages || []).map(usage => ({
-    ...(usage.id ? { id: usage.id } : {}),
-    raw_material: usage.raw_material,
-    quantity_used: String(toNumber(usage.quantity_used)),
-    amount: String(toNumber(usage.amount)),
-    notes: usage.notes || '',
-  })),
-  outputs: outputs.map(output => buildProductionOutputPayload(output, productBySizeKey, resolveProductionPriceFn)),
-})
 const mkPurchaseItem   = ()              => ({ rawMaterial: '', isNewRM: false, newRMName: '', newRMCategory: '', newRMUnit: '', newRMOpeningStock: '0', newRMReorderLevel: '0', quantity: '', unitPerItem: '1', pricePerItem: '', _lineId: null })
 const mkPurchaseForm   = ()              => ({ purchaseDate: todayValue(), supplier: '', category: '', notes: '', items: [mkPurchaseItem()], paymentAmount: '', paymentMethod: 'cash', paymentNotes: '', paymentDate: todayValue(), _paymentId: null, _editId: null, status: 'open' })
 const buildPurchaseForm = (entity = null) => {
@@ -910,7 +895,7 @@ function SummaryGridSkeleton({ count = 4 }) {
   )
 }
 
-function SnippetCard({ title, rows, onItemClick, actionLabel, onAction }) {
+function SnippetCard({ title, rows, onItemClick, actionLabel, onAction, className = '' }) {
   const handleExport = async () => {
     const exportRows = (rows || []).map(item => ({
       Item: extractExportText(item.title),
@@ -921,7 +906,7 @@ function SnippetCard({ title, rows, onItemClick, actionLabel, onAction }) {
   }
 
   return (
-    <article className="account-feature-card dashboard-snippet-card">
+    <article className={`account-feature-card dashboard-snippet-card ${className}`.trim()}>
       <div className="account-feature-body">
         <div className="dashboard-card-head">
           <h2>{title}</h2>
@@ -1443,6 +1428,7 @@ function TableCard({
                       <div className="workspace-mobile-production-list-copy">
                         <span className="workspace-mobile-sales-customer">{outputs} outputs</span>
                         <span className="workspace-mobile-production-list-meta">Production {productionCost} · Expiry {expiryDate}</span>
+                        <span className="workspace-mobile-production-list-meta">Total {totalCost}</span>
                       </div>
                     </div>
                   </article>
@@ -1576,7 +1562,7 @@ function TableCard({
               }
 
               if (mobileVariant === 'materials-list') {
-                const [material, category, unit, opening, stockIn, stockOut, available, reorder, status] = row.cells
+                const [material, category, unit, opening, stockIn, stockOut, available, balanceValue, reorder, status] = row.cells
                 return (
                   <article
                     key={`mobile-${row.key}`}
@@ -1585,7 +1571,7 @@ function TableCard({
                   >
                     <div className="workspace-mobile-sales-top">
                       <strong className="workspace-mobile-sales-customer">{material}</strong>
-                      <strong className="workspace-mobile-supply-amount">{available}</strong>
+                      <strong className="workspace-mobile-supply-amount">{balanceValue}</strong>
                     </div>
                     <div className="workspace-mobile-sales-bottom">
                       <div className="workspace-mobile-production-list-copy">
@@ -2181,6 +2167,7 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
   const isDataEntryRole = normalizedRole === 'accounts'
   const canManageSalesTransactions = normalizedRole === 'admin'
   const canManageProductionTransactions = normalizedRole === 'admin'
+  const canManageFinishedGoodsTransactions = normalizedRole === 'admin' || normalizedRole === 'accounts'
   const canManageDataEntryEditDelete = !isDataEntryRole
   const availableSections = useMemo(() => {
     const visible = SECTIONS
@@ -3449,7 +3436,7 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
     e.preventDefault()
     setSub('finished_goods', true); setFB('finished_goods', '')
     try {
-      if (finishedGoodsForm._editId && !canManageProductionTransactions) throw new Error('Data Entry staff can record finished goods, but cannot edit existing ones.')
+      if (finishedGoodsForm._editId && !canManageFinishedGoodsTransactions) throw new Error('You do not have permission to edit existing finished goods.')
       if (!finishedGoodsForm.batch) throw new Error('Select a batch number first.')
       const selectedBatchRecord = data.productionBatches.find(batch => String(batch.id) === String(finishedGoodsForm.batch))
       if (!selectedBatchRecord) throw new Error('The selected batch could not be found.')
@@ -3458,41 +3445,60 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
       }
       const validLines = finishedGoodsForm.lines.filter(it => it.productSize && toNumber(it.quantity) > 0)
       if (!validLines.length) throw new Error('Add at least one finished good with quantity.')
-      const existingOutputIds = new Set(
+
+      const existingOutputIds = [...new Set(
         finishedGoodsForm.lines.flatMap(line => (
           Array.isArray(line.outputIds) && line.outputIds.length
             ? line.outputIds
             : [line._lineId || finishedGoodsForm._editId].filter(Boolean)
         )).map(id => String(id))
-      )
-      const preservedOutputs = (selectedBatchRecord.outputs || []).filter(output => !existingOutputIds.has(String(output.id)))
-      const replacementOutputs = validLines.map(line => {
-        const existingOutputIdsForLine = Array.isArray(line.outputIds) && line.outputIds.length
-          ? line.outputIds
-          : [line._lineId || finishedGoodsForm._editId].filter(Boolean)
-        return buildProductionOutputPayload(
-          { ...line, id: existingOutputIdsForLine[0] || line.id || null },
+      )]
+
+      if (finishedGoodsForm._editId && validLines.length === 1 && existingOutputIds.length === 1) {
+        const outputPayload = buildProductionOutputPayload(
+          { ...validLines[0], id: finishedGoodsForm._editId },
           productBySizeKey,
           resolveProductionPrice
         )
-      })
-      const nextOutputs = finishedGoodsForm._editId
-        ? [...preservedOutputs, ...replacementOutputs]
-        : [...(selectedBatchRecord.outputs || []), ...replacementOutputs]
 
-      try {
-        await updateProductionBatch(
-          selectedBatchRecord.id,
-          buildProductionBatchReplacePayload(selectedBatchRecord, nextOutputs, productBySizeKey, resolveProductionPrice)
-        )
-      } catch (error) {
-        await replaceProductionBatch(
-          selectedBatchRecord.id,
-          buildProductionBatchReplacePayload(selectedBatchRecord, nextOutputs, productBySizeKey, resolveProductionPrice)
-        )
+        await updateProductionOutput(finishedGoodsForm._editId, {
+          product: outputPayload.product,
+          product_size: outputPayload.product_size,
+          quantity: outputPayload.quantity,
+          unit_cost: outputPayload.unit_cost,
+          batch_litres: outputPayload.batch_litres,
+          total_litres: outputPayload.total_litres,
+        })
+      } else {
+        if (finishedGoodsForm._editId) {
+          for (const outputId of existingOutputIds) {
+            await deleteProductionOutput(outputId)
+          }
+        }
+
+        for (const line of validLines) {
+          const outputPayload = buildProductionOutputPayload(
+            line,
+            productBySizeKey,
+            resolveProductionPrice
+          )
+
+          await createProductionOutput({
+            batch: finishedGoodsForm.batch,
+            product: outputPayload.product,
+            product_size: outputPayload.product_size,
+            quantity: outputPayload.quantity,
+            unit_cost: outputPayload.unit_cost,
+            batch_litres: outputPayload.batch_litres,
+            total_litres: outputPayload.total_litres,
+          })
+        }
       }
+
       await refreshData(); setFB('finished_goods', finishedGoodsForm._editId ? 'Finished goods updated.' : 'Finished goods recorded.'); setActiveModal('')
-    } catch (err) { setFB('finished_goods', err.message || 'Could not record finished goods.') }
+    } catch (err) {
+      setFB('finished_goods', err.message || 'Could not record finished goods.')
+    }
     finally { setSub('finished_goods', false) }
   }
 
@@ -3813,7 +3819,7 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
   const productionSummary = [
     { label: 'Batches', value: String(productionBatchesFiltered.length), note: 'Production_Dtls' },
     { label: 'RM Cost', value: fmt(sumBy(productionBatchesFiltered, b => b.total_raw_material_cost)), note: 'Material usage' },
-    { label: 'Production Cost', value: fmt(sumBy(productionBatchesFiltered, b => b.total_cost)), note: 'Sum of batch costs' },
+    { label: 'Production Cost', value: fmt(sumBy(productionBatchesFiltered, b => getBatchOutputValue(b))), note: 'Finished goods value produced' },
     { label: 'Production Gain', value: fmt(sumBy(productionBatchesFiltered, b => getBatchProductionGain(b))), note: 'Output value less total cost' },
     { label: 'Stock Units', value: fmtQ(sumBy(data.products, p => p.stock_quantity)), note: 'Finished goods on hand' },
     { label: 'Finished Goods Balance', value: fmt(sumBy(inventoryLedger, item => item.stockBalance)), note: 'Current finished goods value' },
@@ -3900,9 +3906,9 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
       b.batch_number || `#${b.id}`,
       fmtD(b.expiry_date),
       String(b.outputs?.length || 0),
+      fmt(getBatchOutputValue(b)),
       fmt(b.total_cost),
-      fmt(b.total_cost),
-      fmt(b.profit),
+      fmt(getBatchProductionGain(b)),
       ...(canManageProductionTransactions
         ? [(
             <div key="actions" style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
@@ -3990,6 +3996,7 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
     const isLow = toNumber(m.reorder_level) > 0 && m.available <= toNumber(m.reorder_level)
     const isOut = m.available <= 0
     const stockColor = isOut ? '#dc2626' : isLow ? '#d97706' : '#16a34a'
+    const balanceValue = toNumber(m.available) * toNumber(m.unit_price)
     return {
       key: m.id,
       emphasisIndex: 6,
@@ -4013,6 +4020,7 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
         >
           {fmtQ(m.available)}
         </span>,
+        fmt(balanceValue),
         fmtQ(m.reorder_level),
         <span key="status" style={{ color: stockColor, fontSize: '0.78rem', fontWeight: 700 }}>{isOut ? 'Out' : isLow ? 'Low' : 'OK'}</span>,
         ...(canManageDataEntryEditDelete
@@ -4791,6 +4799,7 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
         )}
         {getSectionTab('sales_hub') === 'recent_receipts' && (
           <SnippetCard
+            className="snippet-card-recent-receipts"
             title="Recent Receipts"
             rows={clampRows(filteredSalesPayments, 6).map(p => ({ id: p.id, title: p.customer_name || `Invoice ${fmtInv(p.invoice)}`, meta: `${fmtD(p.payment_date)} · ${fmtStatus(p.method)}`, value: fmt(p.amount) }))}
             onItemClick={id => setSelectedReceipt(filteredSalesPayments.find(p => p.id === id) || null)}
@@ -4868,7 +4877,7 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
         <DateFilterControl range={suppliesDateFilter} onOpen={openDateFilter} onClear={() => clearDateFilter('supplies_stock')} onPresetSelect={preset => applyQuickDatePreset('supplies_stock', preset)} activePreset={sectionDatePresets.supplies_stock || ''} inlineTitle="Supplies & Stock" hideInlineTitle={isStandaloneView} onExport={async () => {
           const tab = getSectionTab('supplies_stock')
           if (tab === 'materials') {
-            await exportTableDataset('Raw_Materials', ['Material', 'Category', 'Unit', 'Opening', 'Stock In', 'Stock Out', 'Available', 'Reorder', 'Status'], materialRows)
+            await exportTableDataset('Raw_Materials', ['Material', 'Category', 'Unit', 'Opening', 'Stock In', 'Stock Out', 'Available', 'RM Balance Value', 'Reorder', 'Status'], materialRows)
             return
           }
           await exportTableDataset('Purchase_Register', ['Date', '#', 'Supplier', 'Category', 'Status', 'Paid', 'Outstanding'], purchaseRows)
@@ -4908,8 +4917,8 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
             className="supplies-materials-card"
             title="Raw Materials"
             subtitle="Stock levels (RawMaterials sheet). Click a row for full details."
-            columns={canManageDataEntryEditDelete ? ['Material', 'Category', 'Unit', 'Opening', 'Stock In', 'Stock Out', 'Available', 'Reorder', 'Status', ''] : ['Material', 'Category', 'Unit', 'Opening', 'Stock In', 'Stock Out', 'Available', 'Reorder', 'Status']}
-            colWidths={canManageDataEntryEditDelete ? ['220px', '150px', '90px', '110px', '110px', '110px', '120px', '110px', '100px', '88px'] : ['220px', '150px', '90px', '110px', '110px', '110px', '120px', '110px', '100px']}
+            columns={canManageDataEntryEditDelete ? ['Material', 'Category', 'Unit', 'Opening', 'Stock In', 'Stock Out', 'Available', 'RM Balance Value', 'Reorder', 'Status', ''] : ['Material', 'Category', 'Unit', 'Opening', 'Stock In', 'Stock Out', 'Available', 'RM Balance Value', 'Reorder', 'Status']}
+            colWidths={canManageDataEntryEditDelete ? ['220px', '150px', '90px', '110px', '110px', '110px', '120px', '150px', '110px', '100px', '88px'] : ['220px', '150px', '90px', '110px', '110px', '110px', '120px', '150px', '110px', '100px']}
             rows={materialRows}
             mobileVariant="materials-list"
             onRowClick={id => setSelectedRawMaterial(data.rawMaterials.find(m => m.id === id) || null)}
@@ -5826,14 +5835,14 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
             <div className="sales-form-grid sales-form-grid-primary">
               <label className="sales-field">
                 <span>Batch Number</span>
-                <AppAutocomplete
+                <AppSelect
                   ariaLabel="Batch number"
                   options={finishedGoodsBatchOptions}
                   placeholder="Select batch"
-                  searchPlaceholder="Search batches..."
                   value={finishedGoodsForm.batch}
                   onChange={value => setFinishedGoodsForm(cur => ({ ...cur, batch: value }))}
                   isDisabled={isEditingFinishedGoods}
+                  isRequired
                 />
               </label>
             </div>
@@ -5893,11 +5902,33 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
 
             <div className="sales-form-actions sales-form-actions-split">
               <button type="button" className="account-alert-button account-alert-button-light" onClick={() => setActiveModal('')}>Cancel</button>
-              {isEditingFinishedGoods && !canManageProductionTransactions ? null : (
-                <button type="submit" className="account-alert-button account-alert-button-dark" disabled={submitting.finished_goods}>
-                  {submitting.finished_goods ? 'Saving…' : isEditingFinishedGoods ? 'Update Finished Goods' : 'Save Finished Goods'}
-                </button>
-              )}
+              <div className="sales-form-actions">
+                {isEditingFinishedGoods && canManageFinishedGoodsTransactions ? (
+                  <button
+                    type="button"
+                    className="account-alert-button account-alert-button-danger"
+                    onClick={() => handleDelete('finished goods', async () => {
+                      const outputIds = [...new Set(
+                        finishedGoodsForm.lines.flatMap(line => (
+                          Array.isArray(line.outputIds) && line.outputIds.length
+                            ? line.outputIds
+                            : [line._lineId || finishedGoodsForm._editId].filter(Boolean)
+                        )).filter(Boolean)
+                      )]
+                      for (const outputId of outputIds) {
+                        await deleteProductionOutput(outputId)
+                      }
+                    }).then(() => setActiveModal(''))}
+                  >
+                    Delete
+                  </button>
+                ) : null}
+                {isEditingFinishedGoods && !canManageFinishedGoodsTransactions ? null : (
+                  <button type="submit" className="account-alert-button account-alert-button-dark" disabled={submitting.finished_goods}>
+                    {submitting.finished_goods ? 'Saving…' : isEditingFinishedGoods ? 'Update Finished Goods' : 'Save Finished Goods'}
+                  </button>
+                )}
+              </div>
             </div>
             {feedback.finished_goods ? <p className="sales-form-message">{feedback.finished_goods}</p> : null}
           </form>
@@ -6676,7 +6707,7 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
                     <span className="workspace-row-number">{fmtQ(o.quantity)}</span>
                     <span className="workspace-row-number">{fmt(unitCost)}</span>
                     <span className="workspace-row-number">{fmt(o.amount)}</span>
-                    {canManageProductionTransactions ? (
+                    {canManageFinishedGoodsTransactions ? (
                       <span className="batch-output-actions">
                         <button
                           type="button"
@@ -6694,18 +6725,11 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
                           onClick={async () => {
                             if (!window.confirm('Delete this finished goods line? This cannot be undone.')) return
                             try {
-                              const removedOutputIds = new Set((o.outputIds || []).map(id => String(id)))
-                              const nextOutputs = (selectedBatch.outputs || []).filter(output => !removedOutputIds.has(String(output.id)))
-                              try {
-                                await updateProductionBatch(
-                                  selectedBatch.id,
-                                  buildProductionBatchReplacePayload(selectedBatch, nextOutputs, productBySizeKey, resolveProductionPrice)
-                                )
-                              } catch (error) {
-                                await replaceProductionBatch(
-                                  selectedBatch.id,
-                                  buildProductionBatchReplacePayload(selectedBatch, nextOutputs, productBySizeKey, resolveProductionPrice)
-                                )
+                              const outputIds = (o.outputIds || []).length
+                                ? o.outputIds
+                                : [o.id].filter(Boolean)
+                              for (const outputId of outputIds) {
+                                await deleteProductionOutput(outputId)
                               }
                               await refreshData()
                               setSelectedBatch(null)
