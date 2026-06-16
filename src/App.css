@@ -4399,6 +4399,28 @@
   white-space: nowrap;
 }
 
+.snippet-card-recent-receipts .dashboard-snippet-grid {
+  gap: 8px;
+}
+
+.snippet-card-recent-receipts .dashboard-snippet-row {
+  gap: 10px;
+  padding-bottom: 8px;
+}
+
+.snippet-card-recent-receipts .dashboard-snippet-row strong {
+  margin-bottom: 2px;
+  font-size: 0.86rem;
+}
+
+.snippet-card-recent-receipts .dashboard-snippet-row span {
+  font-size: 0.74rem;
+}
+
+.snippet-card-recent-receipts .dashboard-snippet-value {
+  min-width: 92px;
+}
+
 .dashboard-snippet-value {
   text-align: right;
   min-width: 120px;
@@ -6085,12 +6107,45 @@
     overflow-wrap: anywhere;
   }
 
-  .workspace-mobile-sales-arrow {
-    color: #64748b;
-    font-size: 1rem;
-    line-height: 1;
-    flex: 0 0 auto;
-  }
+.workspace-mobile-sales-arrow {
+  color: #64748b;
+  font-size: 1rem;
+  line-height: 1;
+  flex: 0 0 auto;
+}
+
+.workspace-mobile-sales-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  min-width: 0;
+}
+
+.workspace-mobile-sales-stats {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.workspace-mobile-sales-stat {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 7px 9px;
+  border-radius: 10px;
+  background: #f8fafc;
+  color: #64748b;
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+.workspace-mobile-sales-stat strong {
+  color: #0f172a;
+  font-size: 0.78rem;
+  white-space: nowrap;
+}
 
   .sales-list-card .workspace-panel-header .account-feature-sheets {
     display: none;
@@ -6103,7 +6158,8 @@
     border: 0;
     border-radius: 0;
     background: transparent;
-    overflow-y: auto;
+    max-height: none;
+    overflow-y: visible;
     overflow-x: hidden;
     min-height: 0;
     padding-bottom: 8px;
@@ -6206,9 +6262,9 @@
   .sales-list-card {
     margin-top: 12px;
     display: grid;
-    grid-template-rows: auto 1fr;
-    max-height: calc(100dvh - 320px);
-    min-height: 0;
+    grid-template-rows: auto;
+    max-height: none;
+    min-height: auto;
   }
 
   .sales-list-card.account-feature-card {
@@ -6221,10 +6277,10 @@
   .sales-list-card .workspace-panel-header {
     gap: 10px;
     padding: 14px 14px 0;
-    position: sticky;
-    top: 0;
-    z-index: 2;
-    background: #f4f6f8;
+    position: static;
+    top: auto;
+    z-index: auto;
+    background: transparent;
   }
 
   .sales-list-card .workspace-panel-controls {
@@ -7948,6 +8004,23 @@
     margin-top: 0;
   }
 
+  .workspace-toolbar-production .workspace-toolbar-actions .account-alert-button {
+    border-radius: 16px;
+    min-height: 54px;
+    box-shadow: 0 8px 18px rgba(15, 23, 42, 0.08);
+  }
+
+  .workspace-toolbar-production .workspace-toolbar-actions .account-alert-button-light {
+    border-color: #f4c95d;
+    background: linear-gradient(180deg, #fff6d8 0%, #ffe9a9 100%);
+    color: #6a4b00;
+  }
+
+  .workspace-toolbar-production .workspace-toolbar-actions .account-alert-button-light:hover {
+    background: linear-gradient(180deg, #fff1c4 0%, #ffe18c 100%);
+    color: #5a3f00;
+  }
+
   .workspace-toolbar-customers .workspace-toolbar-actions {
     width: 100%;
     display: grid;
@@ -8731,6 +8804,15 @@
     gap: 12px;
   }
 
+  .workspace-date-actions {
+    width: 100%;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: stretch;
+    gap: 10px;
+    flex-wrap: nowrap;
+  }
+
   .workspace-filter-header-row {
     display: grid;
     grid-template-columns: 1fr;
@@ -8746,7 +8828,15 @@
 
   .workspace-date-range-button {
     width: 100%;
+    min-width: 0;
     justify-content: center;
+  }
+
+  .workspace-date-export-button {
+    min-height: 50px;
+    padding-inline: 14px;
+    white-space: nowrap;
+    align-self: stretch;
   }
 
   .workspace-filter-presets-wrap {
@@ -8797,6 +8887,26 @@
     white-space: normal;
   }
 
+  .workspace-toolbar-production {
+    margin-top: 10px;
+    margin-bottom: 14px;
+  }
+
+  .workspace-toolbar-production .workspace-toolbar-actions {
+    gap: 12px;
+  }
+
+  .workspace-filter-presets {
+    gap: 10px;
+    padding-bottom: 2px;
+  }
+
+  .workspace-filter-preset {
+    border-radius: 14px;
+    min-height: 40px;
+    padding: 0 16px;
+  }
+
   .summary-mobile-carousel {
     gap: 10px;
     margin-top: 4px;
@@ -8845,22 +8955,60 @@
   .workspace-mobile-card,
   .workspace-mobile-card-production,
   .workspace-mobile-card-supply {
-    padding: 13px;
+    padding: 11px 12px;
+  }
+
+  .workspace-mobile-card-sales {
+    gap: 4px;
+    padding: 10px 12px;
   }
 
   .workspace-mobile-sales-top,
   .workspace-mobile-sales-bottom {
-    gap: 8px;
+    gap: 6px;
   }
 
   .workspace-mobile-sales-customer,
   .workspace-mobile-value {
-    font-size: 0.9rem;
+    font-size: 0.86rem;
   }
 
   .workspace-mobile-sales-date,
   .workspace-mobile-production-list-meta {
-    font-size: 0.72rem;
+    font-size: 0.68rem;
+  }
+
+  .workspace-mobile-sales-invoice {
+    font-size: 0.66rem;
+  }
+
+  .workspace-mobile-sales-stat {
+    padding: 5px 7px;
+    font-size: 0.64rem;
+  }
+
+  .workspace-mobile-sales-stat strong {
+    font-size: 0.7rem;
+  }
+
+  .snippet-card-recent-receipts .dashboard-snippet-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 6px 8px;
+    padding-bottom: 7px;
+  }
+
+  .snippet-card-recent-receipts .dashboard-snippet-row strong {
+    font-size: 0.8rem;
+    line-height: 1.15;
+  }
+
+  .snippet-card-recent-receipts .dashboard-snippet-row span {
+    font-size: 0.7rem;
+  }
+
+  .snippet-card-recent-receipts .dashboard-snippet-row em {
+    min-width: 84px;
+    font-size: 0.76rem;
   }
 }
 

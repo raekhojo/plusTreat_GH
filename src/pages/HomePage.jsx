@@ -1393,7 +1393,7 @@ function TableCard({
         {visibleRows.length
           ? visibleRows.map(row => {
               if (mobileVariant === 'sales-list') {
-                const [date, invoice, customer] = row.cells
+                const [date, invoice, customer, total, paid, outstanding] = row.cells
                 return (
                   <article
                     key={`mobile-${row.key}`}
@@ -1401,12 +1401,19 @@ function TableCard({
                     onClick={() => onRowClick && onRowClick(row.key)}
                   >
                     <div className="workspace-mobile-sales-top">
-                      <strong className="workspace-mobile-sales-invoice">{invoice}</strong>
+                      <strong className="workspace-mobile-sales-customer">{customer}</strong>
                       <span className="workspace-mobile-sales-date">{date}</span>
                     </div>
                     <div className="workspace-mobile-sales-bottom">
-                      <span className="workspace-mobile-sales-customer">{customer}</span>
+                      <div className="workspace-mobile-sales-meta">
+                        <span className="workspace-mobile-sales-invoice">{invoice}</span>
+                        <span className="workspace-mobile-production-list-meta">Paid {paid}</span>
+                      </div>
                       <span className="workspace-mobile-sales-arrow" aria-hidden="true">›</span>
+                    </div>
+                    <div className="workspace-mobile-sales-stats">
+                      <span className="workspace-mobile-sales-stat">Total <strong>{total}</strong></span>
+                      <span className="workspace-mobile-sales-stat">Outstanding <strong>{outstanding}</strong></span>
                     </div>
                   </article>
                 )
@@ -1425,7 +1432,7 @@ function TableCard({
                       <span className="workspace-mobile-sales-date">{date}</span>
                     </div>
                     <div className="workspace-mobile-sales-bottom">
-                      <div className="workspace-mobile-production-list-copy">
+                      <div className="workspace-mobile-sales-meta">
                         <span className="workspace-mobile-sales-customer">{outputs} outputs</span>
                         <span className="workspace-mobile-production-list-meta">Production {productionCost} · Expiry {expiryDate}</span>
                         <span className="workspace-mobile-production-list-meta">Total {totalCost}</span>
@@ -1478,13 +1485,17 @@ function TableCard({
                   >
                     <div className="workspace-mobile-sales-top">
                       <strong className="workspace-mobile-sales-customer">{customer}</strong>
-                      <span className="workspace-mobile-sales-date">{outstanding}</span>
+                      <span className="workspace-mobile-sales-date">{phone}</span>
                     </div>
                     <div className="workspace-mobile-sales-bottom">
-                      <div className="workspace-mobile-production-list-copy">
-                        <span className="workspace-mobile-production-list-meta">{phone}</span>
-                        <span className="workspace-mobile-production-list-meta">{invoices} invoices · Paid {paid}</span>
+                      <div className="workspace-mobile-sales-meta">
+                        <span className="workspace-mobile-sales-invoice">{invoices} invoices</span>
+                        <span className="workspace-mobile-production-list-meta">Paid {paid}</span>
                       </div>
+                    </div>
+                    <div className="workspace-mobile-sales-stats">
+                      <span className="workspace-mobile-sales-stat">Billed <strong>{totalBilled}</strong></span>
+                      <span className="workspace-mobile-sales-stat">Outstanding <strong>{outstanding}</strong></span>
                     </div>
                   </article>
                 )
@@ -1513,7 +1524,7 @@ function TableCard({
               }
 
               if (mobileVariant === 'accounts-list') {
-                const [date, transactionId, _entryType, category, amount] = row.cells
+                const [date, transactionId, entryType, category, description, amount, paymentMethod] = row.cells
                 return (
                   <article
                     key={`mobile-${row.key}`}
@@ -1525,8 +1536,36 @@ function TableCard({
                       <span className="workspace-mobile-sales-date">{date}</span>
                     </div>
                     <div className="workspace-mobile-sales-bottom">
-                      <span className="workspace-mobile-sales-customer">{category}</span>
+                      <div className="workspace-mobile-sales-meta">
+                        <span className="workspace-mobile-sales-customer">{category}</span>
+                        <span className="workspace-mobile-production-list-meta">{paymentMethod}</span>
+                      </div>
                       <strong className="workspace-mobile-supply-amount">{amount}</strong>
+                    </div>
+                    <div className="workspace-mobile-production-list-copy">
+                      <span className="workspace-mobile-production-list-meta">{entryType} · {description}</span>
+                    </div>
+                  </article>
+                )
+              }
+
+              if (mobileVariant === 'pricing-list') {
+                const [product, size, pricingCategory, price] = row.cells
+                return (
+                  <article
+                    key={`mobile-${row.key}`}
+                    className={`workspace-mobile-card workspace-mobile-card-account${onRowClick ? ' workspace-mobile-card-clickable' : ''}`}
+                    onClick={() => onRowClick && onRowClick(row.key)}
+                  >
+                    <div className="workspace-mobile-sales-top">
+                      <strong className="workspace-mobile-sales-customer">{product}</strong>
+                      <strong className="workspace-mobile-supply-amount">{price}</strong>
+                    </div>
+                    <div className="workspace-mobile-sales-bottom">
+                      <div className="workspace-mobile-sales-meta">
+                        <span className="workspace-mobile-sales-invoice">{size}</span>
+                        <span className="workspace-mobile-production-list-meta">{pricingCategory}</span>
+                      </div>
                     </div>
                   </article>
                 )
@@ -1541,21 +1580,21 @@ function TableCard({
                     onClick={() => onRowClick && onRowClick(row.key)}
                   >
                     <div className="workspace-mobile-sales-top">
-                      <span className="workspace-mobile-sales-invoice">{purchaseId}</span>
+                      <strong className="workspace-mobile-sales-customer">{supplier}</strong>
                       <span className="workspace-mobile-sales-date">{date}</span>
                     </div>
                     <div className="workspace-mobile-sales-bottom">
-                      <span className="workspace-mobile-sales-customer">{supplier}</span>
-                      <strong className="workspace-mobile-supply-amount">{outstanding}</strong>
-                    </div>
-                    <div className="workspace-mobile-sales-bottom">
-                      <div className="workspace-mobile-production-list-copy">
+                      <div className="workspace-mobile-sales-meta">
+                        <span className="workspace-mobile-sales-invoice">{purchaseId}</span>
                         <div className="workspace-mobile-supply-tags">
                           <span className="workspace-mobile-supply-tag">{category}</span>
                           <span className="workspace-mobile-supply-tag workspace-mobile-supply-tag-soft">{status}</span>
                         </div>
-                        <span className="workspace-mobile-production-list-meta">Paid {paid}</span>
                       </div>
+                    </div>
+                    <div className="workspace-mobile-sales-stats">
+                      <span className="workspace-mobile-sales-stat">Paid <strong>{paid}</strong></span>
+                      <span className="workspace-mobile-sales-stat">Outstanding <strong>{outstanding}</strong></span>
                     </div>
                   </article>
                 )
@@ -1571,17 +1610,23 @@ function TableCard({
                   >
                     <div className="workspace-mobile-sales-top">
                       <strong className="workspace-mobile-sales-customer">{material}</strong>
-                      <strong className="workspace-mobile-supply-amount">{balanceValue}</strong>
+                      <span className="workspace-mobile-sales-date">{status}</span>
                     </div>
                     <div className="workspace-mobile-sales-bottom">
-                      <div className="workspace-mobile-production-list-copy">
+                      <div className="workspace-mobile-sales-meta">
                         <div className="workspace-mobile-supply-tags">
                           <span className="workspace-mobile-supply-tag">{category}</span>
                           <span className="workspace-mobile-supply-tag workspace-mobile-supply-tag-soft">{unit}</span>
                         </div>
-                        <span className="workspace-mobile-production-list-meta">Opening {opening} · In {stockIn} · Reorder {reorder}</span>
+                        <span className="workspace-mobile-production-list-meta">Opening {opening} · In {stockIn}</span>
                       </div>
-                      <span className="workspace-mobile-supply-status">{status}</span>
+                    </div>
+                    <div className="workspace-mobile-sales-stats">
+                      <span className="workspace-mobile-sales-stat">Available <strong>{available}</strong></span>
+                      <span className="workspace-mobile-sales-stat">Reorder <strong>{reorder}</strong></span>
+                    </div>
+                    <div className="workspace-mobile-production-list-copy">
+                      <span className="workspace-mobile-production-list-meta">Balance {balanceValue} · Stock Out {stockOut}</span>
                     </div>
                   </article>
                 )
@@ -4801,7 +4846,7 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
           <SnippetCard
             className="snippet-card-recent-receipts"
             title="Recent Receipts"
-            rows={clampRows(filteredSalesPayments, 6).map(p => ({ id: p.id, title: p.customer_name || `Invoice ${fmtInv(p.invoice)}`, meta: `${fmtD(p.payment_date)} · ${fmtStatus(p.method)}`, value: fmt(p.amount) }))}
+            rows={clampRows(filteredSalesPayments, 8).map(p => ({ id: p.id, title: p.customer_name || `Invoice ${fmtInv(p.invoice)}`, meta: `${fmtD(p.payment_date)} · ${fmtStatus(p.method)}`, value: fmt(p.amount) }))}
             onItemClick={id => setSelectedReceipt(filteredSalesPayments.find(p => p.id === id) || null)}
           />
         )}
@@ -5136,6 +5181,7 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
               columns={canManageDataEntryEditDelete ? ['Finished Good Size', 'Size', 'Pricing Category', 'Price', ''] : ['Finished Good Size', 'Size', 'Pricing Category', 'Price']}
               colWidths={['420px', '220px', '420px', '180px', '100px']}
               rows={pricingRows}
+              mobileVariant="pricing-list"
               search={searchTerms.pricing}
               onSearch={v => setSearch('pricing', v)}
               defaultRowsPerPage={20}
