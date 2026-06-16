@@ -1681,6 +1681,29 @@ function TableCard({
                 )
               }
 
+              if (mobileVariant === 'trial-balance-list') {
+                const [accountId, accountType, accountClass, subAccounts, description, openingBal, acctIn, acctOut, available] = row.cells
+                return (
+                  <article
+                    key={`mobile-${row.key}`}
+                    className={`workspace-mobile-card workspace-mobile-card-account${onRowClick ? ' workspace-mobile-card-clickable' : ''}`}
+                    onClick={() => onRowClick && onRowClick(row.key)}
+                  >
+                    <div className="workspace-mobile-sales-top">
+                      <strong className="workspace-mobile-sales-customer">{description}</strong>
+                      <strong className="workspace-mobile-supply-amount">{available}</strong>
+                    </div>
+                    <div className="workspace-mobile-sales-bottom">
+                      <div className="workspace-mobile-sales-meta">
+                        <span className="workspace-mobile-sales-invoice">{accountId}</span>
+                        <span className="workspace-mobile-production-list-meta">{accountType} · {accountClass} · {subAccounts}</span>
+                        <span className="workspace-mobile-production-list-meta workspace-mobile-meta-pill">Open {openingBal} · In {acctIn} · Out {acctOut}</span>
+                      </div>
+                    </div>
+                  </article>
+                )
+              }
+
               return (
                 <article
                   key={`mobile-${row.key}`}
@@ -5108,6 +5131,7 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
           columns={['Account ID', 'Account Type', 'Account Class', 'Sub-Accounts', 'Account Description', 'Opening Bal', 'Acct In', 'Acct Out', 'Available']}
           colWidths={['140px', '170px', '150px', '170px', '280px', '140px', '140px', '140px', '140px']}
           rows={compactTrialBalanceRows}
+          mobileVariant="trial-balance-list"
           search={searchTerms.trial_balance}
           onSearch={v => setSearch('trial_balance', v)}
           onRowClick={openTrialBalanceDetail}
@@ -7281,19 +7305,40 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
               </div>
 
               <div className="detail-modal-section">
-                <div className="sales-list-table workspace-table" style={{ '--table-cols': '120px 140px minmax(260px, 1fr) 140px 140px' }}>
+                <div className="sales-list-table workspace-table trial-balance-detail-table" style={{ '--table-cols': '120px 140px minmax(260px, 1fr) 140px 140px' }}>
                   <div className="sales-list-head workspace-table-head">
                     <span>Date</span><span>Reference</span><span>Description</span><span className="workspace-table-number">Amount In</span><span className="workspace-table-number">Amount Out</span>
                   </div>
-                  {trialBalanceDetail.rows.map((row, index) => (
-                    <div key={`${row.ref || 'ref'}-${row.date || 'date'}-${index}`} className="sales-list-row workspace-table-row">
-                      <span>{fmtD(row.date)}</span>
-                      <span style={{ fontFamily: 'monospace', fontSize: '0.8rem' }}>{row.ref || EMPTY_TEXT}</span>
-                      <span>{row.description || EMPTY_TEXT}</span>
-                      <span className="workspace-table-number" style={{ color: toNumber(row.amount_in) > 0 ? '#16a34a' : '#9ca3af' }}>{toNumber(row.amount_in) > 0 ? fmt(row.amount_in) : EMPTY_TEXT}</span>
-                      <span className="workspace-table-number" style={{ color: toNumber(row.amount_out) > 0 ? '#dc2626' : '#9ca3af' }}>{toNumber(row.amount_out) > 0 ? fmt(row.amount_out) : EMPTY_TEXT}</span>
-                    </div>
-                  ))}
+                  {trialBalanceDetail.rows.map((row, index) => {
+                    const amountIn = toNumber(row.amount_in)
+                    const amountOut = toNumber(row.amount_out)
+                    const mobileAmount = amountIn > 0 && amountOut > 0
+                      ? `In ${fmt(row.amount_in)} · Out ${fmt(row.amount_out)}`
+                      : amountIn > 0
+                        ? fmt(row.amount_in)
+                        : amountOut > 0
+                          ? fmt(row.amount_out)
+                          : EMPTY_TEXT
+                    const mobileAmountClass = amountIn > 0 && amountOut > 0
+                      ? 'is-mixed'
+                      : amountIn > 0
+                        ? 'is-in'
+                        : amountOut > 0
+                          ? 'is-out'
+                          : 'is-empty'
+
+                    return (
+                      <div key={`${row.ref || 'ref'}-${row.date || 'date'}-${index}`} className="sales-list-row workspace-table-row trial-balance-detail-row">
+                        <span className="trial-balance-detail-date">{fmtD(row.date)}</span>
+                        <span className="trial-balance-detail-ref" style={{ fontFamily: 'monospace', fontSize: '0.8rem' }}>{row.ref || EMPTY_TEXT}</span>
+                        <span className="trial-balance-detail-description">{row.description || EMPTY_TEXT}</span>
+                        <span className="workspace-table-number trial-balance-detail-amount-in" style={{ color: amountIn > 0 ? '#16a34a' : '#9ca3af' }}>{amountIn > 0 ? fmt(row.amount_in) : EMPTY_TEXT}</span>
+                        <span className="workspace-table-number trial-balance-detail-amount-out" style={{ color: amountOut > 0 ? '#dc2626' : '#9ca3af' }}>{amountOut > 0 ? fmt(row.amount_out) : EMPTY_TEXT}</span>
+                        <span className="trial-balance-detail-mobile-meta">{row.ref || EMPTY_TEXT} · {row.description || EMPTY_TEXT}</span>
+                        <span className={`trial-balance-detail-mobile-amount ${mobileAmountClass}`}>{mobileAmount}</span>
+                      </div>
+                    )
+                  })}
                 </div>
               </div>
 

@@ -6195,12 +6195,24 @@
     gap: 4px;
   }
 
-  .workspace-mobile-production-list-meta {
-    color: #64748b;
-    font-size: 0.76rem;
-    font-weight: 700;
-    overflow-wrap: anywhere;
-  }
+.workspace-mobile-production-list-meta {
+  color: #64748b;
+  font-size: 0.76rem;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+.workspace-mobile-meta-pill {
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  max-width: 100%;
+  min-height: 28px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: #eef4fb;
+  color: #33516c;
+}
 
   .workspace-mobile-production-top {
     display: flex;
@@ -6883,6 +6895,11 @@
   font-size: 0.9rem;
   color: #374151;
   padding: 2px 0 8px;
+}
+
+.trial-balance-detail-mobile-meta,
+.trial-balance-detail-mobile-amount {
+  display: none;
 }
 
 /* ─── Purchase form: lines panel ─────────────────────────────────────────────── */
@@ -8464,6 +8481,71 @@
   .staff-modal-panel {
     border-radius: 14px;
     background: #f8fafb;
+  }
+
+  .trial-balance-detail-table .workspace-table-head {
+    display: none;
+  }
+
+  .trial-balance-detail-table .trial-balance-detail-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas:
+      "date amount"
+      "meta meta";
+    gap: 8px 12px;
+    align-items: start;
+  }
+
+  .trial-balance-detail-table .trial-balance-detail-date {
+    grid-area: date;
+    font-weight: 700;
+    color: #334155;
+  }
+
+  .trial-balance-detail-table .trial-balance-detail-ref,
+  .trial-balance-detail-table .trial-balance-detail-description,
+  .trial-balance-detail-table .trial-balance-detail-amount-in,
+  .trial-balance-detail-table .trial-balance-detail-amount-out {
+    display: none;
+  }
+
+  .trial-balance-detail-table .trial-balance-detail-mobile-meta,
+  .trial-balance-detail-table .trial-balance-detail-mobile-amount {
+    display: block;
+  }
+
+  .trial-balance-detail-table .trial-balance-detail-mobile-meta {
+    grid-area: meta;
+    min-width: 0;
+    color: #334155;
+    font-size: 0.88rem;
+    line-height: 1.45;
+    overflow-wrap: anywhere;
+  }
+
+  .trial-balance-detail-table .trial-balance-detail-mobile-amount {
+    grid-area: amount;
+    justify-self: end;
+    text-align: right;
+    font-size: 1rem;
+    font-weight: 800;
+    white-space: nowrap;
+  }
+
+  .trial-balance-detail-table .trial-balance-detail-mobile-amount.is-in {
+    color: #16a34a;
+  }
+
+  .trial-balance-detail-table .trial-balance-detail-mobile-amount.is-out {
+    color: #dc2626;
+  }
+
+  .trial-balance-detail-table .trial-balance-detail-mobile-amount.is-mixed {
+    color: #15344d;
+  }
+
+  .trial-balance-detail-table .trial-balance-detail-mobile-amount.is-empty {
+    color: #9ca3af;
   }
 
   .sales-line-row-sale,
