@@ -801,7 +801,20 @@ function NavIcon({ type }) {
   return <svg viewBox="0 0 24 24" aria-hidden="true">{icons[type] || icons.home}</svg>
 }
 
-function SummaryGrid({ items }) {
+function renderSummaryNote(item) {
+  if (Array.isArray(item?.noteLines) && item.noteLines.length) {
+    return (
+      <div className="dashboard-snippet-note-list">
+        {item.noteLines.map((line) => (
+          <span key={line}>{line}</span>
+        ))}
+      </div>
+    )
+  }
+  return <p>{item?.note}</p>
+}
+
+function SummaryGrid({ items, className = '' }) {
   const slides = Array.isArray(items) ? items : []
   const [index, setIndex] = useState(0)
   const maxIndex = Math.max(0, slides.length - 1)
@@ -812,10 +825,10 @@ function SummaryGrid({ items }) {
 
   return (
     <>
-      <section className="dashboard-snippet-stats">
+      <section className={`dashboard-snippet-stats ${className}`.trim()}>
         {items.map(item => (
           <article key={item.label} className="dashboard-snippet-stat">
-            <span>{item.label}</span><strong>{item.value}</strong><p>{item.note}</p>
+            <span>{item.label}</span><strong>{item.value}</strong>{renderSummaryNote(item)}
           </article>
         ))}
       </section>
@@ -854,7 +867,7 @@ function SummaryGrid({ items }) {
                 <article className="dashboard-snippet-stat">
                   <span>{item.label}</span>
                   <strong>{item.value}</strong>
-                  <p>{item.note}</p>
+                  {renderSummaryNote(item)}
                 </article>
               </div>
             ))}
@@ -875,6 +888,25 @@ function SummaryGrid({ items }) {
       </section>
     </>
   )
+}
+
+function buildBalanceSheetSnippetRows(rows = []) {
+  const normalizedRows = rows
+    .filter(row => String(row?.account_type || '').trim().toLowerCase() === 'balance sheet')
+    .map(row => ({
+      accountClass: String(row?.account_class || '').trim().toLowerCase(),
+      available: toNumber(row?.available),
+    }))
+
+  const totalAssets = sumBy(normalizedRows.filter(row => row.accountClass === 'assets'), row => row.available)
+  const totalLiabilities = sumBy(normalizedRows.filter(row => row.accountClass === 'liability'), row => row.available)
+  const totalEquity = sumBy(normalizedRows.filter(row => row.accountClass === 'equity'), row => row.available)
+
+  return [
+    { id: 'assets', title: 'Assets', meta: 'What the business owns', value: fmt(totalAssets) },
+    { id: 'liabilities', title: 'Liabilities', meta: 'What the business owes', value: fmt(totalLiabilities) },
+    { id: 'equity', title: 'Equity', meta: 'Assets minus liabilities', value: fmt(totalEquity) },
+  ]
 }
 
 function SkeletonLine({ className = '' }) {
@@ -2863,6 +2895,7 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
     if (data.dashboardOverview) {
       const overview = data.dashboardOverview
       const kpis = overview.kpis || {}
+      const balanceSheet = buildBalanceSheetSnippetRows(data.trialBalanceReport?.rows || [])
       return {
         metrics: [
           { label: 'Total Sales (YTD)', value: fmt(kpis.total_sales_ytd), note: `${overview.period?.start_date || 'YTD'} to ${overview.period?.end_date || 'today'}` },
@@ -2904,6 +2937,7 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
           { id: 'cogs', title: 'Cost of Sales', meta: 'Production batch cost', value: fmt(kpis.total_cost) },
           { id: 'profit', title: 'Profit / Loss', meta: 'Revenue minus production cost', value: fmt(kpis.profit_loss) },
         ],
+        balanceSheet,
         receivables: (overview.top_receivables || []).map((row, index) => ({
           id: index,
           title: row.customer__name || 'Customer',
@@ -2936,6 +2970,7 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
     const grossMarginPct   = ratioPct(grossProfit, totalSales)
     const lowStockCount    = lowStockRows.filter(m => toNumber(m.available) <= toNumber(m.reorder_level || 0)).length
     const stockRiskPct     = ratioPct(lowStockCount, Math.max(data.rawMaterials.length, 1))
+    const balanceSheet = buildBalanceSheetSnippetRows(data.trialBalanceReport?.rows || [])
 
     const custSales = data.customers.map(c => {
       const invs = dashboardInvoices.filter(inv => String(inv.customer) === String(c.id))
@@ -3104,10 +3139,11 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
         { id: 'receipts',  title: 'Receipts Collected',   meta: 'Payments received',        value: fmt(receiptsTotal) },
         { id: 'net',       title: 'Net Profit / Loss',    meta: 'Gross profit minus expenses', value: fmt(netProfit) },
       ],
+      balanceSheet,
       receivables:    clampRows(custSales.filter(c => c.outstanding > 0)).map(c => ({ id: c.id, title: c.title, meta: 'Amount outstanding', value: fmt(c.outstanding) })),
       openInvoices:   clampRows(openInvoices).map(inv => ({ id: inv.id, title: fmtInv(inv.id), meta: inv.customer_name || 'Customer', value: fmt(getInvoiceOutstandingDue(inv)) })),
     }
-  }, [dashboardAccounts, dashboardBatches, dashboardInvoices, dashboardPayments, data.customers, data.dashboardOverview, data.products, data.rawMaterials.length, lowStockRows])
+  }, [dashboardAccounts, dashboardBatches, dashboardInvoices, dashboardPayments, data.customers, data.dashboardOverview, data.products, data.rawMaterials.length, data.trialBalanceReport?.rows, lowStockRows])
 
   // ── Modal helpers ─────────────────────────────────────────────────────────
 
@@ -4524,26 +4560,83 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
   const trialBalanceActiveRows = trialBalanceSheetRows
     .filter(row => Math.abs(toNumber(row.opening)) > 0.000001 || Math.abs(toNumber(row.movement)) > 0.000001)
 
-  const reportingSummary = data.trialBalanceReport?.rows?.length
-    ? (() => {
-      const rows = data.trialBalanceReport.rows.filter(row =>
+  const reportingBaseRows = data.trialBalanceReport?.rows?.length
+    ? data.trialBalanceReport.rows
+      .filter(row => (
         Math.abs(toNumber(row.opening)) > 0.000001
         || Math.abs(toNumber(row.acct_in)) > 0.000001
         || Math.abs(toNumber(row.acct_out)) > 0.000001
-      )
-      return [
-        { label: 'Accounts', value: String(rows.length), note: 'Active trial balance rows' },
-        { label: 'Opening Bal', value: fmt(sumBy(rows, row => row.opening)), note: `Period starts ${data.trialBalanceReport.period_start || TRIAL_BALANCE_PERIOD_START}` },
-        { label: 'Acct In', value: fmt(sumBy(rows, row => row.acct_in)), note: 'Gross movement into accounts' },
-        { label: 'Available', value: fmt(sumBy(rows, row => row.available)), note: 'Opening plus net movement' },
-      ]
-    })()
-    : [
-      { label: 'Accounts', value: String(trialBalanceActiveRows.length), note: 'Active trial balance rows' },
-      { label: 'Opening Bal', value: fmt(sumBy(trialBalanceActiveRows, row => row.opening)), note: `Period starts ${TRIAL_BALANCE_PERIOD_START}` },
-      { label: 'Movement', value: fmt(sumBy(trialBalanceActiveRows, row => row.movement)), note: 'Net movement across accounts' },
-      { label: 'Closing Bal', value: fmt(sumBy(trialBalanceActiveRows, row => row.opening + row.movement)), note: 'Workbook-style available total' },
-    ]
+        || Math.abs(toNumber(row.available)) > 0.000001
+      ))
+      .map(row => ({
+        accountType: row.account_type,
+        accountClass: row.account_class,
+        description: row.description,
+        opening: toNumber(row.opening),
+        movement: toNumber(row.acct_in) - toNumber(row.acct_out),
+        available: toNumber(row.available),
+      }))
+    : trialBalanceActiveRows.map(row => ({
+      accountType: row.accountType,
+      accountClass: row.accountClass,
+      description: row.description,
+      opening: toNumber(row.opening),
+      movement: toNumber(row.movement),
+      available: toNumber(row.opening) + toNumber(row.movement),
+    }))
+
+  const reportingIncomeRows = reportingBaseRows.filter(row => row.accountType === 'Income Statement' && row.accountClass === 'Income')
+  const reportingCostRows = reportingBaseRows.filter(row => row.accountType === 'Income Statement' && row.accountClass === 'Direct Cost')
+  const reportingExpenseRows = reportingBaseRows.filter(row => row.accountType === 'Income Statement' && row.accountClass === 'Expenses')
+  const reportingAssetRows = reportingBaseRows.filter(row => row.accountType === 'Balance Sheet' && row.accountClass === 'Assets')
+  const reportingLiabilityRows = reportingBaseRows.filter(row => row.accountType === 'Balance Sheet' && row.accountClass === 'Liability')
+  const reportingEquityRows = reportingBaseRows.filter(row => row.accountType === 'Balance Sheet' && row.accountClass === 'Equity')
+
+  const totalIncome = sumBy(reportingIncomeRows, row => row.movement)
+  const totalCostOfSales = sumBy(reportingCostRows, row => row.movement)
+  const totalExpenses = sumBy(reportingExpenseRows, row => row.movement)
+  const profitOrLoss = totalIncome - totalCostOfSales - totalExpenses
+  const totalAssets = sumBy(reportingAssetRows, row => row.available)
+  const totalLiability = sumBy(reportingLiabilityRows, row => row.available)
+  const totalEquity = sumBy(reportingEquityRows, row => row.available)
+
+  const reportingSummary = [
+    {
+      label: 'Total Sales / Income',
+      value: fmt(totalIncome),
+      note: `Period from ${data.trialBalanceReport?.period_start || TRIAL_BALANCE_PERIOD_START}`,
+    },
+    {
+      label: 'Cost of Sales',
+      value: fmt(totalCostOfSales),
+      note: 'Direct production and inventory cost impact',
+    },
+    {
+      label: 'Total Expenses',
+      value: fmt(totalExpenses),
+      note: `Operating expenses since ${data.trialBalanceReport?.expense_start || TRIAL_BALANCE_EXPENSE_START}`,
+    },
+    {
+      label: 'Profit / Loss',
+      value: fmt(profitOrLoss),
+      note: 'Income less cost of sales and expenses',
+    },
+    {
+      label: 'Total Assets',
+      value: fmt(totalAssets),
+      noteLines: ['Receivables', 'Cash equivalents', 'Inventory'],
+    },
+    {
+      label: 'Total Liability',
+      value: fmt(totalLiability),
+      noteLines: ['Payables', 'Other payables'],
+    },
+    {
+      label: 'Total Equity',
+      value: fmt(totalEquity),
+      noteLines: ['Capital', 'Retained profit'],
+    },
+  ]
 
   const trialBalanceRows = data.trialBalanceReport?.rows?.length
     ? data.trialBalanceReport.rows
@@ -4672,7 +4765,7 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
 
   function renderSection() {
     if (isLoading) {
-      if (activeSection === 'dashboard') return <><SummaryGridSkeleton count={5} /><section className="dashboard-snippet-grid"><SnippetCardSkeleton title="Top Customers" /><SnippetCardSkeleton title="Top Products" /><SnippetCardSkeleton title="Raw Materials" /><SnippetCardSkeleton title="Finished Goods" /></section><section className="dashboard-snippet-grid sales-history-grid"><SnippetCardSkeleton title="P&L Statement" rows={6} /><SnippetCardSkeleton title="Receivables" /><SnippetCardSkeleton title="Open Invoices" /></section></>
+      if (activeSection === 'dashboard') return <><SummaryGridSkeleton count={5} /><section className="dashboard-snippet-grid"><SnippetCardSkeleton title="Top Customers" /><SnippetCardSkeleton title="Top Products" /><SnippetCardSkeleton title="Raw Materials" /><SnippetCardSkeleton title="Finished Goods" /></section><section className="dashboard-snippet-grid sales-history-grid"><SnippetCardSkeleton title="P&L Statement" rows={6} /><SnippetCardSkeleton title="Balance Sheet" rows={3} /><SnippetCardSkeleton title="Receivables" /><SnippetCardSkeleton title="Open Invoices" /></section></>
       if (activeSection === 'sales_hub') return (
         <>
           <SummaryGridSkeleton count={6} />
@@ -4811,6 +4904,7 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
         </DashboardCardCarousel>
         <DashboardCardCarousel className="dashboard-snippet-grid-compact sales-history-grid">
           <SnippetCard title="P&L Statement (YTD)"     rows={dashboardContent.plStatement} actionLabel="Open Reporting" onAction={() => jumpToSection('reporting')} />
+          <SnippetCard title="Balance Sheet"           rows={dashboardContent.balanceSheet} actionLabel="Open Reporting" onAction={() => jumpToSection('reporting')} />
           <SnippetCard title="Top 5 Receivables"       rows={dashboardContent.receivables} actionLabel="Open Receivables" onAction={() => jumpToSection('customers', 'receivables')} />
           <SnippetCard title="Open Invoices"           rows={dashboardContent.openInvoices} actionLabel="Open Sales" onAction={() => jumpToSection('sales_hub', 'sales_list')} />
         </DashboardCardCarousel>
@@ -5124,7 +5218,7 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
         <DateFilterControl range={reportingDateFilter} onOpen={openDateFilter} onClear={() => clearDateFilter('reporting')} onPresetSelect={preset => applyQuickDatePreset('reporting', preset)} activePreset={sectionDatePresets.reporting || ''} inlineTitle="Reporting" hideInlineTitle={isStandaloneView} onExport={async () => {
           await exportTableDataset('Trial_Balance', ['Account ID', 'Account Type', 'Account Class', 'Sub-Accounts', 'Account Description', 'Opening Bal', 'Acct In', 'Acct Out', 'Available'], compactTrialBalanceRows)
         }} />
-        <SummaryGrid items={reportingSummary} />
+        <SummaryGrid items={reportingSummary} className="reporting-summary-grid" />
         <TableCard
           title="Trial Balance"
           subtitle={`Workbook column structure reproduced with period logic from ${TRIAL_BALANCE_PERIOD_START} (expenses baseline ${TRIAL_BALANCE_EXPENSE_START}). Click a row to view transaction detail.`}

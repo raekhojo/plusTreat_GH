@@ -2625,6 +2625,29 @@
   color: #6b7280;
 }
 
+.dashboard-snippet-note-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, max-content));
+  gap: 2px 14px;
+  align-items: start;
+}
+
+.dashboard-snippet-note-list span {
+  display: block;
+  font-size: 0.67rem;
+  line-height: 1.2;
+  letter-spacing: 0.04em;
+  color: #6b7280;
+}
+
+.dashboard-snippet-note-list span::before {
+  content: "- ";
+}
+
+.reporting-summary-grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
 .dashboard-snippet-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -5529,6 +5552,10 @@
     margin-bottom: 10px;
   }
 
+  .reporting-summary-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .summary-mobile-carousel {
     display: none;
   }
@@ -6900,6 +6927,23 @@
 .trial-balance-detail-mobile-meta,
 .trial-balance-detail-mobile-amount {
   display: none;
+}
+
+.trial-balance-detail-table .trial-balance-detail-row {
+  grid-template-columns: var(--table-cols) !important;
+  align-items: center !important;
+}
+
+.trial-balance-detail-table .trial-balance-detail-ref,
+.trial-balance-detail-table .trial-balance-detail-description,
+.trial-balance-detail-table .trial-balance-detail-amount-in,
+.trial-balance-detail-table .trial-balance-detail-amount-out {
+  display: block !important;
+}
+
+.trial-balance-detail-table .trial-balance-detail-mobile-meta,
+.trial-balance-detail-table .trial-balance-detail-mobile-amount {
+  display: none !important;
 }
 
 /* ─── Purchase form: lines panel ─────────────────────────────────────────────── */
@@ -8488,12 +8532,11 @@
   }
 
   .trial-balance-detail-table .trial-balance-detail-row {
-    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-columns: auto minmax(0, 1fr) auto;
     grid-template-areas:
-      "date amount"
-      "meta meta";
+      "date meta amount";
     gap: 8px 12px;
-    align-items: start;
+    align-items: center;
   }
 
   .trial-balance-detail-table .trial-balance-detail-date {
@@ -8519,8 +8562,10 @@
     min-width: 0;
     color: #334155;
     font-size: 0.88rem;
-    line-height: 1.45;
-    overflow-wrap: anywhere;
+    line-height: 1.35;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
 
   .trial-balance-detail-table .trial-balance-detail-mobile-amount {
