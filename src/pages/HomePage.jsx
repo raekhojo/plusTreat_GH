@@ -905,6 +905,91 @@ function buildBalanceSheetSnippetRows(rows = []) {
   ]
 }
 
+function buildAssetsSnippetRows(rows = []) {
+  const normalizedRows = rows
+    .filter(row =>
+      String(row?.account_type || '').trim().toLowerCase() === 'balance sheet'
+      && String(row?.account_class || '').trim().toLowerCase() === 'assets'
+    )
+    .map(row => ({
+      subAccounts: String(row?.sub_accounts || '').trim().toLowerCase(),
+      description: String(row?.description || '').trim().toLowerCase(),
+      available: toNumber(row?.available),
+    }))
+
+  const totalNonCurrentAssets = sumBy(
+    normalizedRows.filter(row => row.subAccounts === 'non current assets'),
+    row => row.available
+  )
+  const totalCashAndCashEquivalent = sumBy(
+    normalizedRows.filter(row => row.subAccounts === 'cash and cash equivalent'),
+    row => row.available
+  )
+  const totalOtherReceivables = sumBy(
+    normalizedRows.filter(row => row.description === 'other receivables'),
+    row => row.available
+  )
+  const totalFinishedGoodsInventory = sumBy(
+    normalizedRows.filter(row => row.description === 'finished goods'),
+    row => row.available
+  )
+  const totalAssets = sumBy(normalizedRows, row => row.available)
+
+  return [
+    { id: 'non-current-assets', title: 'Non Current Assets', meta: 'From reporting', value: fmt(totalNonCurrentAssets) },
+    { id: 'cash-and-cash-equivalent', title: 'Cash and Cash Equivalent', meta: 'From reporting', value: fmt(totalCashAndCashEquivalent) },
+    { id: 'other-receivables', title: 'Other Receivables', meta: 'Asset sub account from reporting', value: fmt(totalOtherReceivables) },
+    { id: 'finished-goods-inventory', title: 'Finished Goods Inventory', meta: 'Inventory asset from reporting', value: fmt(totalFinishedGoodsInventory) },
+    { id: 'total-assets', title: 'Total Assets', meta: 'All asset rows from reporting', value: fmt(totalAssets) },
+  ]
+}
+
+function buildLiabilitySnippetRows(rows = []) {
+  const normalizedRows = rows
+    .filter(row =>
+      String(row?.account_type || '').trim().toLowerCase() === 'balance sheet'
+      && String(row?.account_class || '').trim().toLowerCase() === 'liability'
+    )
+    .map(row => ({
+      description: String(row?.description || '').trim().toLowerCase(),
+      available: toNumber(row?.available),
+    }))
+
+  const totalPayables = sumBy(
+    normalizedRows.filter(row => row.description === 'payables'),
+    row => row.available
+  )
+  const totalLiabilities = sumBy(normalizedRows, row => row.available)
+
+  return [
+    { id: 'payables', title: 'Payables', meta: 'Liability account from reporting', value: fmt(totalPayables) },
+    { id: 'total-liabilities', title: 'Total Liabilities', meta: 'All liability rows from reporting', value: fmt(totalLiabilities) },
+  ]
+}
+
+function buildEquitySnippetRows(rows = []) {
+  const normalizedRows = rows
+    .filter(row =>
+      String(row?.account_type || '').trim().toLowerCase() === 'balance sheet'
+      && String(row?.account_class || '').trim().toLowerCase() === 'equity'
+    )
+    .map(row => ({
+      subAccounts: String(row?.sub_accounts || '').trim().toLowerCase(),
+      available: toNumber(row?.available),
+    }))
+
+  const totalNetWorth = sumBy(
+    normalizedRows.filter(row => row.subAccounts === 'net worth'),
+    row => row.available
+  )
+  const totalEquity = sumBy(normalizedRows, row => row.available)
+
+  return [
+    { id: 'net-worth', title: 'Net Worth', meta: 'Equity sub account from reporting', value: fmt(totalNetWorth) },
+    { id: 'total-equity', title: 'Total Equity', meta: 'All equity rows from reporting', value: fmt(totalEquity) },
+  ]
+}
+
 function SkeletonLine({ className = '' }) {
   return <span className={`dashboard-skeleton-line ${className}`.trim()} aria-hidden="true" />
 }
@@ -2767,6 +2852,34 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
   )
 
   const dashboardContent = useMemo(() => {
+    const reportingRowsForDashboard = (data.trialBalanceReport?.rows || [])
+      .filter(row => (
+        Math.abs(toNumber(row.opening)) > 0.000001
+        || Math.abs(toNumber(row.acct_in)) > 0.000001
+        || Math.abs(toNumber(row.acct_out)) > 0.000001
+        || Math.abs(toNumber(row.available)) > 0.000001
+      ))
+      .map(row => ({
+        accountType: row.account_type,
+        accountClass: row.account_class,
+        movement: toNumber(row.acct_in) - toNumber(row.acct_out),
+      }))
+
+    const dashboardTotalIncome = sumBy(
+      reportingRowsForDashboard.filter(row => row.accountType === 'Income Statement' && row.accountClass === 'Income'),
+      row => row.movement
+    )
+    const dashboardTotalDirectCost = sumBy(
+      reportingRowsForDashboard.filter(row => row.accountType === 'Income Statement' && row.accountClass === 'Direct Cost'),
+      row => row.movement
+    )
+    const dashboardTotalExpenses = sumBy(
+      reportingRowsForDashboard.filter(row => row.accountType === 'Income Statement' && row.accountClass === 'Expenses'),
+      row => row.movement
+    )
+    const dashboardGrossProfitOrLoss = dashboardTotalIncome + dashboardTotalDirectCost
+    const dashboardNetProfitOrLoss = dashboardGrossProfitOrLoss + dashboardTotalExpenses
+
     const ytdInvForCharts = dashboardInvoices.filter(inv => isThisYear(inv.invoice_date))
     const ytdBatchForCharts = dashboardBatches.filter(b => isThisYear(b.production_date))
     const ytdAcctForCharts = dashboardAccounts.filter(e => isThisYear(e.transaction_date))
@@ -2891,6 +3004,9 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
       const overview = data.dashboardOverview
       const kpis = overview.kpis || {}
       const balanceSheet = buildBalanceSheetSnippetRows(data.trialBalanceReport?.rows || [])
+      const assetsSummary = buildAssetsSnippetRows(data.trialBalanceReport?.rows || [])
+      const liabilitySummary = buildLiabilitySnippetRows(data.trialBalanceReport?.rows || [])
+      const equitySummary = buildEquitySnippetRows(data.trialBalanceReport?.rows || [])
       return {
         metrics: [
           { label: 'Total Sales (YTD)', value: fmt(kpis.total_sales_ytd), note: `${overview.period?.start_date || 'YTD'} to ${overview.period?.end_date || 'today'}` },
@@ -2928,11 +3044,16 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
           value: fmtQ(row.qty_left),
         })),
         plStatement: [
-          { id: 'revenue', title: 'Revenue', meta: 'Invoice value in selected period', value: fmt(kpis.total_sales_ytd) },
-          { id: 'cogs', title: 'Cost of Sales', meta: 'Production batch cost', value: fmt(kpis.total_cost) },
-          { id: 'profit', title: 'Profit / Loss', meta: 'Revenue minus production cost', value: fmt(kpis.profit_loss) },
+          { id: 'income', title: 'Income', meta: 'All income accounts in reporting', value: fmt(dashboardTotalIncome) },
+          { id: 'direct-cost', title: 'Direct Cost', meta: 'All direct cost accounts in reporting', value: fmt(dashboardTotalDirectCost) },
+          { id: 'expenses', title: 'Expenses', meta: 'All expense accounts in reporting', value: fmt(dashboardTotalExpenses) },
+          { id: 'gross', title: 'Gross Profit / Loss', meta: 'Income plus direct cost', value: fmt(dashboardGrossProfitOrLoss) },
+          { id: 'net', title: 'Net', meta: 'Gross profit plus expenses', value: fmt(dashboardNetProfitOrLoss) },
         ],
         balanceSheet,
+        assetsSummary,
+        liabilitySummary,
+        equitySummary,
         receivables: (overview.top_receivables || []).map((row, index) => ({
           id: index,
           title: row.customer__name || 'Customer',
@@ -2966,6 +3087,9 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
     const lowStockCount    = lowStockRows.filter(m => toNumber(m.available) <= toNumber(m.reorder_level || 0)).length
     const stockRiskPct     = ratioPct(lowStockCount, Math.max(data.rawMaterials.length, 1))
     const balanceSheet = buildBalanceSheetSnippetRows(data.trialBalanceReport?.rows || [])
+    const assetsSummary = buildAssetsSnippetRows(data.trialBalanceReport?.rows || [])
+    const liabilitySummary = buildLiabilitySnippetRows(data.trialBalanceReport?.rows || [])
+    const equitySummary = buildEquitySnippetRows(data.trialBalanceReport?.rows || [])
 
     const custSales = data.customers.map(c => {
       const invs = dashboardInvoices.filter(inv => String(inv.customer) === String(c.id))
@@ -3127,14 +3251,16 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
       rawMaterials:   clampRows(lowStockRows).map(m => ({ id: m.id, title: m.name,  meta: `Reorder at ${fmtQ(m.reorder_level)} ${m.unit || ''}`.trim(), value: fmtQ(m.available) })),
       finishedGoods:  clampRows(finishedGoods).map(p => ({ id: p.id, title: p.title, meta: p.meta, value: fmtQ(p.left) })),
       plStatement: [
-        { id: 'revenue',   title: 'Revenue',              meta: 'YTD invoice value',        value: fmt(totalSales) },
-        { id: 'cogs',      title: 'Cost of Sales',        meta: 'Production batch cost',    value: fmt(totalCost) },
-        { id: 'gross',     title: 'Gross Profit',         meta: 'Revenue minus cost',       value: fmt(grossProfit) },
-        { id: 'expenses',  title: 'Operating Expenses',   meta: 'Expense account entries',  value: fmt(expenseTotal) },
-        { id: 'receipts',  title: 'Receipts Collected',   meta: 'Payments received',        value: fmt(receiptsTotal) },
-        { id: 'net',       title: 'Net Profit / Loss',    meta: 'Gross profit minus expenses', value: fmt(netProfit) },
+        { id: 'income', title: 'Income', meta: 'All income accounts in reporting', value: fmt(dashboardTotalIncome) },
+        { id: 'direct-cost', title: 'Direct Cost', meta: 'All direct cost accounts in reporting', value: fmt(dashboardTotalDirectCost) },
+        { id: 'expenses', title: 'Expenses', meta: 'All expense accounts in reporting', value: fmt(dashboardTotalExpenses) },
+        { id: 'gross', title: 'Gross Profit / Loss', meta: 'Income plus direct cost', value: fmt(dashboardGrossProfitOrLoss) },
+        { id: 'net', title: 'Net', meta: 'Gross profit plus expenses', value: fmt(dashboardNetProfitOrLoss) },
       ],
       balanceSheet,
+      assetsSummary,
+      liabilitySummary,
+      equitySummary,
       receivables:    clampRows(custSales.filter(c => c.outstanding > 0)).map(c => ({ id: c.id, title: c.title, meta: 'Amount outstanding', value: fmt(c.outstanding) })),
       openInvoices:   clampRows(openInvoices).map(inv => ({ id: inv.id, title: fmtInv(inv.id), meta: inv.customer_name || 'Customer', value: fmt(getInvoiceOutstandingDue(inv)) })),
     }
@@ -4590,7 +4716,8 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
   const totalIncome = sumBy(reportingIncomeRows, row => row.movement)
   const totalCostOfSales = sumBy(reportingCostRows, row => row.movement)
   const totalExpenses = sumBy(reportingExpenseRows, row => row.movement)
-  const profitOrLoss = totalIncome - totalCostOfSales - totalExpenses
+  const grossProfitOrLoss = totalIncome + totalCostOfSales
+  const netProfitOrLoss = grossProfitOrLoss + totalExpenses
   const totalAssets = sumBy(reportingAssetRows, row => row.available)
   const totalLiability = sumBy(reportingLiabilityRows, row => row.available)
   const totalEquity = sumBy(reportingEquityRows, row => row.available)
@@ -4612,9 +4739,14 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
       note: `Operating expenses since ${data.trialBalanceReport?.expense_start || TRIAL_BALANCE_EXPENSE_START}`,
     },
     {
-      label: 'Profit / Loss',
-      value: fmt(profitOrLoss),
-      note: 'Income less cost of sales and expenses',
+      label: 'Gross Profit / Loss',
+      value: fmt(grossProfitOrLoss),
+      note: 'Income plus direct cost from reporting',
+    },
+    {
+      label: 'Net',
+      value: fmt(netProfitOrLoss),
+      note: 'Gross profit plus expenses from reporting',
     },
     {
       label: 'Total Assets',
@@ -4760,7 +4892,7 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
 
   function renderSection() {
     if (isLoading) {
-      if (activeSection === 'dashboard') return <><SummaryGridSkeleton count={5} /><section className="dashboard-snippet-grid"><SnippetCardSkeleton title="Top Customers" /><SnippetCardSkeleton title="Top Products" /><SnippetCardSkeleton title="Raw Materials" /><SnippetCardSkeleton title="Finished Goods" /></section><section className="dashboard-snippet-grid sales-history-grid"><SnippetCardSkeleton title="P&L Statement" rows={6} /><SnippetCardSkeleton title="Balance Sheet" rows={3} /><SnippetCardSkeleton title="Receivables" /><SnippetCardSkeleton title="Open Invoices" /></section></>
+      if (activeSection === 'dashboard') return <><SummaryGridSkeleton count={5} /><section className="dashboard-snippet-grid"><SnippetCardSkeleton title="Top Customers" /><SnippetCardSkeleton title="Top Products" /><SnippetCardSkeleton title="Raw Materials" /><SnippetCardSkeleton title="Finished Goods" /></section><section className="dashboard-snippet-grid sales-history-grid"><SnippetCardSkeleton title="P&L Statement" rows={6} /><SnippetCardSkeleton title="Assets" rows={5} /><SnippetCardSkeleton title="Liability" rows={2} /><SnippetCardSkeleton title="Equity" rows={2} /><SnippetCardSkeleton title="Balance Sheet" rows={3} /><SnippetCardSkeleton title="Receivables" /><SnippetCardSkeleton title="Open Invoices" /></section></>
       if (activeSection === 'sales_hub') return (
         <>
           <SummaryGridSkeleton count={6} />
@@ -4893,6 +5025,9 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
         </DashboardCardCarousel>
         <DashboardCardCarousel className="dashboard-snippet-grid-compact sales-history-grid">
           <SnippetCard title="P&L Statement (YTD)"     rows={dashboardContent.plStatement} actionLabel="Open Reporting" onAction={() => jumpToSection('reporting')} />
+          <SnippetCard title="Assets"                  rows={dashboardContent.assetsSummary} actionLabel="Open Reporting" onAction={() => jumpToSection('reporting')} />
+          <SnippetCard title="Liability"               rows={dashboardContent.liabilitySummary} actionLabel="Open Reporting" onAction={() => jumpToSection('reporting')} />
+          <SnippetCard title="Equity"                  rows={dashboardContent.equitySummary} actionLabel="Open Reporting" onAction={() => jumpToSection('reporting')} />
           <SnippetCard title="Balance Sheet"           rows={dashboardContent.balanceSheet} actionLabel="Open Reporting" onAction={() => jumpToSection('reporting')} />
           <SnippetCard title="Top 5 Receivables"       rows={dashboardContent.receivables} actionLabel="Open Receivables" onAction={() => jumpToSection('customers', 'receivables')} />
           <SnippetCard title="Open Invoices"           rows={dashboardContent.openInvoices} actionLabel="Open Sales" onAction={() => jumpToSection('sales_hub', 'sales_list')} />
