@@ -4759,17 +4759,17 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
     {
       label: 'Total Assets',
       value: fmt(totalAssets),
-      noteLines: ['Receivables', 'Cash equivalents', 'Inventory'],
+      note: '(Receivables, Cash equivalents, Inventory)',
     },
     {
-      label: 'Total Liability',
+      label: 'Total Liabilities',
       value: fmt(totalLiability),
-      noteLines: ['Payables', 'Other payables'],
+      note: '(Payables, Other payables)',
     },
     {
       label: 'Total Equity',
       value: fmt(totalEquity),
-      noteLines: ['Capital', 'Retained profit'],
+      note: '(Capital, Retained profit)',
     },
   ]
 
