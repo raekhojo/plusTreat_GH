@@ -968,25 +968,33 @@ function buildLiabilitySnippetRows(rows = []) {
 }
 
 function buildEquitySnippetRows(rows = []) {
-  const normalizedRows = rows
-    .filter(row =>
-      String(row?.account_type || '').trim().toLowerCase() === 'balance sheet'
-      && String(row?.account_class || '').trim().toLowerCase() === 'equity'
-    )
+  const balanceSheetRows = rows
+    .filter(row => String(row?.account_type || '').trim().toLowerCase() === 'balance sheet')
     .map(row => ({
+      accountClass: String(row?.account_class || '').trim().toLowerCase(),
       subAccounts: String(row?.sub_accounts || '').trim().toLowerCase(),
       available: toNumber(row?.available),
     }))
 
-  const totalNetWorth = sumBy(
-    normalizedRows.filter(row => row.subAccounts === 'net worth'),
+  const totalAssets = sumBy(
+    balanceSheetRows.filter(row => row.accountClass === 'assets'),
     row => row.available
   )
-  const totalEquity = sumBy(normalizedRows, row => row.available)
+  const totalLiabilities = sumBy(
+    balanceSheetRows.filter(row => row.accountClass === 'liability'),
+    row => row.available
+  )
+  const equityRows = balanceSheetRows.filter(row => row.accountClass === 'equity')
+
+  const totalNetWorth = sumBy(
+    equityRows,
+    row => row.available
+  )
+  const totalEquity = totalAssets - totalLiabilities
 
   return [
-    { id: 'net-worth', title: 'Net Worth', meta: 'Equity sub account from reporting', value: fmt(totalNetWorth) },
-    { id: 'total-equity', title: 'Total Equity', meta: 'All equity rows from reporting', value: fmt(totalEquity) },
+    { id: 'net-worth', title: 'Net Worth', meta: 'All equity rows from reporting', value: fmt(totalNetWorth) },
+    { id: 'total-equity', title: 'Total Equity', meta: 'Assets minus liability from trial balance', value: fmt(totalEquity) },
   ]
 }
 
