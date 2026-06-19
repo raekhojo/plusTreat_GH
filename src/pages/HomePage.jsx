@@ -28,11 +28,11 @@ import {
 const SECTIONS = [
   { key: 'dashboard',       label: 'Dashboard',          icon: 'home',      roles: ['admin', 'sales', 'accounts'], subtitle: 'Live summary pulled from Dashboard and Financials workbook logic.',                                          sheets: ['Dashboard', 'Financials'] },
   { key: 'sales_hub',       label: 'Sales Hub',          icon: 'sales',     roles: ['admin', 'sales', 'accounts'], subtitle: 'Sales entry, invoices, receipts, and customer collections.',                                                sheets: ['Sales_Entry', 'Sales_Dtls', 'Invoice', 'SalesReceipt_Entry', 'SalesReceipt_Dtls', 'Sales'] },
-  { key: 'production_ops',  label: 'Production Ops',     icon: 'production',roles: ['admin', 'accounts'],          subtitle: 'Batch production, finished stock, and raw material usage.',                                                sheets: ['Production_Entry', 'Production_Dtls', 'Inventory', 'RM_Usage_Dtls', 'Prod Planner'] },
+  { key: 'production_ops',  label: 'Production Ops',     icon: 'production',roles: ['admin', 'accounts'],          subtitle: 'Batch production, finished stock, raw material usage, and pricing rules.',                                 sheets: ['Production_Entry', 'Production_Dtls', 'Inventory', 'RM_Usage_Dtls', 'Prod Planner', 'Pricing'] },
   { key: 'supplies_stock',  label: 'Supplies & Stock',   icon: 'inventory', roles: ['admin', 'accounts'],          subtitle: 'Purchases, suppliers, raw materials, and stock control.',                                                   sheets: ['RMPurchases_Entry', 'Purchase_Dtls', 'PurchasePmt_Dtls', 'RawMaterials'] },
   { key: 'customers',       label: 'Customers',          icon: 'customers', roles: ['admin', 'sales'],             subtitle: 'Customer records, invoice history, and outstanding balances.',                                          sheets: ['Customers_Dtls', 'Customers'] },
   { key: 'suppliers',       label: 'Suppliers',          icon: 'suppliers', roles: ['admin', 'accounts'],          subtitle: 'Supplier records, purchases, and payable balances.',                                                       sheets: ['Supplier_Dtls'] },
-  { key: 'accounts_pricing',label: 'Accounts & Pricing', icon: 'finance',   roles: ['admin', 'accounts'],          subtitle: 'Accounts entries, pricing rules, and configuration.',                                                      sheets: ['Accounts_Entry', 'Accounts_Dtls', 'Pricing'] },
+  { key: 'accounts_pricing',label: 'Accounts',           icon: 'finance',   roles: ['admin', 'accounts'],          subtitle: 'Accounts entries and configuration.',                                                                       sheets: ['Accounts_Entry', 'Accounts_Dtls'] },
   { key: 'reporting',       label: 'Reporting',          icon: 'finance',   roles: ['admin', 'accounts'],          subtitle: 'Financial reporting and workbook-style summaries.',                                                        sheets: ['Trial Balance'] },
   { key: 'user_mgmt',       label: 'User Management',    icon: 'suppliers', roles: ['admin'],                      subtitle: 'Create and manage staff accounts and role assignments.',                                                    sheets: [] },
 ]
@@ -740,11 +740,6 @@ const DELIVERY_PACKAGE_OPTIONS = [
   { value: 'true', label: 'Yes' },
 ]
 
-const ACCOUNT_SECTION_TABS = [
-  { key: 'entries', label: 'Account Entries' },
-  { key: 'pricing', label: 'Pricing Rules' },
-]
-
 const SECTION_TABS = {
   sales_hub: [
     { key: 'sales_list', label: 'Sales List' },
@@ -753,6 +748,7 @@ const SECTION_TABS = {
   production_ops: [
     { key: 'batches', label: 'Production Batches' },
     { key: 'inventory', label: 'Finished Inventory' },
+    { key: 'pricing', label: 'Pricing Rules' },
   ],
   supplies_stock: [
     { key: 'purchases', label: 'Purchase Register' },
@@ -2218,7 +2214,6 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
   const accountContentRef = useRef(null)
 
   const [activeSection,    setActiveSection]    = useState(initialSection)
-  const [activeAccountsTab,setActiveAccountsTab]= useState('entries')
   const [isMobileNavOpen,  setIsMobileNavOpen]  = useState(false)
   const [isMobileProfileOpen, setIsMobileProfileOpen] = useState(false)
   const [sectionTabs,      setSectionTabs]      = useState(SECTION_DEFAULT_TABS)
@@ -2337,7 +2332,7 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
     })
 
     return () => cancelAnimationFrame(frame)
-  }, [activeSection, activeAccountsTab, sectionTabs])
+  }, [activeSection, sectionTabs])
 
   async function refreshData() {
     try {
@@ -2653,7 +2648,7 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
   const accountInvoicesFiltered = useMemo(() => filterByDateRange(data.invoices, inv => inv.invoice_date, accountsDateFilter), [data.invoices, accountsDateFilter])
 
   const salesFilterScope = `sales_hub:${sectionTabs.sales_hub || SECTION_DEFAULT_TABS.sales_hub}`
-  const pricingFilterScope = `accounts_pricing:${activeAccountsTab}`
+  const pricingFilterScope = `production_ops:${sectionTabs.production_ops || SECTION_DEFAULT_TABS.production_ops}`
 
   const filteredSalesInvoices = useMemo(() => {
     const filters = sectionFilters[salesFilterScope] || {}
@@ -4736,7 +4731,7 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
   const setSectionTab = (sectionKey, tabKey) => setSectionTabs(cur => ({ ...cur, [sectionKey]: tabKey }))
   const activeSalesFilterScope = `sales_hub:${getSectionTab('sales_hub')}`
   const activeSalesFilters = getScopedFilters(activeSalesFilterScope)
-  const activePricingFilterScope = `accounts_pricing:${activeAccountsTab}`
+  const activePricingFilterScope = `production_ops:${getSectionTab('production_ops')}`
   const activePricingFilters = getScopedFilters(activePricingFilterScope)
   const sectionsWithInlineHeader = new Set([
     'dashboard',
@@ -4838,13 +4833,7 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
         <>
           <SummaryGridSkeleton />
           <WorkspaceToolbarSkeleton />
-          <section className="workspace-inline-tabs">
-            {ACCOUNT_SECTION_TABS.map(tab => (
-              <span key={tab.key} className={`workspace-inline-tab ${tab.key === activeAccountsTab ? 'active' : ''}`}>{tab.label}</span>
-            ))}
-          </section>
-          {activeAccountsTab === 'entries' && <TableCardSkeleton title="Account Entries" columns={9} rows={6} />}
-          {activeAccountsTab === 'pricing' && <TableCardSkeleton title="Pricing Rules" columns={5} rows={6} />}
+          <TableCardSkeleton title="Account Entries" columns={9} rows={6} />
         </>
       )
     }
@@ -4973,9 +4962,15 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
     if (activeSection === 'production_ops') return (
       <>
         <DateFilterControl range={productionDateFilter} onOpen={openDateFilter} onClear={() => clearDateFilter('production_ops')} onPresetSelect={preset => applyQuickDatePreset('production_ops', preset)} activePreset={sectionDatePresets.production_ops || ''} inlineTitle="Production Ops" hideInlineTitle={isStandaloneView} onExport={async () => {
-          const isInventoryTab = getSectionTab('production_ops') === 'inventory'
+          const activeProductionTab = getSectionTab('production_ops')
+          const isInventoryTab = activeProductionTab === 'inventory'
+          const isPricingTab = activeProductionTab === 'pricing'
           if (isInventoryTab) {
             await exportTableDataset('Finished_Inventory', ['INV ID', 'Item', 'Unit', 'Opening', 'Stock In', 'Stock Out', 'Available', 'Stock Balance', 'Prod Level', 'Prod Required'], inventoryRows)
+            return
+          }
+          if (isPricingTab) {
+            await exportTableDataset('Pricing_Rules', ['Finished Good Size', 'Size', 'Pricing Category', 'Price'], pricingRows)
             return
           }
           await exportTableDataset('Production_Batches', ['Date', 'Batch Number', 'Expiry Date', 'Outputs', 'Production Cost', 'Total Cost', 'Production Gain'], batchRows)
@@ -4987,6 +4982,7 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
           actions={<>
             <button type="button" className="account-alert-button account-alert-button-dark"  onClick={() => openModal('batch')}>Add Batch</button>
             <button type="button" className="account-alert-button account-alert-button-light" onClick={() => openModal('finished_goods')}>Finished Goods Produced</button>
+            <button type="button" className="account-alert-button account-alert-button-light" onClick={() => openModal('pricing')}>Add Pricing Rule</button>
           </>}
         />
         <div className="production-summary-offset">
@@ -5030,6 +5026,28 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
             search={searchTerms.inventory}
             onSearch={v => setSearch('inventory', v)}
           />
+        )}
+        {getSectionTab('production_ops') === 'pricing' && (
+          <>
+            <FilterSelectRow
+              className="pricing-filter-row"
+              filters={pricingFilterOptions}
+              values={activePricingFilters}
+              onChange={(key, value) => setScopedFilter(activePricingFilterScope, key, value)}
+              onClear={() => clearScopedFilters(activePricingFilterScope)}
+            />
+            <TableCard
+              title="Pricing Rules"
+              subtitle="Pricing sheet maintained from backend pricing rules, with detailed live filters by price type, size, item, and price band."
+              columns={canManageDataEntryEditDelete ? ['Finished Good Size', 'Size', 'Pricing Category', 'Price', ''] : ['Finished Good Size', 'Size', 'Pricing Category', 'Price']}
+              colWidths={['420px', '220px', '420px', '180px', '100px']}
+              rows={pricingRows}
+              mobileVariant="pricing-list"
+              search={searchTerms.pricing}
+              onSearch={v => setSearch('pricing', v)}
+              defaultRowsPerPage={20}
+            />
+          </>
         )}
       </>
     )
@@ -5236,11 +5254,7 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
 
     return (
       <>
-        <DateFilterControl range={accountsDateFilter} onOpen={openDateFilter} onClear={() => clearDateFilter('accounts_pricing')} onPresetSelect={preset => applyQuickDatePreset('accounts_pricing', preset)} activePreset={sectionDatePresets.accounts_pricing || ''} inlineTitle="Accounts & Pricing" hideInlineTitle={isStandaloneView} onExport={async () => {
-          if (activeAccountsTab === 'pricing') {
-            await exportTableDataset('Pricing_Rules', ['Finished Good Size', 'Size', 'Pricing Category', 'Price'], pricingRows)
-            return
-          }
+        <DateFilterControl range={accountsDateFilter} onOpen={openDateFilter} onClear={() => clearDateFilter('accounts_pricing')} onPresetSelect={preset => applyQuickDatePreset('accounts_pricing', preset)} activePreset={sectionDatePresets.accounts_pricing || ''} inlineTitle="Accounts" hideInlineTitle={isStandaloneView} onExport={async () => {
           await exportTableDataset('Account_Entries', ['Date', 'Transaction ID', 'Type', 'Category', 'Description', 'Amount', 'Payment Account', 'Comments'], accountRows)
         }} />
         <SummaryGrid items={accountsSummary} />
@@ -5248,64 +5262,21 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
           className="workspace-toolbar-accounts"
           title=""
           subtitle=""
-          actions={<>
-            <button type="button" className="account-alert-button account-alert-button-dark"  onClick={() => openModal('account')}>Add Account Entry</button>
-            <button type="button" className="account-alert-button account-alert-button-light" onClick={() => openModal('pricing')}>Add Pricing Rule</button>
-          </>}
+          actions={<button type="button" className="account-alert-button account-alert-button-dark"  onClick={() => openModal('account')}>Add Account Entry</button>}
         />
-        <section className="workspace-inline-tabs" role="tablist" aria-label="Accounts page tabs">
-          {ACCOUNT_SECTION_TABS.map(tab => (
-            <button
-              key={tab.key}
-              type="button"
-              role="tab"
-              aria-selected={tab.key === activeAccountsTab}
-              className={`workspace-inline-tab ${tab.key === activeAccountsTab ? 'active' : ''}`}
-              onClick={() => setActiveAccountsTab(tab.key)}
-            >
-              {tab.label}
-            </button>
-          ))}
-        </section>
-
-        {activeAccountsTab === 'entries' && (
-          <TableCard
-            className="account-entries-table-card"
-            title="Account Entries"
-            subtitle="Detailed transaction register with payment account and comments. Click a row to view the full entry."
-            columns={canManageDataEntryEditDelete ? ['Date', 'Transaction ID', 'Type', 'Category', 'Description', 'Amount', 'Payment Account', 'Comments', ''] : ['Date', 'Transaction ID', 'Type', 'Category', 'Description', 'Amount', 'Payment Account', 'Comments']}
-            colWidths={['130px', '190px', '110px', '150px', '220px', '120px', '170px', '180px', '88px']}
-            rows={accountRows}
-            mobileVariant="accounts-list"
-            search={searchTerms.accounts}
-            onSearch={v => setSearch('accounts', v)}
-            onRowClick={key => { const e = data.accountTransactions.find(t => String(t.id) === String(key)); if (e) setSelectedAccountEntry(e) }}
-            defaultRowsPerPage={20}
-          />
-        )}
-
-        {activeAccountsTab === 'pricing' && (
-          <>
-            <FilterSelectRow
-              className="pricing-filter-row"
-              filters={pricingFilterOptions}
-              values={activePricingFilters}
-              onChange={(key, value) => setScopedFilter(activePricingFilterScope, key, value)}
-              onClear={() => clearScopedFilters(activePricingFilterScope)}
-            />
-            <TableCard
-              title="Pricing Rules"
-              subtitle="Pricing sheet maintained from backend pricing rules, with detailed live filters by price type, size, item, and price band."
-              columns={canManageDataEntryEditDelete ? ['Finished Good Size', 'Size', 'Pricing Category', 'Price', ''] : ['Finished Good Size', 'Size', 'Pricing Category', 'Price']}
-              colWidths={['420px', '220px', '420px', '180px', '100px']}
-              rows={pricingRows}
-              mobileVariant="pricing-list"
-              search={searchTerms.pricing}
-              onSearch={v => setSearch('pricing', v)}
-              defaultRowsPerPage={20}
-            />
-          </>
-        )}
+        <TableCard
+          className="account-entries-table-card"
+          title="Account Entries"
+          subtitle="Detailed transaction register with payment account and comments. Click a row to view the full entry."
+          columns={canManageDataEntryEditDelete ? ['Date', 'Transaction ID', 'Type', 'Category', 'Description', 'Amount', 'Payment Account', 'Comments', ''] : ['Date', 'Transaction ID', 'Type', 'Category', 'Description', 'Amount', 'Payment Account', 'Comments']}
+          colWidths={['130px', '190px', '110px', '150px', '220px', '120px', '170px', '180px', '88px']}
+          rows={accountRows}
+          mobileVariant="accounts-list"
+          search={searchTerms.accounts}
+          onSearch={v => setSearch('accounts', v)}
+          onRowClick={key => { const e = data.accountTransactions.find(t => String(t.id) === String(key)); if (e) setSelectedAccountEntry(e) }}
+          defaultRowsPerPage={20}
+        />
 
       </>
     )
