@@ -938,7 +938,7 @@ function buildAssetsSnippetRows(rows = []) {
   return [
     { id: 'non-current-assets', title: 'Non Current Assets', meta: 'From reporting', value: fmt(totalNonCurrentAssets) },
     { id: 'cash-and-cash-equivalent', title: 'Cash and Cash Equivalent', meta: 'From reporting', value: fmt(totalCashAndCashEquivalent) },
-    { id: 'other-receivables', title: 'Other Receivables', meta: 'Trade receivables plus other receivables', value: fmt(totalOtherReceivables) },
+    { id: 'other-receivables', title: 'Recievables', meta: 'Trade receivables plus other receivables', value: fmt(totalOtherReceivables) },
     { id: 'finished-goods-inventory', title: 'Finished Goods Inventory', meta: 'Inventory asset from reporting', value: fmt(totalFinishedGoodsInventory) },
     { id: 'total-assets', title: 'Total Assets', meta: 'All asset rows from reporting', value: fmt(totalAssets) },
   ]
