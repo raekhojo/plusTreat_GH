@@ -896,12 +896,12 @@ function buildBalanceSheetSnippetRows(rows = []) {
 
   const totalAssets = sumBy(normalizedRows.filter(row => row.accountClass === 'assets'), row => row.available)
   const totalLiabilities = sumBy(normalizedRows.filter(row => row.accountClass === 'liability'), row => row.available)
-  const totalEquity = sumBy(normalizedRows.filter(row => row.accountClass === 'equity'), row => row.available)
+  const totalEquity = totalAssets + totalLiabilities
 
   return [
     { id: 'assets', title: 'Assets', meta: 'What the business owns', value: fmt(totalAssets) },
     { id: 'liabilities', title: 'Liabilities', meta: 'What the business owes', value: fmt(totalLiabilities) },
-    { id: 'equity', title: 'Equity', meta: 'Assets minus liabilities', value: fmt(totalEquity) },
+    { id: 'equity', title: 'Equity', meta: 'Assets plus liabilities', value: fmt(totalEquity) },
   ]
 }
 
@@ -926,7 +926,7 @@ function buildAssetsSnippetRows(rows = []) {
     row => row.available
   )
   const totalOtherReceivables = sumBy(
-    normalizedRows.filter(row => row.description === 'other receivables'),
+    normalizedRows.filter(row => row.description === 'trade receivables' || row.description === 'other receivables'),
     row => row.available
   )
   const totalFinishedGoodsInventory = sumBy(
@@ -938,7 +938,7 @@ function buildAssetsSnippetRows(rows = []) {
   return [
     { id: 'non-current-assets', title: 'Non Current Assets', meta: 'From reporting', value: fmt(totalNonCurrentAssets) },
     { id: 'cash-and-cash-equivalent', title: 'Cash and Cash Equivalent', meta: 'From reporting', value: fmt(totalCashAndCashEquivalent) },
-    { id: 'other-receivables', title: 'Other Receivables', meta: 'Asset sub account from reporting', value: fmt(totalOtherReceivables) },
+    { id: 'other-receivables', title: 'Other Receivables', meta: 'Trade receivables plus other receivables', value: fmt(totalOtherReceivables) },
     { id: 'finished-goods-inventory', title: 'Finished Goods Inventory', meta: 'Inventory asset from reporting', value: fmt(totalFinishedGoodsInventory) },
     { id: 'total-assets', title: 'Total Assets', meta: 'All asset rows from reporting', value: fmt(totalAssets) },
   ]
@@ -990,11 +990,11 @@ function buildEquitySnippetRows(rows = []) {
     equityRows,
     row => row.available
   )
-  const totalEquity = totalAssets - totalLiabilities
+  const totalEquity = totalAssets + totalLiabilities
 
   return [
     { id: 'net-worth', title: 'Net Worth', meta: 'All equity rows from reporting', value: fmt(totalNetWorth) },
-    { id: 'total-equity', title: 'Total Equity', meta: 'Assets minus liability from trial balance', value: fmt(totalEquity) },
+    { id: 'total-equity', title: 'Total Equity', meta: 'Assets plus liabilities from trial balance', value: fmt(totalEquity) },
   ]
 }
 
@@ -3054,9 +3054,9 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
         plStatement: [
           { id: 'income', title: 'Income', meta: 'All income accounts in reporting', value: fmt(dashboardTotalIncome) },
           { id: 'direct-cost', title: 'Direct Cost', meta: 'All direct cost accounts in reporting', value: fmt(dashboardTotalDirectCost) },
-          { id: 'expenses', title: 'Expenses', meta: 'All expense accounts in reporting', value: fmt(dashboardTotalExpenses) },
           { id: 'gross', title: 'Gross Profit / Loss', meta: 'Income plus direct cost', value: fmt(dashboardGrossProfitOrLoss) },
-          { id: 'net', title: 'Net', meta: 'Gross profit plus expenses', value: fmt(dashboardNetProfitOrLoss) },
+          { id: 'expenses', title: 'Expenses', meta: 'All expense accounts in reporting', value: fmt(dashboardTotalExpenses) },
+          { id: 'net', title: 'Net Profit / Loss', meta: 'Gross profit plus expenses', value: fmt(dashboardNetProfitOrLoss) },
         ],
         balanceSheet,
         assetsSummary,
@@ -3261,9 +3261,9 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
       plStatement: [
         { id: 'income', title: 'Income', meta: 'All income accounts in reporting', value: fmt(dashboardTotalIncome) },
         { id: 'direct-cost', title: 'Direct Cost', meta: 'All direct cost accounts in reporting', value: fmt(dashboardTotalDirectCost) },
-        { id: 'expenses', title: 'Expenses', meta: 'All expense accounts in reporting', value: fmt(dashboardTotalExpenses) },
         { id: 'gross', title: 'Gross Profit / Loss', meta: 'Income plus direct cost', value: fmt(dashboardGrossProfitOrLoss) },
-        { id: 'net', title: 'Net', meta: 'Gross profit plus expenses', value: fmt(dashboardNetProfitOrLoss) },
+        { id: 'expenses', title: 'Expenses', meta: 'All expense accounts in reporting', value: fmt(dashboardTotalExpenses) },
+        { id: 'net', title: 'Net Profit / Loss', meta: 'Gross profit plus expenses', value: fmt(dashboardNetProfitOrLoss) },
       ],
       balanceSheet,
       assetsSummary,
@@ -4719,8 +4719,6 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
   const reportingExpenseRows = reportingBaseRows.filter(row => row.accountType === 'Income Statement' && row.accountClass === 'Expenses')
   const reportingAssetRows = reportingBaseRows.filter(row => row.accountType === 'Balance Sheet' && row.accountClass === 'Assets')
   const reportingLiabilityRows = reportingBaseRows.filter(row => row.accountType === 'Balance Sheet' && row.accountClass === 'Liability')
-  const reportingEquityRows = reportingBaseRows.filter(row => row.accountType === 'Balance Sheet' && row.accountClass === 'Equity')
-
   const totalIncome = sumBy(reportingIncomeRows, row => row.movement)
   const totalCostOfSales = sumBy(reportingCostRows, row => row.movement)
   const totalExpenses = sumBy(reportingExpenseRows, row => row.movement)
@@ -4728,7 +4726,7 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
   const netProfitOrLoss = grossProfitOrLoss + totalExpenses
   const totalAssets = sumBy(reportingAssetRows, row => row.available)
   const totalLiability = sumBy(reportingLiabilityRows, row => row.available)
-  const totalEquity = sumBy(reportingEquityRows, row => row.available)
+  const totalEquity = totalAssets + totalLiability
 
   const reportingSummary = [
     {
@@ -4737,14 +4735,9 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
       note: `Period from ${data.trialBalanceReport?.period_start || TRIAL_BALANCE_PERIOD_START}`,
     },
     {
-      label: 'Cost of Sales',
+      label: 'Direct Cost',
       value: fmt(totalCostOfSales),
       note: 'Direct production and inventory cost impact',
-    },
-    {
-      label: 'Total Expenses',
-      value: fmt(totalExpenses),
-      note: `Operating expenses since ${data.trialBalanceReport?.expense_start || TRIAL_BALANCE_EXPENSE_START}`,
     },
     {
       label: 'Gross Profit / Loss',
@@ -4752,7 +4745,12 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
       note: 'Income plus direct cost from reporting',
     },
     {
-      label: 'Net',
+      label: 'Total Expenses',
+      value: fmt(totalExpenses),
+      note: `Operating expenses since ${data.trialBalanceReport?.expense_start || TRIAL_BALANCE_EXPENSE_START}`,
+    },
+    {
+      label: 'Net Profit / Loss',
       value: fmt(netProfitOrLoss),
       note: 'Gross profit plus expenses from reporting',
     },
@@ -4769,7 +4767,7 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
     {
       label: 'Total Equity',
       value: fmt(totalEquity),
-      note: '(Capital, Retained profit)',
+      note: 'Assets plus liabilities',
     },
   ]
 
