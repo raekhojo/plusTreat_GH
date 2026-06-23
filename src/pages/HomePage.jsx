@@ -45,35 +45,6 @@ const INITIAL_DATA = {
   dashboardOverview: null, trialBalanceReport: null,
 }
 
-const PRODUCTION_RAW_MATERIAL_TEMPLATES = [
-  'Milk',
-  'Sugar',
-  'Water',
-  'Corn starch',
-  'CMC',
-  'Sodium Benzoate',
-  'Flavour-Vanilla',
-  'Flavour-Strawberry',
-  'Flavour-Pineapple',
-  'Color-Strawberry',
-  'Color-Pineapple',
-  'Bottles - 200ml',
-  'Bottles - 300ml',
-  'Bottles - 500ml',
-  'Bottles - 1l',
-  'Bottles - 2l',
-  'Bottles - 4.5l',
-  'Labels - 200ml Strawberry',
-  'Labels - 300ml Strawberry',
-  'Labels - 500ml Strawberry',
-  'Labels - 200ml Vanilla',
-  'Labels - 300ml Vanilla',
-  'Labels - 500ml Vanilla',
-  'Labels - 200ml Pineapple',
-  'Labels - 300ml Pineapple',
-  'Labels - 500ml Pineapple',
-]
-
 const FINISHED_GOODS_SIZE_TEMPLATES = [
   '200ml',
   '300ml',
@@ -556,9 +527,18 @@ const buildReceiptForm = (entity = null) => {
   }
 }
 const mkBatchUsage     = (materialName = '') => ({ rawMaterial: '', materialName, quantityUsed: '', isTemplate: Boolean(materialName) })
-const mkBatchForm      = ()              => ({ batchType: 'production', productionDate: todayValue(), electricityCost: '', gasCost: '', productionWages: '', notes: '', usages: PRODUCTION_RAW_MATERIAL_TEMPLATES.map(name => mkBatchUsage(name)), _editId: null })
-const buildBatchForm   = (entity = null) => {
-  if (!entity) return mkBatchForm()
+const buildBatchTemplateUsages = (rawMaterials = []) => {
+  const names = [...new Set(
+    (rawMaterials || [])
+      .map(material => String(material?.name || '').trim())
+      .filter(Boolean)
+  )].sort((a, b) => a.localeCompare(b))
+
+  return names.length ? names.map(name => mkBatchUsage(name)) : [mkBatchUsage('')]
+}
+const mkBatchForm      = (rawMaterials = []) => ({ batchType: 'production', productionDate: todayValue(), electricityCost: '', gasCost: '', productionWages: '', notes: '', usages: buildBatchTemplateUsages(rawMaterials), _editId: null })
+const buildBatchForm   = (entity = null, rawMaterials = []) => {
+  if (!entity) return mkBatchForm(rawMaterials)
 
   const usages = Array.isArray(entity.material_usages) && entity.material_usages.length
     ? entity.material_usages.map(usage => ({
@@ -570,7 +550,7 @@ const buildBatchForm   = (entity = null) => {
     : [mkBatchUsage('')]
 
   return {
-    ...mkBatchForm(),
+    ...mkBatchForm(rawMaterials),
     batchType: entity.batch_type || 'production',
     productionDate: entity.production_date || todayValue(),
     electricityCost: entity.electricity_cost ? String(entity.electricity_cost) : '',
@@ -704,6 +684,7 @@ const ACCOUNT_SUB_ACCOUNTS_BY_TYPE = {
     'Gifts and Donation',
     'Delivery',
     'Product Development',
+    'Tasting Samples',
     'Cleaning and Sanitation',
     'Repairs and Maintenance',
     'Depreciation',
@@ -713,6 +694,7 @@ const ACCOUNT_SUB_ACCOUNTS_BY_TYPE = {
     'Taxes and Levies',
     'Professional Fees',
     'Miscellaneous Expenses',
+    'Fees and Charges',
   ],
   income: ['Other Income', 'Other Sales'],
 }
@@ -3400,7 +3382,7 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
       setSaleForm(buildSaleForm(entity, linkedCustomer, loggedInStaffId))
     }
     if (type === 'receipt')     setReceiptForm(buildReceiptForm(entity))
-    if (type === 'batch')       setBatchForm(buildBatchForm(entity))
+    if (type === 'batch')       setBatchForm(buildBatchForm(entity, sortedRawMaterials))
     if (type === 'finished_goods') setFinishedGoodsForm(buildFinishedGoodsForm(entity))
     if (type === 'purchase')    setPurchaseForm(buildPurchaseForm(entity))
     if (type === 'pur_pay')     setPurPayForm(mkPurPayForm())
@@ -4229,7 +4211,7 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
     const isLow = toNumber(m.reorder_level) > 0 && m.available <= toNumber(m.reorder_level)
     const isOut = m.available <= 0
     const stockColor = isOut ? '#dc2626' : isLow ? '#d97706' : '#16a34a'
-    const balanceValue = toNumber(m.available) * toNumber(m.unit_price)
+    const balanceValue = toNumber(m.balance_value ?? (toNumber(m.available) * toNumber(m.unit_price)))
     return {
       key: m.id,
       emphasisIndex: 6,
@@ -5228,8 +5210,8 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
             columns={canManageDataEntryEditDelete ? ['Date', '#', 'Supplier', 'Category', 'Status', 'Paid', 'Outstanding', 'Actions'] : ['Date', '#', 'Supplier', 'Category', 'Status', 'Paid', 'Outstanding']}
             rows={purchaseRows}
             mobileVariant="purchases-list"
-            search={searchTerms.supplies_stock}
-            onSearch={v => setSearch('supplies_stock', v)}
+            search={searchTerms.supplies_purchases}
+            onSearch={v => setSearch('supplies_purchases', v)}
             onRowClick={id => setSelectedPurchase(data.purchases.find(p => p.id === id) || null)}
           />
         )}
@@ -5242,6 +5224,8 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
             colWidths={canManageDataEntryEditDelete ? ['220px', '150px', '90px', '110px', '110px', '110px', '120px', '150px', '110px', '100px', '88px'] : ['220px', '150px', '90px', '110px', '110px', '110px', '120px', '150px', '110px', '100px']}
             rows={materialRows}
             mobileVariant="materials-list"
+            search={searchTerms.supplies_materials}
+            onSearch={v => setSearch('supplies_materials', v)}
             onRowClick={id => setSelectedRawMaterial(data.rawMaterials.find(m => m.id === id) || null)}
           />
         )}
@@ -5435,7 +5419,7 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
         {productSizes.map(s => <option key={s} value={s} />)}
       </datalist>
       <datalist id="raw-material-template-names">
-        {PRODUCTION_RAW_MATERIAL_TEMPLATES.map(name => <option key={name} value={name} />)}
+        {sortedRawMaterials.map(material => <option key={material.id} value={material.name} />)}
       </datalist>
 
       <section className="mobile-app-shell">
