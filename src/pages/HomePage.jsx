@@ -4569,7 +4569,7 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
   const incomeCreditSalesMovement = sumBy(data.invoices.filter(inv => getInvoiceOutstandingDue(inv) > 0), inv => inv.total_amount)
   const incomeCashSalesMovement = sumBy(data.invoices.filter(inv => getInvoiceOutstandingDue(inv) <= 0), inv => inv.total_amount)
   const productionGainMovement = sumBy(
-    data.productionBatches.filter(batch => inPeriod(batch.production_date, expenseStartTs, false)),
+    data.productionBatches.filter(batch => inPeriod(batch.production_date, expenseStartTs, false) && normalizeFilterValue(batch.batch_type || 'production') !== 'development'),
     batch => getBatchProductionGain(batch),
   )
   const otherIncomeMovement = sumAccountEntries({ entryType: 'income', category: 'Other Income', startTs: expenseStartTs }) + productionGainMovement
