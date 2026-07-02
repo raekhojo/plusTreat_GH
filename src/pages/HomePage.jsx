@@ -2425,6 +2425,13 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
     }
   }, [activeSection, availableSections])
 
+  useEffect(() => {
+    if (selectedBatch) {
+      const fresh = data.productionBatches.find(b => b.id === selectedBatch.id)
+      if (fresh) setSelectedBatch(fresh)
+    }
+  }, [data.productionBatches])
+
   // ── Derived maps ──────────────────────────────────────────────────────────
 
   const productMap = useMemo(() => new Map(data.products.map(p => [String(p.id), p])), [data.products])
