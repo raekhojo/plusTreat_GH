@@ -48,6 +48,7 @@ const INITIAL_DATA = {
 const FINISHED_GOODS_SIZE_TEMPLATES = [
   '200ml',
   '300ml',
+  '350ml',
   '500ml',
   '1,000ml',
   '2,000ml',
@@ -68,6 +69,7 @@ const RAW_MATERIAL_TEMPLATE_DEFAULTS = {
   'Color-Pineapple': { category: 'Ingredients', unit: 'g' },
   'Bottles - 200ml': { category: 'Packaging', unit: 'Pcs' },
   'Bottles - 300ml': { category: 'Packaging', unit: 'Pcs' },
+  'Bottles - 350ml': { category: 'Packaging', unit: 'Pcs' },
   'Bottles - 500ml': { category: 'Packaging', unit: 'Pcs' },
   'Bottles - 1l': { category: 'Packaging', unit: 'Pcs' },
   'Bottles - 2l': { category: 'Packaging', unit: 'Pcs' },
@@ -545,7 +547,7 @@ const buildBatchForm   = (entity = null, rawMaterials = []) => {
         rawMaterial: usage.raw_material ? String(usage.raw_material) : '',
         materialName: usage.raw_material_name || '',
         quantityUsed: usage.quantity_used ? String(usage.quantity_used) : '',
-        isTemplate: true,
+        isTemplate: false,
       }))
     : [mkBatchUsage('')]
 
@@ -3613,12 +3615,6 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
         production_wages: batchForm.productionWages || '0',
       }
 
-      if (batchForm._editId) {
-        await updateProductionBatch(batchForm._editId, batchPayload)
-        await refreshData(); setFB('batch', 'Batch updated.'); setActiveModal('')
-        return
-      }
-
       const rmByName = new Map(data.rawMaterials.map(m => [String(m.name || '').trim().toLowerCase(), m]))
       const resolveRawMaterialId = (usage) => {
         if (usage.rawMaterial) return usage.rawMaterial
@@ -3644,6 +3640,15 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
         return { raw_material: resolvedId, quantity_used: quantityUsed, amount, notes: '' }
       })
       if (!material_usages.length) throw new Error('Add at least one raw material quantity.')
+      if (batchForm._editId) {
+        await updateProductionBatch(batchForm._editId, {
+          ...batchPayload,
+          material_usages,
+        })
+        await refreshData(); setFB('batch', 'Batch updated.'); setActiveModal('')
+        return
+      }
+
       await createProductionBatch({
         ...batchPayload,
         outputs: [],
@@ -5973,9 +5978,9 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
               <section className="sales-lines-panel">
                 <div className="sales-lines-panel-header">
                   <div><span className="sales-form-eyebrow">Inputs</span><h3>Raw materials used</h3></div>
-                  {!isEditingBatch ? <button type="button" className="account-alert-button account-alert-button-light" onClick={addBatchUsageLine}>Add Extra Material</button> : null}
+                  <button type="button" className="account-alert-button account-alert-button-light" onClick={addBatchUsageLine}>Add Extra Material</button>
                 </div>
-                {isEditingBatch ? <p className="workspace-empty" style={{ marginBottom: '12px' }}>Existing raw-material lines are locked here because the backend only updates batch header details for edits.</p> : null}
+                {isEditingBatch ? <p className="workspace-empty" style={{ marginBottom: '12px' }}>Raw-material lines can be updated here now. Quantities, materials, and added lines will be saved with the batch.</p> : null}
                 <div className="purchase-lines-head production-compact-head" style={{ '--col-count': 3, gridTemplateColumns: '2fr 1fr 40px' }}>
                   <span>Material</span><span>Qty Used</span><span></span>
                 </div>
@@ -6012,7 +6017,6 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
                                 searchPlaceholder="Search materials..."
                                 value={item.rawMaterial}
                                 onChange={value => updateBatchUsage(idx, 'rawMaterial', value)}
-                                disabled={isEditingBatch}
                               />
                               {selectedMaterial ? (
                                 <small style={{ color: projectedRemaining != null && projectedRemaining < 0 ? '#dc2626' : '#64748b', fontSize: '0.72rem' }}>
@@ -6023,13 +6027,13 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
                           )}
                         </div>
                         <label className="sales-field production-compact-qty-field">
-                          <input type="number" min="0" step="0.001" placeholder="0.000" value={item.quantityUsed} onChange={e => updateBatchUsage(idx, 'quantityUsed', e.target.value)} disabled={isEditingBatch} />
+                          <input type="number" min="0" step="0.001" placeholder="0.000" value={item.quantityUsed} onChange={e => updateBatchUsage(idx, 'quantityUsed', e.target.value)} />
                         </label>
                         <button
                           type="button"
                           className="sales-line-remove"
                           onClick={() => setBatchForm(c => ({ ...c, usages: c.usages.filter((_, i) => i !== idx) }))}
-                          disabled={item.isTemplate || isEditingBatch}
+                          disabled={item.isTemplate}
                           title={item.isTemplate ? 'Template materials cannot be removed' : 'Remove'}
                         >
                           ✕
