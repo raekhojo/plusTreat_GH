@@ -34,7 +34,7 @@ const SECTIONS = [
   { key: 'suppliers',       label: 'Suppliers',          icon: 'suppliers', roles: ['admin', 'accounts'],          subtitle: 'Supplier records, purchases, and payable balances.',                                                       sheets: ['Supplier_Dtls'] },
   { key: 'accounts_pricing',label: 'Accounts',           icon: 'finance',   roles: ['admin', 'accounts'],          subtitle: 'Accounts entries and configuration.',                                                                       sheets: ['Accounts_Entry', 'Accounts_Dtls'] },
   { key: 'reporting',       label: 'Reporting',          icon: 'finance',   roles: ['admin', 'accounts'],          subtitle: 'Financial reporting and workbook-style summaries.',                                                        sheets: ['Trial Balance'] },
-  { key: 'user_mgmt',       label: 'User Management',    icon: 'suppliers', roles: ['admin'],                      subtitle: 'Create and manage staff accounts and role assignments.',                                                    sheets: [] },
+  { key: 'user_mgmt',       label: 'User Management',    icon: 'users', roles: ['admin'],                      subtitle: 'Create and manage staff accounts and role assignments.',                                                    sheets: [] },
 ]
 
 const INITIAL_DATA = {
@@ -55,6 +55,7 @@ const FINISHED_GOODS_SIZE_TEMPLATES = [
   '4,500ml',
 ]
 
+const RAW_MATERIAL_TEMPLATE_PREFIX = 'template:'
 const RAW_MATERIAL_TEMPLATE_DEFAULTS = {
   Milk: { category: 'Ingredients', unit: 'kg' },
   Sugar: { category: 'Ingredients', unit: 'kg' },
@@ -67,13 +68,13 @@ const RAW_MATERIAL_TEMPLATE_DEFAULTS = {
   'Flavour-Pineapple': { category: 'Ingredients', unit: 'ml' },
   'Color-Strawberry': { category: 'Ingredients', unit: 'g' },
   'Color-Pineapple': { category: 'Ingredients', unit: 'g' },
-  'Bottles - 200ml': { category: 'Packaging', unit: 'Pcs' },
-  'Bottles - 300ml': { category: 'Packaging', unit: 'Pcs' },
-  'Bottles - 350ml': { category: 'Packaging', unit: 'Pcs' },
-  'Bottles - 500ml': { category: 'Packaging', unit: 'Pcs' },
-  'Bottles - 1l': { category: 'Packaging', unit: 'Pcs' },
-  'Bottles - 2l': { category: 'Packaging', unit: 'Pcs' },
-  'Bottles - 4.5l': { category: 'Packaging', unit: 'Pcs' },
+  'Bottles - 200ml': { category: 'Bottles', unit: 'Pcs' },
+  'Bottles - 300ml': { category: 'Bottles', unit: 'Pcs' },
+  'Bottles - 350ml': { category: 'Bottles', unit: 'Pcs' },
+  'Bottles - 500ml': { category: 'Bottles', unit: 'Pcs' },
+  'Bottles - 1l': { category: 'Bottles', unit: 'Pcs' },
+  'Bottles - 2l': { category: 'Bottles', unit: 'Pcs' },
+  'Bottles - 4.5l': { category: 'Bottles', unit: 'Pcs' },
   'Labels - 200ml Strawberry': { category: 'Labels', unit: 'Pcs' },
   'Labels - 300ml Strawberry': { category: 'Labels', unit: 'Pcs' },
   'Labels - 500ml Strawberry': { category: 'Labels', unit: 'Pcs' },
@@ -775,6 +776,7 @@ function NavIcon({ type }) {
     inventory:  <><path d="M4 8l8-4 8 4-8 4-8-4z" /><path d="M4 8v8l8 4 8-4V8" /><path d="M12 12v8" /></>,
     customers:  <><circle cx="9" cy="9" r="3" /><path d="M4.5 18c1.1-2.2 7-2.2 8.9 0" /><circle cx="17" cy="10" r="2.2" /><path d="M14.8 17.2c.7-1.4 4.2-1.4 5.2 0" /></>,
     suppliers:  <><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/><line x1="12" y1="12" x2="12" y2="16"/><line x1="10" y1="14" x2="14" y2="14"/></>,
+    users:      <><path strokeLinecap="round" strokeLinejoin="round" d="M18 18.72a9.094 9.094 0 0 0 3.741-.479 3 3 0 0 0-4.682-2.72m.94 3.198.001.031c0 .225-.012.447-.037.666A11.944 11.944 0 0 1 12 21c-2.17 0-4.207-.576-5.963-1.584A6.062 6.062 0 0 1 6 18.719m12 0a5.971 5.971 0 0 0-.941-3.197m0 0A5.995 5.995 0 0 0 12 12.75a5.995 5.995 0 0 0-5.058 2.772m0 0a3 3 0 0 0-4.681 2.72 8.986 8.986 0 0 0 3.74.477m.94-3.197a5.971 5.971 0 0 0-.94 3.197M15 6.75a3 3 0 1 1-6 0 3 3 0 0 1 6 0Zm6 3a2.25 2.25 0 1 1-4.5 0 2.25 2.25 0 0 1 4.5 0Zm-13.5 0a2.25 2.25 0 1 1-4.5 0 2.25 2.25 0 0 1 4.5 0Z" /></>,
     home:       <><path d="M4 10.5L12 4l8 6.5V20h-5v-5H9v5H4z" /></>,
     menu:       <><path d="M5 7h14" /><path d="M5 12h14" /><path d="M5 17h14" /></>,
   }
@@ -2446,6 +2448,17 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
     () => [...data.rawMaterials].sort((a, b) => String(a.name || '').localeCompare(String(b.name || ''))),
     [data.rawMaterials]
   )
+  const rawMaterialTemplateNames = useMemo(() => {
+    const names = new Map()
+    sortedRawMaterials.forEach(material => {
+      const name = String(material.name || '').trim()
+      if (name) names.set(name.toLowerCase(), name)
+    })
+    Object.keys(RAW_MATERIAL_TEMPLATE_DEFAULTS).forEach(name => {
+      if (!names.has(name.toLowerCase())) names.set(name.toLowerCase(), name)
+    })
+    return [...names.values()].sort((a, b) => a.localeCompare(b))
+  }, [sortedRawMaterials])
   const pricingRuleMap = useMemo(() => new Map(data.pricingRules.map(r => [String(r.id), r])), [data.pricingRules])
   const productionPriceBySize = useMemo(() => {
     const priceMap = new Map()
@@ -2577,7 +2590,7 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
     const selectedCategory = normalizeCategoryValue(purchaseForm.category)
     if (!selectedCategory) return []
 
-    return sortedRawMaterials
+    const existingOptions = sortedRawMaterials
       .filter(material => normalizeCategoryValue(material.category) === selectedCategory)
       .map(material => {
         const available = toNumber(material.opening_stock) + toNumber(material.stock_in) - toNumber(material.stock_out)
@@ -2587,6 +2600,14 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
           meta: `${fmtQ(available)} ${material.unit || ''}`.trim(),
         }
       })
+
+    // Standard materials not yet in the database (e.g. a newly added bottle size) — created on selection.
+    const existingNames = new Set(sortedRawMaterials.map(material => String(material.name || '').trim().toLowerCase()))
+    const templateOptions = Object.entries(RAW_MATERIAL_TEMPLATE_DEFAULTS)
+      .filter(([name, defaults]) => normalizeCategoryValue(defaults.category) === selectedCategory && !existingNames.has(name.toLowerCase()))
+      .map(([name, defaults]) => ({ value: `${RAW_MATERIAL_TEMPLATE_PREFIX}${name}`, label: name, meta: `0 ${defaults.unit}` }))
+
+    return [...existingOptions, ...templateOptions].sort((a, b) => a.label.localeCompare(b.label))
   }, [purchaseForm.category, sortedRawMaterials])
   const supplierSelectOptions = useMemo(
     () => data.suppliers
@@ -4003,6 +4024,36 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
       category: defaults ? (cur.category || defaults.category) : cur.category,
       unit: defaults ? (cur.unit || defaults.unit) : cur.unit,
     }))
+  }
+
+  async function selectPurchaseRawMaterial(index, value) {
+    if (!String(value || '').startsWith(RAW_MATERIAL_TEMPLATE_PREFIX)) {
+      updatePurchaseItem(index, 'rawMaterial', value)
+      return
+    }
+    const name = value.slice(RAW_MATERIAL_TEMPLATE_PREFIX.length)
+    const defaults = RAW_MATERIAL_TEMPLATE_DEFAULTS[name] || {}
+    setSub('purchase_rm_' + index, true)
+    try {
+      const newRM = await createRawMaterial({
+        name,
+        category: defaults.category || purchaseForm.category || '',
+        unit: defaults.unit || '',
+        opening_stock: '0',
+        reorder_level: '0',
+      })
+      await refreshData()
+      setPurchaseForm(cur => ({
+        ...cur,
+        items: cur.items.map((it, i) =>
+          i !== index ? it : { ...it, rawMaterial: String(newRM.id), unitPerItem: newRM.unit_per_item ? String(newRM.unit_per_item) : it.unitPerItem }
+        ),
+      }))
+    } catch (err) {
+      setFB('purchase', err.message || 'Could not create raw material.')
+    } finally {
+      setSub('purchase_rm_' + index, false)
+    }
   }
 
   async function createNewPurchaseRM(index) {
@@ -5431,7 +5482,7 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
         {productSizes.map(s => <option key={s} value={s} />)}
       </datalist>
       <datalist id="raw-material-template-names">
-        {sortedRawMaterials.map(material => <option key={material.id} value={material.name} />)}
+        {rawMaterialTemplateNames.map(name => <option key={name} value={name} />)}
       </datalist>
 
       <section className="mobile-app-shell">
@@ -6292,7 +6343,7 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
                           placeholder={purchaseForm.category ? 'Select material' : 'Select supplier first'}
                           searchPlaceholder={purchaseForm.category ? 'Search materials...' : 'Select supplier first'}
                           value={item.rawMaterial}
-                          onChange={value => updatePurchaseItem(idx, 'rawMaterial', value)}
+                          onChange={value => selectPurchaseRawMaterial(idx, value)}
                         />
                         <button type="button" className="purchase-rm-toggle" onClick={() => updatePurchaseItem(idx, '_toggleRM', null)}>+ New material</button>
                       </div>
