@@ -13,6 +13,16 @@
   --surface: #ffffff;
   --surface-muted: #f8fcff;
   --line: rgba(66, 149, 220, 0.12);
+  --app-bg: #e9edf5;
+
+  /* Brand (sampled from the Plus Yoghurt logo) */
+  --brand-sky: #31b1e4;
+  --brand-blue: #2c86b8;
+  --brand-sky-soft: #e8f6fd;
+  --brand-orange: #ffb33e;
+  --brand-orange-deep: #e8961a;
+  --brand-orange-soft: #fff4e0;
+  --brand-ink: #15344d;
 
   --font-display: "Fredoka", "Trebuchet MS", "Segoe UI", sans-serif;
   --font-body: "Nunito", "Trebuchet MS", "Segoe UI", sans-serif;

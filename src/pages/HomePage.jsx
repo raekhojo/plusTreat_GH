@@ -1,10 +1,23 @@
 import { Children, isValidElement, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useOutletContext } from 'react-router-dom'
+import { createPortal } from 'react-dom'
 import { useAuth } from '../context/AuthContext'
 import plusLogo from '../assets/plusLogo.png'
 import ExcelJS from 'exceljs'
 import { FiDownload } from 'react-icons/fi'
 import { AppAutocomplete, AppFilterPicker, AppSelect } from '../components/FormSelects'
+import SalesOverview from '../components/dashboard/SalesOverview'
+import TreasuryPanel from '../components/treasury/TreasuryPanel'
+import { WALLETS, buildAccountLedger, buildTreasury, walletLabel } from '../lib/treasury'
+import ReportsCenter from '../components/reports/ReportsCenter'
+import ReportingOverview from '../components/reports/ReportingOverview'
+import AiCopilot from '../components/ai/AiCopilot'
+import DocumentSettings from '../components/settings/DocumentSettings'
+import StockCount from '../components/reports/StockCount'
+import { printCustomerStatement, printInvoice, printReceipt, printReport } from '../lib/printDocuments'
+import ExportMenu from '../components/ExportMenu'
+import ReceivablesInsights from '../components/receivables/ReceivablesInsights'
+import ProductionPlanner from '../components/production/ProductionPlanner'
 import {
   createAccountTransaction, createCustomer, createInvoice, createPayment,
   createPricingRule, createProductionBatch, createPurchase, createSupplier,
@@ -25,16 +38,24 @@ import {
 
 // ─── Section config ───────────────────────────────────────────────────────────
 
+const TOP_NAV_ORDER = ['reports', 'settings']
+
 const SECTIONS = [
-  { key: 'dashboard',       label: 'Dashboard',          icon: 'home',      roles: ['admin', 'sales', 'accounts'], subtitle: 'Live summary pulled from Dashboard and Financials workbook logic.',                                          sheets: ['Dashboard', 'Financials'] },
-  { key: 'sales_hub',       label: 'Sales Hub',          icon: 'sales',     roles: ['admin', 'sales', 'accounts'], subtitle: 'Sales entry, invoices, receipts, and customer collections.',                                                sheets: ['Sales_Entry', 'Sales_Dtls', 'Invoice', 'SalesReceipt_Entry', 'SalesReceipt_Dtls', 'Sales'] },
-  { key: 'production_ops',  label: 'Production Ops',     icon: 'production',roles: ['admin', 'accounts'],          subtitle: 'Batch production, finished stock, raw material usage, and pricing rules.',                                 sheets: ['Production_Entry', 'Production_Dtls', 'Inventory', 'RM_Usage_Dtls', 'Prod Planner', 'Pricing'] },
-  { key: 'supplies_stock',  label: 'Supplies & Stock',   icon: 'inventory', roles: ['admin', 'accounts'],          subtitle: 'Purchases, suppliers, raw materials, and stock control.',                                                   sheets: ['RMPurchases_Entry', 'Purchase_Dtls', 'PurchasePmt_Dtls', 'RawMaterials'] },
-  { key: 'customers',       label: 'Customers',          icon: 'customers', roles: ['admin', 'sales'],             subtitle: 'Customer records, invoice history, and outstanding balances.',                                          sheets: ['Customers_Dtls', 'Customers'] },
-  { key: 'suppliers',       label: 'Suppliers',          icon: 'suppliers', roles: ['admin', 'accounts'],          subtitle: 'Supplier records, purchases, and payable balances.',                                                       sheets: ['Supplier_Dtls'] },
-  { key: 'accounts_pricing',label: 'Accounts',           icon: 'finance',   roles: ['admin', 'accounts'],          subtitle: 'Accounts entries and configuration.',                                                                       sheets: ['Accounts_Entry', 'Accounts_Dtls'] },
-  { key: 'reporting',       label: 'Reporting',          icon: 'finance',   roles: ['admin', 'accounts'],          subtitle: 'Financial reporting and workbook-style summaries.',                                                        sheets: ['Trial Balance'] },
-  { key: 'user_mgmt',       label: 'User Management',    icon: 'users', roles: ['admin'],                      subtitle: 'Create and manage staff accounts and role assignments.',                                                    sheets: [] },
+  { key: 'dashboard',       label: 'Dashboard',          icon: 'home',      roles: ['admin', 'sales', 'accounts'], subtitle: 'Live summary pulled from Dashboard and Financials workbook logic.',                                          sheets: ['Dashboard', 'Financials'], group: 'Overview' },
+  { key: 'sales_hub',       label: 'Sales Hub',          icon: 'sales',     roles: ['admin', 'sales', 'accounts'], subtitle: 'Sales entry, invoices, receipts, and customer collections.',                                                sheets: ['Sales_Entry', 'Sales_Dtls', 'Invoice', 'SalesReceipt_Entry', 'SalesReceipt_Dtls', 'Sales'], group: 'Operations' },
+  { key: 'production_ops',  label: 'Production Ops',     icon: 'production',roles: ['admin', 'accounts'],          subtitle: 'Batch production, finished stock, raw material usage, and pricing rules.',                                 sheets: ['Production_Entry', 'Production_Dtls', 'Inventory', 'RM_Usage_Dtls', 'Prod Planner', 'Pricing'], group: 'Operations' },
+  { key: 'supplies_stock',  label: 'Supplies & Stock',   icon: 'inventory', roles: ['admin', 'accounts'],          subtitle: 'Purchases, suppliers, raw materials, and stock control.',                                                   sheets: ['RMPurchases_Entry', 'Purchase_Dtls', 'PurchasePmt_Dtls', 'RawMaterials'], group: 'Operations' },
+  { key: 'customers',       label: 'Customers',          icon: 'customers', roles: ['admin', 'sales'],             subtitle: 'Customer records, invoice history, and outstanding balances.',                                          sheets: ['Customers_Dtls', 'Customers'], group: 'Operations' },
+  { key: 'receivables',     label: 'Customer Debtors (AR)', icon: 'debtors', roles: ['admin', 'sales', 'accounts'], subtitle: 'Who owes us, how long it has been unpaid, and staff / home advances.', sheets: [], group: 'Operations' },
+  { key: 'suppliers',       label: 'Suppliers',          icon: 'suppliers', roles: ['admin', 'accounts'],          subtitle: 'Supplier records, purchases, and payable balances.',                                                       sheets: ['Supplier_Dtls'], group: 'Operations' },
+  { key: 'treasury',        label: 'Cashbook & Treasury', icon: 'treasury', roles: ['admin', 'accounts'],          subtitle: 'Wallet balances, statements and transfers between wallets.', sheets: [], group: 'Finance' },
+  { key: 'accounts_pricing',label: 'Accounts',           icon: 'accounts',   roles: ['admin', 'accounts'],          subtitle: 'Accounts entries and configuration.',                                                                       sheets: ['Accounts_Entry', 'Accounts_Dtls'], group: 'Finance' },
+  { key: 'reporting',       label: 'Reporting',          icon: 'reporting', roles: ['admin', 'accounts'],          subtitle: 'Financial reporting and workbook-style summaries.',                                                        sheets: ['Trial Balance'], group: 'Finance' },
+  { key: 'reconciliation',  label: 'Asset Reconciliation', icon: 'reconcile', roles: ['admin', 'accounts'],         subtitle: 'Physical count of cash, receivables and stock against the books.', sheets: [], group: 'Finance' },
+  { key: 'reports',         label: 'Reports & Exports',  icon: 'reports',   roles: ['admin', 'accounts'],          subtitle: 'Preview any report and download it as Excel or PDF.', sheets: [], group: 'Finance', placement: 'top', navLabel: 'Reports' },
+  { key: 'ai_copilot',      label: 'AI Copilot',         icon: 'ai',        roles: ['admin', 'sales', 'accounts'], subtitle: 'Ask questions about sales, cash, debtors, stock and production.', sheets: [], group: 'Tools', hidden: true },
+  { key: 'settings',        label: 'Settings & Pricing', icon: 'settings',  roles: ['admin'],                      subtitle: 'Pricing rules and the details printed on invoices and receipts.', sheets: [], group: 'Tools', placement: 'top', navLabel: 'Settings' },
+  { key: 'user_mgmt',       label: 'User Management',    icon: 'users', roles: ['admin'],                      subtitle: 'Create and manage staff accounts and role assignments.',                                                    sheets: [], group: 'Admin' },
 ]
 
 const INITIAL_DATA = {
@@ -187,6 +208,18 @@ function getInvoiceCollectionState(invoice) {
   if (outstanding > 0 && paidAmount > 0) return 'partial'
   return 'unpaid'
 }
+const SALES_STATUS_TABS = [
+  { key: 'all', label: 'All' },
+  { key: 'paid', label: 'Fully Paid' },
+  { key: 'partial', label: 'Partially Paid' },
+  { key: 'unpaid', label: 'Unpaid' },
+  { key: 'sample', label: 'Samples' },
+]
+function getSalesStatusKey(invoice) {
+  if (invoice?.is_sample_sale) return 'sample'
+  const state = getInvoiceCollectionState(invoice)
+  return state === 'overpaid' ? 'paid' : state
+}
 function isOpeningReceivableInvoice(invoice) {
   return String(invoice?.notes || '').trim().toUpperCase() === 'OPENING_BALANCE'
 }
@@ -258,6 +291,20 @@ function buildDatePresetRange(presetKey) {
   if (presetKey === 'this_month') {
     const start = new Date(today.getFullYear(), today.getMonth(), 1)
     return { start: formatLocalDateInput(start), end: formatLocalDateInput(today) }
+  }
+  const rollingDays = { last_30: 30, last_90: 91, last_365: 365 }[presetKey]
+  if (rollingDays) {
+    const start = new Date(today)
+    start.setDate(start.getDate() - (rollingDays - 1))
+    return { start: formatLocalDateInput(start), end: formatLocalDateInput(today) }
+  }
+  if (presetKey === 'this_year') {
+    return { start: formatLocalDateInput(new Date(today.getFullYear(), 0, 1)), end: formatLocalDateInput(today) }
+  }
+  const yearMatch = String(presetKey || '').match(/^year_(\d{4})$/)
+  if (yearMatch) {
+    const year = Number(yearMatch[1])
+    return { start: formatLocalDateInput(new Date(year, 0, 1)), end: formatLocalDateInput(new Date(year, 11, 31)) }
   }
   return EMPTY_DATE_RANGE
 }
@@ -385,6 +432,16 @@ function extractExportText(value) {
   if (isValidElement(value)) return extractExportText(value.props?.children)
   return ''
 }
+// Prints table rows on the Plus Treat letterhead. Columns with an empty header (action buttons) are left out.
+function printTablePdf(title, columns, rows) {
+  const keep = columns.map((c, i) => (String(c || '').trim() ? i : -1)).filter(i => i >= 0)
+  printReport({
+    title: String(title || 'Report').replace(/_/g, ' '),
+    columns: keep.map(i => columns[i]),
+    rows: (rows || []).map(row => keep.map(i => extractExportText(Array.isArray(row) ? row[i] : row?.cells?.[i]))),
+  })
+}
+
 async function exportRowsToXlsx(fileName, columns, rows) {
   if (!rows?.length || !columns?.length) return
   const workbook = new ExcelJS.Workbook()
@@ -653,6 +710,7 @@ const mkProductForm    = ()              => ({ name: '', description: '', unit_p
 const mkRawMatForm     = ()              => ({ name: '', category: '', supplier: '', unit: '', unit_per_item: '1', item_price: '0', unit_price: '0', opening_stock: '0', reorder_level: '0', _editId: null })
 const mkAccountForm    = ()              => ({ transaction_date: todayValue(), entry_type: 'expense', category: '', description: '', amount: '', payment_method: '', comments: '', _editId: null })
 const mkPricingForm    = ()              => ({ product: '', size: '', pricing_category: '', price: '', _editId: null })
+const mkTransferForm   = (from = 'Cash') => ({ transaction_date: todayValue(), from, to: '', amount: '', description: '', comments: '' })
 
 const ACCOUNT_TRANS_TYPE_OPTIONS = [
   { value: 'expense', label: 'Expenses' },
@@ -734,6 +792,7 @@ const SECTION_TABS = {
     { key: 'batches', label: 'Production Batches' },
     { key: 'inventory', label: 'Finished Inventory' },
     { key: 'pricing', label: 'Pricing Rules' },
+    { key: 'planner', label: 'Production Planner' },
   ],
   supplies_stock: [
     { key: 'purchases', label: 'Purchase Register' },
@@ -742,11 +801,15 @@ const SECTION_TABS = {
   ],
   customers: [
     { key: 'customers', label: 'Customers' },
-    { key: 'receivables', label: 'Top Receivables' },
   ],
   suppliers: [
     { key: 'suppliers', label: 'Suppliers' },
     { key: 'balances', label: 'Open Balances' },
+  ],
+  reporting: [
+    { key: 'trial_balance', label: 'Trial Balance' },
+    { key: 'reports', label: 'Reports Center' },
+    { key: 'stock_count', label: 'Stock Count' },
   ],
 }
 
@@ -756,6 +819,7 @@ const SECTION_DEFAULT_TABS = {
   supplies_stock: 'purchases',
   customers: 'customers',
   suppliers: 'suppliers',
+  reporting: 'trial_balance',
 }
 
 const EMPTY_DATE_RANGE = { start: '', end: '' }
@@ -770,6 +834,14 @@ const DATE_FILTER_PRESETS = [
 
 function NavIcon({ type }) {
   const icons = {
+    treasury:   <><path d="M2.25 18.75a60.07 60.07 0 0 1 15.797 2.101c.727.198 1.453-.342 1.453-1.096V18.75M3.75 4.5v.75A.75.75 0 0 1 3 6h-.75m0 0v-.375c0-.621.504-1.125 1.125-1.125H20.25M2.25 6v9m18-10.5v.75c0 .414.336.75.75.75h.75m-1.5-1.5h.375c.621 0 1.125.504 1.125 1.125v9.75c0 .621-.504 1.125-1.125 1.125h-.375m1.5-1.5H21a.75.75 0 0 0-.75.75v.75m0 0H3.75m0 0h-.375a1.125 1.125 0 0 1-1.125-1.125V15m1.5 1.5v-.75A.75.75 0 0 0 3 15h-.75M15 10.5a3 3 0 1 1-6 0 3 3 0 0 1 6 0Zm3 0h.008v.008H18V10.5Zm-12 0h.008v.008H6V10.5Z" /></>,
+    debtors:    <><circle cx="9" cy="8" r="3" /><path d="M3.5 19c.8-3 3-4.5 5.5-4.5 1.2 0 2.3.3 3.2.9" /><path d="M18 11v8" /><path d="M20.2 12.6c-.4-.8-1.2-1.1-2.2-1.1-1.3 0-2.2.6-2.2 1.6 0 2.2 4.6 1.2 4.6 3.5 0 1-1 1.7-2.4 1.7-1.1 0-2-.4-2.4-1.3" /></>,
+    reconcile:  <><path d="M12 4v16" /><path d="M5 20h14" /><path d="M4 8h16" /><path d="M6.5 8 4 14h5l-2.5-6Z" /><path d="M17.5 8 15 14h5l-2.5-6Z" /></>,
+    reports:    <><path d="M10.5 6a7.5 7.5 0 1 0 7.5 7.5h-7.5V6Z" /><path d="M13.5 10.5H21A7.5 7.5 0 0 0 13.5 3v7.5Z" /></>,
+    reporting:  <><path d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 0 1 3 19.875v-6.75ZM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 0 1-1.125-1.125V8.625ZM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 0 1-1.125-1.125V4.125Z" /></>,
+    ai:         <><path d="M12 3.5 13.7 9 19 10.5l-5.3 1.6L12 17.5l-1.7-5.4L5 10.5 10.3 9 12 3.5Z" /><path d="M18.5 15.5 19.2 17.6 21.3 18.3 19.2 19 18.5 21.1 17.8 19 15.7 18.3 17.8 17.6Z" /></>,
+    settings:   <><path d="M11.42 15.17 17.25 21A2.652 2.652 0 0 0 21 17.25l-5.877-5.877M11.42 15.17l2.496-3.03c.317-.384.74-.626 1.208-.766M11.42 15.17l-4.655 5.653a2.548 2.548 0 1 1-3.586-3.586l6.837-5.63m5.108-.233c.55-.164 1.163-.188 1.743-.14a4.5 4.5 0 0 0 4.486-6.336l-3.276 3.277a3.004 3.004 0 0 1-2.25-2.25l3.276-3.276a4.5 4.5 0 0 0-6.336 4.486c.091 1.076-.071 2.264-.904 2.95l-.102.085m-1.745 1.437L5.909 7.5H4.5L2.25 3.75l1.5-1.5L7.5 4.5v1.409l4.26 4.26m-1.745 1.437 1.745-1.437m6.615 8.206L15.75 15.75M4.867 19.125h.008v.008h-.008v-.008Z" /></>,
+    accounts:   <><path d="M4 7.5h14.5A1.5 1.5 0 0 1 20 9v9.5a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 4 18.5V7.5Z" /><path d="M4 7.5 15.5 4v3.5" /><path d="M20 12h-3.5a1.5 1.5 0 0 0 0 3H20" /></>,
     finance:    <><path d="M5 18h14" /><path d="M7 18V10" /><path d="M12 18V6" /><path d="M17 18V12" /></>,
     sales:      <><path d="M4 7h16v10H4z" /><path d="M8 11h8" /><path d="M8 15h5" /></>,
     production: <><path d="M7 5h10v14H7z" /><path d="M10 2v3" /><path d="M14 2v3" /><path d="M9.5 10h5" /><path d="M9.5 14h5" /></>,
@@ -797,78 +869,29 @@ function renderSummaryNote(item) {
 }
 
 function SummaryGrid({ items, className = '' }) {
-  const slides = Array.isArray(items) ? items : []
-  const [index, setIndex] = useState(0)
-  const maxIndex = Math.max(0, slides.length - 1)
-
-  useEffect(() => {
-    if (index > maxIndex) setIndex(0)
-  }, [index, maxIndex])
+  const stats = Array.isArray(items) ? items : []
+  const [showAll, setShowAll] = useState(false)
+  const PRIMARY = 4
+  const visible = showAll ? stats : stats.slice(0, PRIMARY)
+  if (!stats.length) return null
 
   return (
-    <>
-      <section className={`dashboard-snippet-stats ${className}`.trim()}>
-        {items.map(item => (
-          <article key={item.label} className="dashboard-snippet-stat">
-            <span>{item.label}</span><strong>{item.value}</strong>{renderSummaryNote(item)}
-          </article>
+    <section className={`mc-stats ${className}`.trim()} aria-label="Summary">
+      <div className="mc-stats-grid">
+        {visible.map(item => (
+          <div key={item.label} className="mc-stat">
+            <span className="mc-stat-label">{item.label}</span>
+            <strong className="mc-stat-value">{item.value}</strong>
+            {renderSummaryNote(item)}
+          </div>
         ))}
-      </section>
-
-      <section className="summary-mobile-carousel" aria-label="Summary cards">
-        <div className="dashboard-mobile-carousel-head">
-          <div className="dashboard-mobile-carousel-actions">
-            <button
-              type="button"
-              className="dashboard-mobile-carousel-btn"
-              onClick={() => setIndex((current) => Math.max(0, current - 1))}
-              disabled={index <= 0}
-              aria-label="Previous summary card"
-            >
-              ‹
-            </button>
-            <button
-              type="button"
-              className="dashboard-mobile-carousel-btn"
-              onClick={() => setIndex((current) => Math.min(maxIndex, current + 1))}
-              disabled={index >= maxIndex}
-              aria-label="Next summary card"
-            >
-              ›
-            </button>
-          </div>
-        </div>
-
-        <div className="dashboard-mobile-carousel-viewport">
-          <div
-            className="dashboard-mobile-carousel-track"
-            style={{ transform: `translateX(-${index * 100}%)` }}
-          >
-            {slides.map((item) => (
-              <div key={item.label} className="dashboard-mobile-carousel-slide">
-                <article className="dashboard-snippet-stat">
-                  <span>{item.label}</span>
-                  <strong>{item.value}</strong>
-                  {renderSummaryNote(item)}
-                </article>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        <div className="dashboard-mobile-carousel-dots" aria-label="Summary indicators">
-          {slides.map((item, dotIndex) => (
-            <button
-              key={item.label}
-              type="button"
-              className={`dashboard-mobile-carousel-dot${dotIndex === index ? ' active' : ''}`}
-              onClick={() => setIndex(dotIndex)}
-              aria-label={`Go to summary card ${dotIndex + 1}`}
-            />
-          ))}
-        </div>
-      </section>
-    </>
+      </div>
+      {stats.length > PRIMARY ? (
+        <button type="button" className="mc-stats-more" onClick={() => setShowAll(v => !v)} aria-expanded={showAll}>
+          {showAll ? 'Show fewer figures' : `Show ${stats.length - PRIMARY} more figures`}
+        </button>
+      ) : null}
+    </section>
   )
 }
 
@@ -1002,8 +1025,12 @@ function SummaryGridSkeleton({ count = 4 }) {
   )
 }
 
-function SnippetCard({ title, rows, onItemClick, actionLabel, onAction, className = '' }) {
-  const handleExport = async () => {
+function SnippetCard({ title, rows, onItemClick, actionLabel, onAction, rowAction = null, className = '' }) {
+  const handleExport = async (format = 'xlsx') => {
+    if (format === 'pdf') {
+      printTablePdf(title, ['Item', 'Details', 'Value'], (rows || []).map(item => [item.title, item.meta, item.value]))
+      return
+    }
     const exportRows = (rows || []).map(item => ({
       Item: extractExportText(item.title),
       Details: extractExportText(item.meta),
@@ -1018,7 +1045,7 @@ function SnippetCard({ title, rows, onItemClick, actionLabel, onAction, classNam
         <div className="dashboard-card-head">
           <h2>{title}</h2>
           <div className="workspace-export-actions">
-            {rows.length ? <button type="button" className="dashboard-card-link workspace-export-btn" onClick={handleExport}><FiDownload aria-hidden="true" /> Export XLSX</button> : null}
+            {rows.length ? <ExportMenu onExport={handleExport} /> : null}
             {onAction ? <button type="button" className="dashboard-card-link" onClick={onAction}>{actionLabel || 'Open'}</button> : null}
           </div>
         </div>
@@ -1032,6 +1059,7 @@ function SnippetCard({ title, rows, onItemClick, actionLabel, onAction, classNam
                 >
                   <div><strong>{item.title}</strong><span>{item.meta}</span></div>
                   <em className="dashboard-snippet-value">{item.value}</em>
+                  {rowAction ? <button type="button" className="dashboard-snippet-row-action" onClick={e => { e.stopPropagation(); rowAction.onClick(item) }}>{rowAction.label}</button> : null}
                 </div>
               ))
             : <p className="workspace-empty">No records yet.</p>}
@@ -1330,7 +1358,6 @@ function MeterCard({ title, subtitle, rows, actionLabel, onAction }) {
 
 function TableCard({
   title,
-  subtitle,
   columns,
   colWidths,
   className = '',
@@ -1423,8 +1450,16 @@ function TableCard({
     () => exportableColumnIndexes.map(index => String(columns[index]).trim()),
     [columns, exportableColumnIndexes]
   )
-  const handleExport = async () => {
+  const handleExport = async (format = 'xlsx') => {
     if (!filtered.length || !exportableColumns.length) return
+    if (format === 'pdf') {
+      printReport({
+        title,
+        columns: exportableColumns,
+        rows: filtered.map(row => exportableColumnIndexes.map(i => extractExportText(row.cells?.[i]))),
+      })
+      return
+    }
     const exportRows = filtered.map(row => {
       const mapped = {}
       exportableColumnIndexes.forEach((columnIndex, exportIndex) => {
@@ -1437,26 +1472,23 @@ function TableCard({
 
   return (
     <article className={`account-feature-card sales-list-card ${className}`.trim()}>
-      <div className="workspace-panel-header">
-        <div><h2>{title}</h2>{subtitle ? <p className="account-feature-sheets">{subtitle}</p> : null}</div>
-        <div className="workspace-panel-controls">
-          <div className="workspace-panel-controls-top">
-            {onSearch !== undefined && (
-              <input
-                type="search"
-                className="workspace-search"
-                placeholder="Search…"
-                value={search || ''}
-                onChange={e => onSearch(e.target.value)}
-              />
-            )}
-            <span className="workspace-table-count">{totalRows} row{totalRows === 1 ? '' : 's'}</span>
-          </div>
-          {filtered.length ? (
-            <button type="button" className="workspace-action-btn workspace-export-btn" onClick={handleExport}>
-              <FiDownload aria-hidden="true" /> Export XLSX
-            </button>
-          ) : null}
+      <div className="mc-table-head">
+        <div className="mc-table-title">
+          <h2>{title}</h2>
+          <span className="mc-table-count">{totalRows} row{totalRows === 1 ? '' : 's'}</span>
+        </div>
+        <div className="mc-table-tools">
+          {onSearch !== undefined && (
+            <input
+              type="search"
+              className="mc-search"
+              placeholder="Search…"
+              aria-label={`Search ${title}`}
+              value={search || ''}
+              onChange={e => onSearch(e.target.value)}
+            />
+          )}
+          {filtered.length ? <ExportMenu onExport={handleExport} /> : null}
         </div>
       </div>
       <div className="workspace-table-scroll">
@@ -1880,79 +1912,33 @@ function WorkspaceToolbar({ title, subtitle, actions, className = '' }) {
 
 function DateFilterControl({ range, onOpen, onClear, onPresetSelect, activePreset = '', inlineTitle = '', hideInlineTitle = false, onExport = null }) {
   const active = hasDateRange(range)
-  const presetsRef = useRef(null)
-
-  function scrollPresets(direction) {
-    const node = presetsRef.current
-    if (!node) return
-    node.scrollBy({ left: direction * 160, behavior: 'smooth' })
-  }
-
-  const dateRangeControls = (
-    <div className="workspace-date-actions">
-      <button type="button" className="account-alert-button account-alert-button-light workspace-date-range-button" onClick={onOpen}>
-        <svg viewBox="0 0 24 24" aria-hidden="true">
-          <rect x="3" y="5" width="18" height="16" rx="3" />
-          <path d="M8 3v4" />
-          <path d="M16 3v4" />
-          <path d="M3 10h18" />
-        </svg>
-        Date Range
-      </button>
-      {onExport ? (
-        <button type="button" className="workspace-action-btn workspace-export-btn workspace-date-export-button" onClick={onExport}>
-          <FiDownload aria-hidden="true" /> Export XLSX
-        </button>
-      ) : null}
-    </div>
-  )
 
   return (
-    <section className="workspace-filter-row" aria-label="Section filters">
-      {inlineTitle && !hideInlineTitle ? (
-        <div className="workspace-filter-header-row">
-          <h1>{inlineTitle}</h1>
-          {dateRangeControls}
+    <section className="mc-head" aria-label="Section filters">
+      <div className="mc-head-row">
+        {inlineTitle && !hideInlineTitle ? <h1 className="mc-title">{inlineTitle}</h1> : <span />}
+        <div className="mc-head-controls">
+          <div className="mc-seg" role="group" aria-label="Quick date filters">
+            {DATE_FILTER_PRESETS.map(preset => (
+              <button
+                key={preset.key}
+                type="button"
+                className={activePreset === preset.key ? 'is-active' : ''}
+                aria-pressed={activePreset === preset.key}
+                onClick={() => onPresetSelect && onPresetSelect(preset.key)}
+              >
+                {preset.label}
+              </button>
+            ))}
+            <button type="button" className={active && !activePreset ? 'is-active' : ''} onClick={onOpen}>Custom…</button>
+          </div>
+          {onExport ? <ExportMenu onExport={onExport} /> : null}
         </div>
-      ) : (
-        dateRangeControls
-      )}
-      <div className="workspace-filter-presets-wrap">
-        <button
-          type="button"
-          className="workspace-filter-arrow"
-          aria-label="Scroll date filters left"
-          onClick={() => scrollPresets(-1)}
-        >
-          ‹
-        </button>
-        <div ref={presetsRef} className="workspace-filter-presets" aria-label="Quick date filters">
-          {DATE_FILTER_PRESETS.map(preset => (
-            <button
-              key={preset.key}
-              type="button"
-              className={`workspace-filter-preset${activePreset === preset.key ? ' active' : ''}`}
-              onClick={() => onPresetSelect && onPresetSelect(preset.key)}
-            >
-              {preset.label}
-            </button>
-          ))}
-        </div>
-        <button
-          type="button"
-          className="workspace-filter-arrow"
-          aria-label="Scroll date filters right"
-          onClick={() => scrollPresets(1)}
-        >
-          ›
-        </button>
       </div>
       {active ? (
-        <div className="workspace-filter-active-row">
-          <span className="workspace-filter-pill">{summarizeDateRange(range)}</span>
-          <button type="button" className="workspace-filter-clear" onClick={onClear}>
-            Clear
-          </button>
+        <div className="mc-range">
+          <span>{summarizeDateRange(range)}</span>
+          <button type="button" onClick={onClear}>Clear</button>
         </div>
       ) : null}
     </section>
@@ -2312,14 +2298,16 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
   const [productForm,      setProductForm]      = useState(mkProductForm)
   const [rawMatForm,       setRawMatForm]       = useState(mkRawMatForm)
   const [accountForm,      setAccountForm]      = useState(mkAccountForm)
+  const [transferForm,     setTransferForm]     = useState(mkTransferForm)
+  const [salesStatusTab,   setSalesStatusTab]   = useState('all')
   const [pricingForm,      setPricingForm]      = useState(mkPricingForm)
 
   const [feedback,         setFeedback]         = useState({})
   const [submitting,       setSubmitting]       = useState({})
   const [searchTerms,      setSearchTerms]      = useState({})
   const [sectionFilters,   setSectionFilters]   = useState({})
-  const [sectionDateFilters, setSectionDateFilters] = useState({})
-  const [sectionDatePresets, setSectionDatePresets] = useState({})
+  const [sectionDateFilters, setSectionDateFilters] = useState(() => ({ dashboard: buildDatePresetRange('last_365') }))
+  const [sectionDatePresets, setSectionDatePresets] = useState({ dashboard: 'last_365' })
   const [dateFilterDraft, setDateFilterDraft] = useState(EMPTY_DATE_RANGE)
   const [customItemCategories, setCustomItemCategories] = useState([])
   const [categoryModalTarget, setCategoryModalTarget] = useState('')
@@ -2345,11 +2333,23 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
   const canManageDataEntryEditDelete = !isDataEntryRole
   const availableSections = useMemo(() => {
     const visible = SECTIONS
+      .filter(section => !section.hidden)
       .filter(section => !section.roles || section.roles.includes(normalizedRole))
       .filter(section => !allowedSections || allowedSections.includes(section.key))
     return visible.length ? visible : [SECTIONS[0]]
   }, [allowedSections, normalizedRole])
   const isStandaloneView = standaloneMode || availableSections.length === 1
+  // Tools (AI, reports, settings, users) live in the top navbar when the app
+  // layout provides a header slot; otherwise they stay in the sidebar.
+  const headerNavSlot = useOutletContext()?.headerNavSlot || null
+  const sidebarSections = useMemo(
+    () => (headerNavSlot ? availableSections.filter(section => section.placement !== 'top') : availableSections),
+    [availableSections, headerNavSlot]
+  )
+  const topNavSections = useMemo(
+    () => (headerNavSlot ? availableSections.filter(section => section.placement === 'top').sort((a, b) => TOP_NAV_ORDER.indexOf(a.key) - TOP_NAV_ORDER.indexOf(b.key)) : []),
+    [availableSections, headerNavSlot]
+  )
 
   // ── Data loading ──────────────────────────────────────────────────────────
 
@@ -2717,7 +2717,6 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
   const customersDateFilter = sectionDateFilters.customers || EMPTY_DATE_RANGE
   const suppliersDateFilter = sectionDateFilters.suppliers || EMPTY_DATE_RANGE
   const accountsDateFilter = sectionDateFilters.accounts_pricing || EMPTY_DATE_RANGE
-  const reportingDateFilter = sectionDateFilters.reporting || EMPTY_DATE_RANGE
 
   const dashboardInvoices = useMemo(() => filterByDateRange(data.invoices, inv => inv.invoice_date, dashboardDateFilter), [data.invoices, dashboardDateFilter])
   const dashboardPayments = useMemo(() => filterByDateRange(data.payments, p => p.payment_date, dashboardDateFilter), [data.payments, dashboardDateFilter])
@@ -2751,6 +2750,28 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
   const supplierPurchasesFiltered = useMemo(() => filterByDateRange(data.purchases, p => p.purchase_date, suppliersDateFilter), [data.purchases, suppliersDateFilter])
   const accountTransactionsFiltered = useMemo(() => filterByDateRange(data.accountTransactions, e => e.transaction_date, accountsDateFilter), [data.accountTransactions, accountsDateFilter])
   const accountInvoicesFiltered = useMemo(() => filterByDateRange(data.invoices, inv => inv.invoice_date, accountsDateFilter), [data.invoices, accountsDateFilter])
+
+  // Treasury: wallet balances (always as of today) + period in/out for the Accounts date filter.
+  const treasuryInput = useMemo(() => {
+    const supplierByPurchase = new Map(data.purchases.map(p => [String(p.id), p.supplier_name || '']))
+    return {
+      payments: data.payments,
+      accountTransactions: data.accountTransactions,
+      purchasePayments: data.purchasePayments.map(pp => ({ ...pp, supplier_name: supplierByPurchase.get(String(pp.purchase)) || '' })),
+    }
+  }, [data.accountTransactions, data.payments, data.purchasePayments, data.purchases])
+  const treasuryToday = useMemo(() => buildTreasury(treasuryInput, null), [treasuryInput])
+  const treasuryDateFilter = sectionDateFilters.treasury || EMPTY_DATE_RANGE
+  const treasurySection = useMemo(() => buildTreasury(treasuryInput, hasDateRange(treasuryDateFilter) ? treasuryDateFilter : null), [treasuryInput, treasuryDateFilter])
+  const reportsContext = useMemo(() => ({
+    invoices: data.invoices,
+    payments: data.payments,
+    productionBatches: data.productionBatches,
+    accountTransactions: data.accountTransactions,
+    trialBalanceRows: data.trialBalanceReport?.rows || [],
+    rawMaterials: data.rawMaterials.map(m => ({ ...m, available: toNumber(m.opening_stock) + toNumber(m.stock_in) - toNumber(m.stock_out) })),
+    treasuryInput,
+  }), [data.accountTransactions, data.invoices, data.payments, data.productionBatches, data.rawMaterials, data.trialBalanceReport, treasuryInput])
 
   const salesFilterScope = `sales_hub:${sectionTabs.sales_hub || SECTION_DEFAULT_TABS.sales_hub}`
   const pricingFilterScope = `production_ops:${sectionTabs.production_ops || SECTION_DEFAULT_TABS.production_ops}`
@@ -3404,6 +3425,12 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
     if (activeModal === 'date_filter') setActiveModal('')
   }
 
+  function openTransferModal(from = 'Cash') {
+    setTransferForm(mkTransferForm(from))
+    setFB('transfer', '')
+    setActiveModal('transfer')
+  }
+
   function openModal(type, entity = null) {
     setActiveModal(type)
     setFB(type, '')
@@ -3923,6 +3950,33 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
     finally { setSub('account', false) }
   }
 
+  // Wallet → wallet transfer: one "transfers" account entry moves the money
+  // out of `payment_method` and into `category` (same as the trial balance).
+  async function handleTransferSubmit(e) {
+    e.preventDefault()
+    setSub('transfer', true); setFB('transfer', '')
+    try {
+      const amount = toNumber(transferForm.amount)
+      if (!transferForm.transaction_date) throw new Error('Transfer date is required.')
+      if (!transferForm.from || !transferForm.to) throw new Error('Choose the wallet to move money from and the wallet to move it to.')
+      if (transferForm.from === transferForm.to) throw new Error('The from and to wallets must be different.')
+      if (amount <= 0) throw new Error('Enter an amount greater than zero.')
+      await createAccountTransaction({
+        transaction_date: transferForm.transaction_date,
+        entry_type: 'transfers',
+        payment_method: transferForm.from,
+        category: transferForm.to,
+        amount: amount.toFixed(2),
+        description: transferForm.description.trim() || `Transfer from ${walletLabel(transferForm.from)} to ${walletLabel(transferForm.to)}`,
+        comments: transferForm.comments.trim(),
+      })
+      await refreshData()
+      setFB('transfer', '')
+      setActiveModal('')
+    } catch (err) { setFB('transfer', err.message || 'Transfer could not be saved.') }
+    finally { setSub('transfer', false) }
+  }
+
   async function handlePricingSubmit(e) {
     e.preventDefault()
     setSub('pricing', true); setFB('pricing', '')
@@ -4084,6 +4138,22 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
 
   // ── Row data ──────────────────────────────────────────────────────────────
 
+  const salesStatusCounts = SALES_STATUS_TABS.reduce((acc, tab) => {
+    acc[tab.key] = tab.key === 'all' ? filteredSalesInvoices.length : filteredSalesInvoices.filter(inv => getSalesStatusKey(inv) === tab.key).length
+    return acc
+  }, {})
+  const statusFilteredSalesInvoices = salesStatusTab === 'all'
+    ? filteredSalesInvoices
+    : filteredSalesInvoices.filter(inv => getSalesStatusKey(inv) === salesStatusTab)
+  const salesLineTotals = filteredSalesInvoices.filter(inv => !inv.is_sample_sale).reduce((acc, inv) => {
+    ;(inv.lines || []).forEach(line => {
+      acc.bottles += toNumber(line.quantity)
+      acc.litres += inferTotalLitres(line.product_size, line.quantity)
+    })
+    return acc
+  }, { bottles: 0, litres: 0 })
+  const salesBilledTotal = sumBy(filteredSalesInvoices, inv => inv.total_amount)
+  const salesCollectionRate = ratioPct(sumBy(filteredSalesPayments, p => p.amount), salesBilledTotal)
   const sampleSalesInvoices = filteredSalesInvoices.filter(invoice => invoice.is_sample_sale)
   const openingReceivableInvoices = filteredSalesInvoices.filter(isOpeningReceivableInvoice)
   const salesSummary      = [
@@ -4093,9 +4163,12 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
     { label: 'Outstanding', value: fmt(sumBy(filteredSalesInvoices, inv => getInvoiceOutstandingDue(inv))), note: `${filteredSalesInvoices.filter(i => getInvoiceOutstandingDue(i) > 0).length} unpaid` },
     { label: 'Test Sample Value', value: fmt(sumBy(sampleSalesInvoices, inv => inv.subtotal)), note: `${sampleSalesInvoices.length} sample invoices` },
     { label: 'Opening Receivables', value: fmt(sumBy(openingReceivableInvoices, inv => getInvoiceOutstandingDue(inv))), note: `${openingReceivableInvoices.filter(i => getInvoiceOutstandingDue(i) > 0).length} opening balances` },
+    { label: 'Collection Rate', value: `${salesCollectionRate.toFixed(1)}%`, note: 'Receipts collected vs sales billed' },
+    { label: 'Bottles Sold', value: fmtQ(salesLineTotals.bottles), note: 'Excludes sample invoices' },
+    { label: 'Litres Sold', value: `${fmtQ(Math.round(salesLineTotals.litres * 10) / 10)} L`, note: 'Bottle size × quantity' },
   ]
   const productionSummary = [
-    { label: 'Batches', value: String(productionBatchesFiltered.length), note: 'Production_Dtls' },
+    { label: 'Batches', value: String(productionBatchesFiltered.length), note: 'Batches recorded' },
     { label: 'RM Cost', value: fmt(sumBy(productionBatchesFiltered, b => b.total_raw_material_cost)), note: 'Material usage' },
     { label: 'Production Cost', value: fmt(sumBy(productionBatchesFiltered, b => getBatchOutputValue(b))), note: 'Finished goods value produced' },
     { label: 'Production Gain', value: fmt(sumBy(productionBatchesFiltered, b => getBatchProductionGain(b))), note: 'Output value less total cost' },
@@ -4103,10 +4176,10 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
     { label: 'Finished Goods Balance', value: fmt(sumBy(inventoryLedger, item => item.stockBalance)), note: 'Current finished goods value' },
   ]
   const suppliesSummary   = [
-    { label: 'Suppliers', value: String(data.suppliers.length), note: 'Supplier_Dtls' },
+    { label: 'Suppliers', value: String(data.suppliers.length), note: 'Suppliers on file' },
     { label: 'RM Balance Qty', value: fmtQ(sumBy(data.rawMaterials, material => material.stock_available)), note: 'Total raw material stock on hand' },
     { label: 'RM Balance Value', value: fmt(sumBy(data.rawMaterials, material => toNumber(material.stock_available) * toNumber(material.unit_price))), note: 'Current stock value on hand' },
-    { label: 'Raw Materials', value: String(data.rawMaterials.length), note: 'RawMaterials tracked' },
+    { label: 'Raw Materials', value: String(data.rawMaterials.length), note: 'Materials tracked' },
     { label: 'Purchases', value: fmt(sumBy(purchasesFiltered, p => p.total_amount)), note: `${purchasesFiltered.length} records` },
     { label: 'Supplier Due', value: fmt(sumBy(purchasesFiltered, p => getPurchaseOutstanding(p))), note: 'Open balances' },
   ]
@@ -4119,7 +4192,7 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
   ]
   const suppliersSummary  = [{ label: 'Suppliers', value: String(data.suppliers.length), note: 'Vendor records' }, { label: 'Purchases', value: fmt(sumBy(supplierPurchasesFiltered, p => p.total_amount)), note: `${supplierPurchasesFiltered.length} purchase records` }, { label: 'Paid', value: fmt(sumBy(supplierPurchasesFiltered, p => p.total_paid)), note: 'Total paid to suppliers' }, { label: 'Due', value: fmt(sumBy(filteredSupplierLedger, s => s.outstanding)), note: 'Outstanding payables' }]
   const accountsIncomeTotal = sumBy(accountInvoicesFiltered, invoice => invoice.total_amount) + sumBy(accountTransactionsFiltered.filter(e => e.entry_type === 'income'), e => e.amount)
-  const accountsSummary   = [{ label: 'Entries', value: String(accountTransactionsFiltered.length), note: 'Accounts_Dtls rows' }, { label: 'Income', value: fmt(accountsIncomeTotal), note: `${accountInvoicesFiltered.length} sales + other income` }, { label: 'Expenses', value: fmt(sumBy(accountTransactionsFiltered.filter(e => e.entry_type === 'expense'), e => e.amount)), note: 'Expense rows' }, { label: 'Pricing Rules', value: String(filteredPricingRules.length), note: 'Filtered pricing sheet' }]
+  const accountsSummary   = [{ label: 'Entries', value: String(accountTransactionsFiltered.length), note: 'Entries recorded' }, { label: 'Income', value: fmt(accountsIncomeTotal), note: `${accountInvoicesFiltered.length} sales + other income` }, { label: 'Expenses', value: fmt(sumBy(accountTransactionsFiltered.filter(e => e.entry_type === 'expense'), e => e.amount)), note: 'Expense entries' }, { label: 'Pricing Rules', value: String(filteredPricingRules.length), note: 'Price list entries' }]
   const mobilePrimarySections = availableSections
     .filter(section => ['dashboard', 'sales_hub', 'production_ops', 'customers'].includes(section.key))
     .map(section => section.key)
@@ -4147,7 +4220,7 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
     navigate('/login', { replace: true })
   }
 
-  const salesRows    = filteredSalesInvoices.map(inv => ({
+  const salesRows    = statusFilteredSalesInvoices.map(inv => ({
     key: inv.id,
     emphasisIndex: 3,
     cells: [
@@ -4325,7 +4398,55 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
     ],
   }))
   const pricingRows  = filteredPricingRules.map(r => ({ key: r.id, emphasisIndex: 3, cells: [r.product_name || r.size || '—', r.size, r.pricing_category_name || '—', fmt(r.price), ...(canManageDataEntryEditDelete ? [<button key="edit" type="button" className="workspace-action-btn" onClick={e => { e.stopPropagation(); openModal('pricing', r) }}>Edit</button>] : [])] }))
-  const exportTableDataset = async (fileName, columns, rows) => {
+  // Average production cost per bottle, by size, from every batch output.
+  const unitCostBySize = new Map()
+  data.productionBatches.forEach(b => (b.outputs || []).forEach(o => {
+    const key = normalizeSizeKey(o.product_size)
+    const qty = toNumber(o.quantity)
+    if (!key || qty <= 0) return
+    const agg = unitCostBySize.get(key) || { qty: 0, amount: 0 }
+    agg.qty += qty
+    agg.amount += toNumber(o.amount) || qty * toNumber(o.unit_cost)
+    unitCostBySize.set(key, agg)
+  }))
+  const pricingMatrixRows = filteredPricingRules.map(r => {
+    const agg = unitCostBySize.get(normalizeSizeKey(r.size))
+    const unitCost = agg && agg.qty > 0 ? agg.amount / agg.qty : null
+    const price = toNumber(r.price)
+    const margin = unitCost !== null && price > 0 ? ((price - unitCost) / price) * 100 : null
+    return {
+      key: r.id,
+      emphasisIndex: 2,
+      cells: [
+        r.size || r.product_name || '—',
+        r.pricing_category_name || '—',
+        fmt(r.price),
+        unitCost === null ? '—' : fmt(unitCost),
+        margin === null ? '—' : <span key="margin" style={{ color: margin < 0 ? '#dc2626' : undefined }}>{margin.toFixed(1)}%</span>,
+        ...(canManageDataEntryEditDelete ? [<button key="edit" type="button" className="workspace-action-btn" onClick={e => { e.stopPropagation(); openModal('pricing', r) }}>Edit</button>] : []),
+      ],
+    }
+  })
+  // Page-level export: Excel downloads one file per table; PDF prints all tables in one letterhead document.
+  const runPageExport = async (format, pageTitle, run) => {
+    if (format !== 'pdf') return run(exportTableDataset)
+    const tables = []
+    await run((name, columns, rows) => { tables.push({ name, columns, rows }) })
+    const pdfTables = tables.map(t => {
+      const keep = t.columns.map((c, i) => (String(c || '').trim() ? i : -1)).filter(i => i >= 0)
+      return {
+        heading: String(t.name).replace(/_/g, ' '),
+        columns: keep.map(i => t.columns[i]),
+        rows: (t.rows || []).map(row => keep.map(i => extractExportText(row?.cells?.[i]))),
+      }
+    })
+    printReport({ title: pageTitle, tables: pdfTables })
+  }
+  const exportTableDataset = async (fileName, columns, rows, format = 'xlsx') => {
+    if (format === 'pdf') {
+      printTablePdf(fileName, columns, rows)
+      return
+    }
     const exportRows = (rows || []).map(row => {
       const mapped = {}
       columns.forEach((column, index) => {
@@ -4773,48 +4894,6 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
   const totalLiability = sumBy(reportingLiabilityRows, row => row.available)
   const totalEquity = totalAssets + totalLiability
 
-  const reportingSummary = [
-    {
-      label: 'Total Sales / Income',
-      value: fmt(totalIncome),
-      note: `Period from ${data.trialBalanceReport?.period_start || TRIAL_BALANCE_PERIOD_START}`,
-    },
-    {
-      label: 'Direct Cost',
-      value: fmt(totalCostOfSales),
-      note: 'Direct production and inventory cost impact',
-    },
-    {
-      label: 'Gross Profit / Loss',
-      value: fmt(grossProfitOrLoss),
-      note: 'Income plus direct cost from reporting',
-    },
-    {
-      label: 'Total Expenses',
-      value: fmt(totalExpenses),
-      note: `Operating expenses since ${data.trialBalanceReport?.expense_start || TRIAL_BALANCE_EXPENSE_START}`,
-    },
-    {
-      label: 'Net Profit / Loss',
-      value: fmt(netProfitOrLoss),
-      note: 'Gross profit plus expenses from reporting',
-    },
-    {
-      label: 'Total Assets',
-      value: fmt(totalAssets),
-      note: '(Receivables, Cash equivalents, Inventory)',
-    },
-    {
-      label: 'Total Liabilities',
-      value: fmt(totalLiability),
-      note: '(Payables, Other payables)',
-    },
-    {
-      label: 'Total Equity',
-      value: fmt(totalEquity),
-      note: 'Assets plus liabilities',
-    },
-  ]
 
   const trialBalanceRows = data.trialBalanceReport?.rows?.length
     ? data.trialBalanceReport.rows
@@ -4924,8 +5003,16 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
     'customers',
     'suppliers',
     'accounts_pricing',
-    'reporting',
+    'treasury',
   ])
+  // Prints a customer statement from a dashboard row (rows carry the customer name).
+  const printStatementFor = item => {
+    const customer = data.customers.find(c => c.name === item.title) || data.customers.find(c => String(c.id) === String(item.id))
+    if (!customer) return
+    const invoices = data.invoices.filter(inv => String(inv.customer) === String(customer.id))
+    const invoiceIds = new Set(invoices.map(inv => String(inv.id)))
+    printCustomerStatement(customer, invoices, data.payments.filter(p => invoiceIds.has(String(p.invoice))))
+  }
   const canAccessSection = (sectionKey) => availableSections.some(section => section.key === sectionKey)
   const jumpToSection = (sectionKey, tabKey = null) => {
     if (!canAccessSection(sectionKey)) return
@@ -5008,7 +5095,11 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
       )
       if (activeSection === 'reporting') return (
         <>
-          <SummaryGridSkeleton />
+          <section className="ro-card ro-card-skeleton" aria-hidden="true">
+            <SkeletonLine className="dashboard-skeleton-title" />
+            <SkeletonLine className="dashboard-skeleton-value" />
+            <SkeletonLine className="dashboard-skeleton-value" />
+          </section>
           <TableCardSkeleton title="Trial Balance" columns={10} rows={10} />
         </>
       )
@@ -5023,23 +5114,22 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
 
     if (activeSection === 'dashboard') return (
       <>
-        <DateFilterControl range={dashboardDateFilter} onOpen={openDateFilter} onClear={() => clearDateFilter('dashboard')} onPresetSelect={preset => applyQuickDatePreset('dashboard', preset)} activePreset={sectionDatePresets.dashboard || ''} inlineTitle="Dashboard" hideInlineTitle={isStandaloneView} onExport={async () => {
-          const rows = (dashboardContent.plStatement || []).map(item => ({ id: item.id, cells: [item.title, item.meta, item.value] }))
-          await exportTableDataset('Dashboard_PL_Statement', ['Metric', 'Notes', 'Value'], rows)
-        }} />
-        <SummaryGrid items={dashboardContent.metrics} />
+        <SalesOverview
+          invoices={data.invoices}
+          payments={data.payments}
+          customers={data.customers}
+          productionBatches={data.productionBatches}
+          inventoryLedger={inventoryLedger}
+          rawMaterials={lowStockRows}
+          treasury={canAccessSection('accounts_pricing') ? treasuryToday : null}
+          range={dashboardDateFilter}
+          activePreset={sectionDatePresets.dashboard || ''}
+          onPresetSelect={preset => (preset ? applyQuickDatePreset('dashboard', preset) : clearDateFilter('dashboard'))}
+          onCustomRange={openDateFilter}
+          onExport={exportTableDataset}
+          onNavigate={jumpToSection}
+        />
         <section className="dashboard-snippet-grid dashboard-snippet-grid-hero">
-          <TrendChartCard
-            title="Sales vs Receipts"
-            subtitle="Last six months of invoices booked against cash collected."
-            points={dashboardContent.monthlyTrend}
-            actionLabel="Open Sales"
-            onAction={() => jumpToSection('sales_hub', 'sales_list')}
-            legend={[
-              { label: 'Sales', tone: 'tone-sales' },
-              { label: 'Receipts', tone: 'tone-expense' },
-            ]}
-          />
           <DonutBreakdownCard
             title="Invoice Status Mix"
             subtitle="Current invoice book split by collection state."
@@ -5049,8 +5139,6 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
             actionLabel="View Invoices"
             onAction={() => jumpToSection('sales_hub', 'sales_list')}
           />
-        </section>
-        <section className="dashboard-snippet-grid dashboard-snippet-grid-hero">
           <DonutBreakdownCard
             title="Payment Method Mix"
             subtitle="How cash is coming in across recorded payments."
@@ -5060,27 +5148,15 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
             actionLabel="View Receipts"
             onAction={() => jumpToSection('sales_hub', 'recent_receipts')}
           />
-          <MeterCard
-            title="Business Health"
-            subtitle="A quick operating read from collections, margin, ticket size, and stock pressure."
-            rows={dashboardContent.dashboardSignals}
-            actionLabel="Open Reporting"
-            onAction={() => jumpToSection('reporting')}
-          />
         </section>
-        <DashboardCardCarousel className="dashboard-snippet-grid-compact">
-          <SnippetCard title="Top Customers by Value"  rows={dashboardContent.topCustomers} actionLabel="Open Customers" onAction={() => jumpToSection('customers', 'customers')} />
-          <SnippetCard title="Top Products Sold"       rows={dashboardContent.topProducts} actionLabel="Open Inventory" onAction={() => jumpToSection('production_ops', 'inventory')} />
-          <SnippetCard title="Raw Materials Status"    rows={dashboardContent.rawMaterials} actionLabel="Open Materials" onAction={() => jumpToSection('supplies_stock', 'materials')} />
-          <SnippetCard title="Finished Goods Status"   rows={dashboardContent.finishedGoods} actionLabel="Open Stock" onAction={() => jumpToSection('production_ops', 'inventory')} />
-        </DashboardCardCarousel>
+        <h2 className="dashboard-section-heading">Financial position</h2>
         <DashboardCardCarousel className="dashboard-snippet-grid-compact sales-history-grid">
           <SnippetCard title="P&L Statement (YTD)"     rows={dashboardContent.plStatement} actionLabel="Open Reporting" onAction={() => jumpToSection('reporting')} />
           <SnippetCard title="Assets"                  rows={dashboardContent.assetsSummary} actionLabel="Open Reporting" onAction={() => jumpToSection('reporting')} />
           <SnippetCard title="Liability"               rows={dashboardContent.liabilitySummary} actionLabel="Open Reporting" onAction={() => jumpToSection('reporting')} />
           <SnippetCard title="Equity"                  rows={dashboardContent.equitySummary} actionLabel="Open Reporting" onAction={() => jumpToSection('reporting')} />
           <SnippetCard title="Balance Sheet"           rows={dashboardContent.balanceSheet} actionLabel="Open Reporting" onAction={() => jumpToSection('reporting')} />
-          <SnippetCard title="Top 5 Receivables"       rows={dashboardContent.receivables} actionLabel="Open Receivables" onAction={() => jumpToSection('customers', 'receivables')} />
+          <SnippetCard title="Top 5 Receivables"       rows={dashboardContent.receivables} actionLabel="Open Receivables" onAction={() => jumpToSection('receivables')} rowAction={{ label: 'Statement', onClick: printStatementFor }} />
           <SnippetCard title="Open Invoices"           rows={dashboardContent.openInvoices} actionLabel="Open Sales" onAction={() => jumpToSection('sales_hub', 'sales_list')} />
         </DashboardCardCarousel>
       </>
@@ -5088,9 +5164,9 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
 
     if (activeSection === 'sales_hub') return (
       <>
-        <DateFilterControl range={salesDateFilter} onOpen={openDateFilter} onClear={() => clearDateFilter('sales_hub')} onPresetSelect={preset => applyQuickDatePreset('sales_hub', preset)} activePreset={sectionDatePresets.sales_hub || ''} inlineTitle="Sales Hub" hideInlineTitle={isStandaloneView} onExport={async () => {
+        <DateFilterControl range={salesDateFilter} onOpen={openDateFilter} onClear={() => clearDateFilter('sales_hub')} onPresetSelect={preset => applyQuickDatePreset('sales_hub', preset)} activePreset={sectionDatePresets.sales_hub || ''} inlineTitle="Sales Hub" hideInlineTitle={isStandaloneView} onExport={format => runPageExport(format, 'Sales Hub', async exportTableDataset => {
           await exportTableDataset('Sales_List', ['Date', 'Invoice', 'Customer', 'Total', 'Paid', 'Outstanding'], salesRows)
-        }} />
+        })} />
         <WorkspaceToolbar
           className="workspace-toolbar-sales"
           title=""
@@ -5123,6 +5199,22 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
           ))}
         </section>
         {getSectionTab('sales_hub') === 'sales_list' && (
+          <div className="sales-status-chips" role="group" aria-label="Filter sales by payment status">
+            {SALES_STATUS_TABS.map(tab => (
+              <button
+                key={tab.key}
+                type="button"
+                className={`sales-status-chip sales-status-chip-${tab.key}${salesStatusTab === tab.key ? ' active' : ''}`}
+                aria-pressed={salesStatusTab === tab.key}
+                onClick={() => setSalesStatusTab(tab.key)}
+              >
+                <span>{tab.label}</span>
+                <strong>{salesStatusCounts[tab.key] || 0}</strong>
+              </button>
+            ))}
+          </div>
+        )}
+        {getSectionTab('sales_hub') === 'sales_list' && (
           <TableCard
             title="Sales List"
             subtitle="Mirrors Sales, Sales_Dtls, and Invoice workbook rows."
@@ -5147,7 +5239,7 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
 
     if (activeSection === 'production_ops') return (
       <>
-        <DateFilterControl range={productionDateFilter} onOpen={openDateFilter} onClear={() => clearDateFilter('production_ops')} onPresetSelect={preset => applyQuickDatePreset('production_ops', preset)} activePreset={sectionDatePresets.production_ops || ''} inlineTitle="Production Ops" hideInlineTitle={isStandaloneView} onExport={async () => {
+        <DateFilterControl range={productionDateFilter} onOpen={openDateFilter} onClear={() => clearDateFilter('production_ops')} onPresetSelect={preset => applyQuickDatePreset('production_ops', preset)} activePreset={sectionDatePresets.production_ops || ''} inlineTitle="Production Ops" hideInlineTitle={isStandaloneView} onExport={format => runPageExport(format, 'Production Ops', async exportTableDataset => {
           const activeProductionTab = getSectionTab('production_ops')
           const isInventoryTab = activeProductionTab === 'inventory'
           const isPricingTab = activeProductionTab === 'pricing'
@@ -5160,7 +5252,7 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
             return
           }
           await exportTableDataset('Production_Batches', ['Date', 'Batch Number', 'Expiry Date', 'Outputs', 'Production Cost', 'Total Cost', 'Production Gain'], batchRows)
-        }} />
+        })} />
         <WorkspaceToolbar
           className="workspace-toolbar-production"
           title=""
@@ -5213,6 +5305,28 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
             onSearch={v => setSearch('inventory', v)}
           />
         )}
+        {getSectionTab('production_ops') === 'planner' && (
+          <ProductionPlanner
+            rawMaterials={lowStockRows}
+            pricingRules={data.pricingRules}
+            isProductionPrice={isProductionPricingCategory}
+            onLoadIntoBatch={({ usages, overheads, note }) => {
+              openModal('batch')
+              const byName = new Map(Object.entries(usages).map(([name, qty]) => [name.trim().toLowerCase(), qty]))
+              setBatchForm(form => ({
+                ...form,
+                electricityCost: String(overheads.electricity),
+                gasCost: String(overheads.gas),
+                productionWages: String(overheads.wages),
+                notes: note,
+                usages: form.usages.map(u => {
+                  const qty = byName.get(String(u.materialName || '').trim().toLowerCase())
+                  return qty ? { ...u, quantityUsed: String(qty) } : u
+                }),
+              }))
+            }}
+          />
+        )}
         {getSectionTab('production_ops') === 'pricing' && (
           <>
             <FilterSelectRow
@@ -5240,14 +5354,14 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
 
     if (activeSection === 'supplies_stock') return (
       <>
-        <DateFilterControl range={suppliesDateFilter} onOpen={openDateFilter} onClear={() => clearDateFilter('supplies_stock')} onPresetSelect={preset => applyQuickDatePreset('supplies_stock', preset)} activePreset={sectionDatePresets.supplies_stock || ''} inlineTitle="Supplies & Stock" hideInlineTitle={isStandaloneView} onExport={async () => {
+        <DateFilterControl range={suppliesDateFilter} onOpen={openDateFilter} onClear={() => clearDateFilter('supplies_stock')} onPresetSelect={preset => applyQuickDatePreset('supplies_stock', preset)} activePreset={sectionDatePresets.supplies_stock || ''} inlineTitle="Supplies & Stock" hideInlineTitle={isStandaloneView} onExport={format => runPageExport(format, 'Supplies & Stock', async exportTableDataset => {
           const tab = getSectionTab('supplies_stock')
           if (tab === 'materials') {
             await exportTableDataset('Raw_Materials', ['Material', 'Category', 'Unit', 'Opening', 'Stock In', 'Stock Out', 'Available', 'RM Balance Value', 'Reorder', 'Status'], materialRows)
             return
           }
           await exportTableDataset('Purchase_Register', ['Date', '#', 'Supplier', 'Category', 'Status', 'Paid', 'Outstanding'], purchaseRows)
-        }} />
+        })} />
         <SummaryGrid items={suppliesSummary} />
         <WorkspaceToolbar
           className="workspace-toolbar-supplies"
@@ -5303,9 +5417,9 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
 
     if (activeSection === 'customers') return (
       <>
-        <DateFilterControl range={customersDateFilter} onOpen={openDateFilter} onClear={() => clearDateFilter('customers')} onPresetSelect={preset => applyQuickDatePreset('customers', preset)} activePreset={sectionDatePresets.customers || ''} inlineTitle="Customers" hideInlineTitle={isStandaloneView} onExport={async () => {
+        <DateFilterControl range={customersDateFilter} onOpen={openDateFilter} onClear={() => clearDateFilter('customers')} onPresetSelect={preset => applyQuickDatePreset('customers', preset)} activePreset={sectionDatePresets.customers || ''} inlineTitle="Customers" hideInlineTitle={isStandaloneView} onExport={format => runPageExport(format, 'Customers', async exportTableDataset => {
           await exportTableDataset('Customers', ['Customer', 'Phone', 'Invoices', 'Total Billed', 'Paid', 'Outstanding'], customerRows)
-        }} />
+        })} />
         <SummaryGrid items={customersSummary} />
         <WorkspaceToolbar
           className="workspace-toolbar-customers"
@@ -5313,7 +5427,7 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
           subtitle=""
           actions={<button type="button" className="account-alert-button account-alert-button-dark" onClick={() => openModal('customer')}>Add Customer</button>}
         />
-        <section className="workspace-inline-tabs" role="tablist" aria-label="Customers page tabs">
+        {SECTION_TABS.customers.length > 1 ? <section className="workspace-inline-tabs" role="tablist" aria-label="Customers page tabs">
           {SECTION_TABS.customers.map(tab => (
             <button
               key={tab.key}
@@ -5326,7 +5440,7 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
               {tab.label}
             </button>
           ))}
-        </section>
+        </section> : null}
         {getSectionTab('customers') === 'customers' && (
           <TableCard
             title="Customers"
@@ -5339,24 +5453,14 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
             onRowClick={id => setSelectedCustomer(customerLedger.find(c => c.id === id) || null)}
           />
         )}
-        {getSectionTab('customers') === 'receivables' && (
-          <SnippetCard
-            title="Top Receivables"
-            rows={clampRows(filteredCustomerLedger.filter(c => c.outstanding > 0)).map(c => ({ id: c.id, title: c.name, meta: `${c.invoiceCount} invoices`, value: fmt(c.outstanding) }))}
-            onItemClick={id => {
-              const customer = customerLedger.find(c => c.id === id)
-              if (customer) openModal('customer', customer)
-            }}
-          />
-        )}
       </>
     )
 
     if (activeSection === 'suppliers') return (
       <>
-        <DateFilterControl range={suppliersDateFilter} onOpen={openDateFilter} onClear={() => clearDateFilter('suppliers')} onPresetSelect={preset => applyQuickDatePreset('suppliers', preset)} activePreset={sectionDatePresets.suppliers || ''} inlineTitle="Suppliers" hideInlineTitle={isStandaloneView} onExport={async () => {
+        <DateFilterControl range={suppliersDateFilter} onOpen={openDateFilter} onClear={() => clearDateFilter('suppliers')} onPresetSelect={preset => applyQuickDatePreset('suppliers', preset)} activePreset={sectionDatePresets.suppliers || ''} inlineTitle="Suppliers" hideInlineTitle={isStandaloneView} onExport={format => runPageExport(format, 'Suppliers', async exportTableDataset => {
           await exportTableDataset('Suppliers', ['Supplier', 'Material', 'Item Category', 'Purchases', 'Paid', 'Outstanding'], supplierRows)
-        }} />
+        })} />
         <SummaryGrid items={suppliersSummary} />
         <WorkspaceToolbar
           className="workspace-toolbar-suppliers"
@@ -5419,13 +5523,109 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
       />
     )
 
+    if (activeSection === 'receivables') return (
+      <>
+        {(
+          <ReceivablesInsights
+            invoices={data.invoices}
+            customers={data.customers}
+            accountTransactions={data.accountTransactions}
+            onOpenCustomer={id => {
+              const customer = data.customers.find(c => String(c.id) === String(id))
+              if (customer) setSelectedCustomer(customer)
+            }}
+            onStatement={row => printStatementFor({ title: row.name, id: row.id })}
+            onExport={exportTableDataset}
+          />
+        )}
+      </>
+    )
+
+    if (activeSection === 'treasury') return (
+      <>
+        <DateFilterControl range={treasuryDateFilter} onOpen={openDateFilter} onClear={() => clearDateFilter('treasury')} onPresetSelect={preset => applyQuickDatePreset('treasury', preset)} activePreset={sectionDatePresets.treasury || ''} inlineTitle="Cashbook & Treasury" hideInlineTitle={isStandaloneView} onExport={format => runPageExport(format, 'Cashbook & Treasury', async exportTableDataset => {
+          await exportTableDataset('Wallet_Balances', ['Wallet', 'Money in', 'Money out', 'Balance today'], treasurySection.wallets.map(w => ({ id: w.key, cells: [w.label, fmt(w.periodIn), fmt(w.periodOut), fmt(w.balance)] })))
+        })} />
+        <TreasuryPanel
+          treasury={treasurySection}
+          isPeriodFiltered={hasDateRange(treasuryDateFilter)}
+          periodLabel={summarizeDateRange(treasuryDateFilter)}
+          onTransfer={() => openTransferModal()}
+        />
+      </>
+    )
+
+    if (activeSection === 'reconciliation') return (
+      <StockCount
+        treasury={treasuryToday}
+        invoices={data.invoices}
+        otherReceivablesBalance={buildAccountLedger('Other Receivables', data.accountTransactions).balance}
+        inventoryLedger={inventoryLedger}
+        rawMaterials={lowStockRows}
+        productionBatches={data.productionBatches}
+        onExport={exportTableDataset}
+        defaultAuditor={user?.name || ''}
+      />
+    )
+
+    if (activeSection === 'reports') return (
+      <ReportsCenter context={{ ...reportsContext, inventoryLedger }} onExport={exportTableDataset} />
+    )
+
+    if (activeSection === 'ai_copilot') return (
+      <AiCopilot
+        invoices={data.invoices}
+        customers={data.customers}
+        treasury={canAccessSection('treasury') ? treasuryToday : null}
+        inventoryLedger={inventoryLedger}
+        rawMaterials={lowStockRows}
+        productionBatches={data.productionBatches}
+        trialBalanceRows={data.trialBalanceReport?.rows || []}
+      />
+    )
+
+    if (activeSection === 'settings') return (
+      <>
+        <WorkspaceToolbar
+          className="workspace-toolbar-settings"
+          title=""
+          subtitle=""
+          actions={<button type="button" className="account-alert-button account-alert-button-dark" onClick={() => openModal('pricing')}>Add Pricing Rule</button>}
+        />
+        <TableCard
+          title="Pricing Rules"
+          subtitle="Selling price per bottle size and pricing category, against the average production cost per bottle."
+          columns={canManageDataEntryEditDelete ? ['Size', 'Pricing Category', 'Selling Price', 'Unit Production Cost', 'Gross Margin', ''] : ['Size', 'Pricing Category', 'Selling Price', 'Unit Production Cost', 'Gross Margin']}
+          colWidths={['130px', '220px', '140px', '180px', '130px', '90px']}
+          rows={pricingMatrixRows}
+          search={searchTerms.pricing}
+          onSearch={v => setSearch('pricing', v)}
+          defaultRowsPerPage={20}
+        />
+        <DocumentSettings />
+      </>
+    )
+
     if (activeSection === 'reporting') return (
       <>
-        <DateFilterControl range={reportingDateFilter} onOpen={openDateFilter} onClear={() => clearDateFilter('reporting')} onPresetSelect={preset => applyQuickDatePreset('reporting', preset)} activePreset={sectionDatePresets.reporting || ''} inlineTitle="Reporting" hideInlineTitle={isStandaloneView} onExport={async () => {
-          await exportTableDataset('Trial_Balance', ['Account ID', 'Account Type', 'Account Class', 'Sub-Accounts', 'Account Description', 'Opening Bal', 'Acct In', 'Acct Out', 'Available'], compactTrialBalanceRows)
-        }} />
-        <SummaryGrid items={reportingSummary} className="reporting-summary-grid" />
-        <TableCard
+        <ReportingOverview
+          pl={{ income: totalIncome, directCost: totalCostOfSales, gross: grossProfitOrLoss, expenses: totalExpenses, net: netProfitOrLoss }}
+          position={{ assets: totalAssets, liabilities: totalLiability, equity: totalEquity }}
+          periodNote={`Trial balance period from ${data.trialBalanceReport?.period_start || TRIAL_BALANCE_PERIOD_START} · operating expenses since ${data.trialBalanceReport?.expense_start || TRIAL_BALANCE_EXPENSE_START}`}
+          tabs={[]}
+          activeTab={getSectionTab('reporting')}
+          onTab={key => setSectionTab('reporting', key)}
+          actions={(
+            <button
+              type="button"
+              className="ro-btn"
+              onClick={() => exportTableDataset('Trial_Balance', ['Account ID', 'Account Type', 'Account Class', 'Sub-Accounts', 'Account Description', 'Opening Bal', 'Acct In', 'Acct Out', 'Available'], compactTrialBalanceRows)}
+            >
+              <FiDownload aria-hidden="true" /> Export XLSX
+            </button>
+          )}
+        />
+        {<TableCard
           title="Trial Balance"
           subtitle={`Workbook column structure reproduced with period logic from ${TRIAL_BALANCE_PERIOD_START} (expenses baseline ${TRIAL_BALANCE_EXPENSE_START}). Click a row to view transaction detail.`}
           columns={['Account ID', 'Account Type', 'Account Class', 'Sub-Accounts', 'Account Description', 'Opening Bal', 'Acct In', 'Acct Out', 'Available']}
@@ -5436,21 +5636,24 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
           onSearch={v => setSearch('trial_balance', v)}
           onRowClick={openTrialBalanceDetail}
           defaultRowsPerPage={20}
-        />
+        />}
       </>
     )
 
     return (
       <>
-        <DateFilterControl range={accountsDateFilter} onOpen={openDateFilter} onClear={() => clearDateFilter('accounts_pricing')} onPresetSelect={preset => applyQuickDatePreset('accounts_pricing', preset)} activePreset={sectionDatePresets.accounts_pricing || ''} inlineTitle="Accounts" hideInlineTitle={isStandaloneView} onExport={async () => {
+        <DateFilterControl range={accountsDateFilter} onOpen={openDateFilter} onClear={() => clearDateFilter('accounts_pricing')} onPresetSelect={preset => applyQuickDatePreset('accounts_pricing', preset)} activePreset={sectionDatePresets.accounts_pricing || ''} inlineTitle="Accounts" hideInlineTitle={isStandaloneView} onExport={format => runPageExport(format, 'Accounts', async exportTableDataset => {
           await exportTableDataset('Account_Entries', ['Date', 'Transaction ID', 'Type', 'Category', 'Description', 'Amount', 'Payment Account', 'Comments'], accountRows)
-        }} />
+        })} />
         <SummaryGrid items={accountsSummary} />
         <WorkspaceToolbar
           className="workspace-toolbar-accounts"
           title=""
           subtitle=""
-          actions={<button type="button" className="account-alert-button account-alert-button-dark"  onClick={() => openModal('account')}>Add Account Entry</button>}
+          actions={<>
+            <button type="button" className="account-alert-button account-alert-button-light" onClick={() => openTransferModal()}>Transfer Money</button>
+            <button type="button" className="account-alert-button account-alert-button-dark"  onClick={() => openModal('account')}>Add Account Entry</button>
+          </>}
         />
         <TableCard
           className="account-entries-table-card"
@@ -5552,14 +5755,35 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
         {!isStandaloneView ? (
           <aside className="account-side-nav">
             <nav className="account-nav-list" aria-label="Workbook sections">
-              {availableSections.map(s => (
-                <button key={s.key} type="button" className={`account-nav-item ${s.key === activeSection ? 'active' : ''}`} onClick={() => handleSectionSelect(s.key)}>
-                  <span className="account-nav-icon"><NavIcon type={s.icon} /></span>
-                  <span>{s.label}</span>
-                </button>
+              {sidebarSections.map((s, i) => (
+                <div key={s.key} className="account-nav-entry">
+                  {s.group && s.group !== sidebarSections[i - 1]?.group ? <span className="account-nav-group">{s.group}</span> : null}
+                  <button type="button" className={`account-nav-item ${s.key === activeSection ? 'active' : ''}`} aria-current={s.key === activeSection ? 'page' : undefined} onClick={() => handleSectionSelect(s.key)}>
+                    <span className="account-nav-icon"><NavIcon type={s.icon} /></span>
+                    <span className="account-nav-label">{s.label}</span>
+                  </button>
+                </div>
               ))}
             </nav>
           </aside>
+        ) : null}
+        {headerNavSlot && topNavSections.length && !isStandaloneView ? createPortal(
+          <nav className="top-nav" aria-label="Tools">
+            {topNavSections.map(s => (
+              <button
+                key={s.key}
+                type="button"
+                className={`top-nav-item top-nav-item-${s.key}${s.key === activeSection ? ' is-active' : ''}`}
+                aria-current={s.key === activeSection ? 'page' : undefined}
+                onClick={() => handleSectionSelect(s.key)}
+                title={s.label}
+              >
+                <span className="top-nav-icon"><NavIcon type={s.icon} /></span>
+                <span className="top-nav-label">{s.navLabel || s.label}</span>
+              </button>
+            ))}
+          </nav>,
+          headerNavSlot
         ) : null}
         <section ref={accountContentRef} className={`account-content${isStandaloneView ? ' account-content-standalone' : ''}`}>
           {(isStandaloneView || !sectionsWithInlineHeader.has(activeSection)) ? (
@@ -6634,6 +6858,58 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
         </ModalShell>
       )}
 
+      {/* ── WALLET TRANSFER MODAL ── */}
+      {activeModal === 'transfer' && (() => {
+        const walletOptions = WALLETS.map(w => ({ value: w.key, label: w.label }))
+        const fromWallet = treasuryToday.wallets.find(w => w.key === transferForm.from)
+        const toWallet = treasuryToday.wallets.find(w => w.key === transferForm.to)
+        const amount = toNumber(transferForm.amount)
+        const overdraw = fromWallet && amount > 0 && amount > fromWallet.balance
+        return (
+          <ModalShell kicker="Plus Treat Treasury" title="Transfer Money" subtitle="Move money between wallets. One entry updates both balances." onClose={() => setActiveModal('')}>
+            <form className="sales-form" onSubmit={handleTransferSubmit}>
+              <div className="sales-form-grid">
+                <label className="sales-field"><span>Transfer Date *</span><input type="date" value={transferForm.transaction_date} onChange={e => setTransferForm(c => ({ ...c, transaction_date: e.target.value }))} /></label>
+                <label className="sales-field"><span>Amount *</span><input type="number" min="0" step="0.01" value={transferForm.amount} onChange={e => setTransferForm(c => ({ ...c, amount: e.target.value }))} /></label>
+                <label className="sales-field"><span>From Wallet *</span>
+                  <AppSelect
+                    ariaLabel="From wallet"
+                    options={walletOptions}
+                    value={transferForm.from}
+                    onChange={value => setTransferForm(c => ({ ...c, from: value, to: c.to === value ? '' : c.to }))}
+                    isRequired
+                  />
+                </label>
+                <label className="sales-field"><span>To Wallet *</span>
+                  <AppSelect
+                    ariaLabel="To wallet"
+                    options={walletOptions.filter(o => o.value !== transferForm.from)}
+                    value={transferForm.to}
+                    onChange={value => setTransferForm(c => ({ ...c, to: value }))}
+                    placeholder="— Select wallet —"
+                    isRequired
+                  />
+                </label>
+                <label className="sales-field"><span>Description</span><input type="text" placeholder={`Transfer from ${walletLabel(transferForm.from)}${transferForm.to ? ` to ${walletLabel(transferForm.to)}` : ''}`} value={transferForm.description} onChange={e => setTransferForm(c => ({ ...c, description: e.target.value }))} /></label>
+                <label className="sales-field"><span>Comments</span><input type="text" value={transferForm.comments} onChange={e => setTransferForm(c => ({ ...c, comments: e.target.value }))} /></label>
+                {fromWallet ? (
+                  <div className="tr-transfer-preview" aria-live="polite">
+                    <div><span>{fromWallet.label} after transfer</span><strong>{fmt(fromWallet.balance - amount)}</strong></div>
+                    <span className="tr-arrow" aria-hidden="true">→</span>
+                    <div><span>{toWallet ? `${toWallet.label} after transfer` : 'Choose the receiving wallet'}</span><strong>{toWallet ? fmt(toWallet.balance + amount) : '—'}</strong></div>
+                  </div>
+                ) : null}
+                {overdraw ? <p className="tr-transfer-warning">! This is more than the {fromWallet.label} balance ({fmt(fromWallet.balance)}). You can still save it if the wallet holds money not yet recorded.</p> : null}
+              </div>
+              <div className="sales-form-actions">
+                <button type="submit" className="account-alert-button account-alert-button-light" disabled={submitting.transfer}>{submitting.transfer ? 'Saving…' : 'Save Transfer'}</button>
+              </div>
+              {feedback.transfer ? <p className="sales-form-message">{feedback.transfer}</p> : null}
+            </form>
+          </ModalShell>
+        )
+      })()}
+
       {/* ── PRICING MODAL ── */}
       {activeModal === 'pricing' && (
         <ModalShell kicker="Plus Treat Pricing" title={pricingForm._editId ? 'Edit Pricing Rule' : 'New Pricing Rule'} onClose={() => setActiveModal('')}>
@@ -6738,6 +7014,15 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
                 </div>
               )}
             </div>
+            <div className="sales-form-actions" style={{ marginTop: '12px' }}>
+              <button
+                type="button"
+                className="account-alert-button account-alert-button-light"
+                onClick={() => printReceipt(selectedReceipt, { invoice: inv, customer: data.customers.find(c => String(c.id) === String(inv?.customer)) })}
+              >
+                Print Receipt
+              </button>
+            </div>
             {selectedReceipt.receipt_download_url && (
               <div className="sales-form-actions" style={{ marginTop: "12px" }}>
                 <a
@@ -6779,6 +7064,15 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
             stat={fmtStatus(collectionState)}
             onClose={() => setSelectedInvoice(null)}
           >
+            <div className="sales-form-actions" style={{ marginBottom: '12px' }}>
+              <button
+                type="button"
+                className="account-alert-button account-alert-button-light"
+                onClick={() => printInvoice(inv, { customer: data.customers.find(c => String(c.id) === String(inv.customer)) })}
+              >
+                Print Invoice
+              </button>
+            </div>
             {canManageSalesTransactions ? (
               <div className="sales-form-actions" style={{ marginBottom: '12px' }}>
                 <button
@@ -7765,6 +8059,7 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
             </div>
             <div className="detail-modal-section" style={{ paddingTop: 0 }}>
               <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                <button type="button" className="account-alert-button account-alert-button-light" style={{ marginRight: '8px' }} onClick={() => printCustomerStatement(selectedCustomer, custInvoices, custPayments)}>Print Statement</button>
                 <button type="button" className="account-alert-button account-alert-button-dark" onClick={() => { setSelectedCustomer(null); openModal('customer', selectedCustomer) }}>Edit Customer</button>
               </div>
             </div>

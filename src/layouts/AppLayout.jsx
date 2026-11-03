@@ -21,6 +21,7 @@ function AppLayout() {
   const [isSavingProfile, setIsSavingProfile] = useState(false)
   const [profileError, setProfileError] = useState('')
   const [profileSuccess, setProfileSuccess] = useState(false)
+  const [headerNavSlot, setHeaderNavSlot] = useState(null)
   const menuRef = useRef(null)
 
   useEffect(() => {
@@ -109,6 +110,8 @@ function AppLayout() {
         <div className="app-layout-brand">
           <img src={plusLogo} alt="Plus Treat logo" className="app-layout-logo" />
         </div>
+
+        <div className="app-layout-header-nav" ref={setHeaderNavSlot} />
 
         <div className="app-layout-user" ref={menuRef}>
           <button
@@ -202,7 +205,7 @@ function AppLayout() {
         </div>
       ) : null}
 
-      <Outlet />
+      <Outlet context={{ headerNavSlot }} />
     </div>
   )
 }

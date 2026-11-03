@@ -1,7 +1,25 @@
 import { createContext, useContext, useEffect, useMemo, useState } from 'react'
-import { getMe, loginUser, logoutUser, setStoredToken } from '../lib/api'
+import { getMe, getStoredToken, loginUser, logoutUser, setStoredToken } from '../lib/api'
 
 const AuthContext = createContext(null)
+
+// The signed-in user is cached next to the token so a page refresh can render
+// straight away instead of waiting (blank) for /auth/me to come back.
+const SESSION_USER_KEY = 'plusTreatUser'
+
+function readCachedUser() {
+  if (!getStoredToken()) return null
+  try {
+    return JSON.parse(localStorage.getItem(SESSION_USER_KEY) || 'null')
+  } catch {
+    return null
+  }
+}
+
+function cacheUser(user) {
+  if (user) localStorage.setItem(SESSION_USER_KEY, JSON.stringify(user))
+  else localStorage.removeItem(SESSION_USER_KEY)
+}
 
 function buildSessionUser(data) {
   const profile = data?.profile || {}
@@ -21,15 +39,25 @@ function buildSessionUser(data) {
 }
 
 export function AuthProvider({ children }) {
-  const [user, setUser] = useState(null)
-  const [isReady, setIsReady] = useState(false)
+  const [user, setUser] = useState(readCachedUser)
+  // A cached user means we can show the app immediately on refresh.
+  const [isReady, setIsReady] = useState(() => Boolean(readCachedUser()))
 
   // On mount, attempt to rehydrate session from stored token via /api/auth/me/
   useEffect(() => {
+    const hadCachedUser = Boolean(readCachedUser())
     getMe()
-      .then((data) => setUser(buildSessionUser(data)))
-      .catch(() => {
+      .then((data) => {
+        const nextUser = buildSessionUser(data)
+        cacheUser(nextUser)
+        setUser(nextUser)
+      })
+      .catch((error) => {
+        // Keep a cached session through a slow or failed check; only log out
+        // when the server actually rejects the token (or there is no session).
+        if (hadCachedUser && error?.status !== 401 && error?.status !== 403) return
         setStoredToken(null)
+        cacheUser(null)
         setUser(null)
       })
       .finally(() => setIsReady(true))
@@ -41,6 +69,7 @@ export function AuthProvider({ children }) {
     isAuthenticated: Boolean(user),
     updateSession(data) {
       const nextUser = buildSessionUser(data)
+      cacheUser(nextUser)
       setUser(nextUser)
       return nextUser
     },
@@ -48,12 +77,14 @@ export function AuthProvider({ children }) {
       const data = await loginUser(identifier, password)
       setStoredToken(data.token)
       const nextUser = buildSessionUser(data)
+      cacheUser(nextUser)
       setUser(nextUser)
       return nextUser
     },
     async logout() {
       await logoutUser().catch(() => {})
       setStoredToken(null)
+      cacheUser(null)
       setUser(null)
     },
   }), [user, isReady])

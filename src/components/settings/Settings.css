@@ -1,0 +1,34 @@
+.st-card {
+  background: #ffffff;
+  border: 1px solid rgba(21, 52, 77, 0.08);
+  border-radius: 16px;
+  padding: 18px 20px;
+  margin-top: 16px;
+  color: var(--brand-ink);
+}
+.st-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; flex-wrap: wrap; margin-bottom: 14px; }
+.st-head h2 { margin: 0; font-family: var(--font-body); font-weight: 400; font-size: 1.15rem; letter-spacing: normal; line-height: 1.3; }
+.st-head p { margin: 4px 0 0; color: #5f7386; font-size: 0.86rem; }
+.st-form { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px 14px; }
+.st-form label { display: flex; flex-direction: column; gap: 4px; font-size: 0.78rem; font-weight: 600; color: #5f7386; }
+.st-form input,
+.st-form textarea {
+  font: inherit;
+  font-size: 0.9rem;
+  color: var(--brand-ink);
+  padding: 8px 10px;
+  border: 1px solid rgba(21, 52, 77, 0.14);
+  border-radius: 10px;
+  background: #ffffff;
+  resize: vertical;
+}
+.st-form input:focus,
+.st-form textarea:focus { outline: 2px solid var(--brand-sky); outline-offset: 1px; border-color: transparent; }
+.st-wide { grid-column: span 2; }
+.st-full { grid-column: 1 / -1; }
+.st-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.st-message { font-size: 0.84rem; color: var(--brand-blue); font-weight: 600; }
+@media (max-width: 900px) {
+  .st-form { grid-template-columns: minmax(0, 1fr); }
+  .st-wide { grid-column: auto; }
+}
