@@ -25,7 +25,7 @@ function fmtDate(raw) {
 }
 const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`
 
-function ReceivablesInsights({ invoices = [], customers = [], accountTransactions = [], onOpenCustomer, onStatement, onExport }) {
+function ReceivablesInsights({ invoices = [], customers = [], accountTransactions = [], onOpenCustomer, onStatement, onExport, periodNote = 'As of today' }) {
   const [query, setQuery] = useState('')
 
   const ageing = useMemo(() => {
@@ -110,7 +110,7 @@ function ReceivablesInsights({ invoices = [], customers = [], accountTransaction
       <article className="rv-card">
         <header className="rv-head">
           <h2>How old the debt is</h2>
-          <span className="rv-head-note">As of today</span>
+          <span className="rv-head-note">{periodNote}</span>
         </header>
         {ageing.total > 0 ? (
           <>

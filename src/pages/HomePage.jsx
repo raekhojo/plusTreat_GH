@@ -798,6 +798,7 @@ const SECTION_TABS = {
   ],
   customers: [
     { key: 'customers', label: 'Customers' },
+    { key: 'debtors', label: 'Customer Debts' },
   ],
   suppliers: [
     { key: 'suppliers', label: 'Suppliers' },
@@ -2354,7 +2355,11 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
   // layout provides a header slot; otherwise they stay in the sidebar.
   const headerNavSlot = useOutletContext()?.headerNavSlot || null
   const sidebarSections = useMemo(
-    () => (headerNavSlot ? availableSections.filter(section => section.placement !== 'top') : availableSections),
+    () => {
+      const hasCustomers = availableSections.some(section => section.key === 'customers')
+      const visible = availableSections.filter(section => !(hasCustomers && section.key === 'receivables'))
+      return headerNavSlot ? visible.filter(section => section.placement !== 'top') : visible
+    },
     [availableSections, headerNavSlot]
   )
   const topNavSections = useMemo(
@@ -5001,6 +5006,11 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
   }
   const canAccessSection = (sectionKey) => availableSections.some(section => section.key === sectionKey)
   const jumpToSection = (sectionKey, tabKey = null) => {
+    if (sectionKey === 'receivables' && canAccessSection('customers')) {
+      // Debtors are the "Customer Debts" tab of Customers.
+      sectionKey = 'customers'
+      tabKey = 'debtors'
+    }
     if (!canAccessSection(sectionKey)) return
     setActiveSection(sectionKey)
     setIsMobileNavOpen(false)
@@ -5012,6 +5022,26 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
     setActiveSection(sectionKey)
     setIsMobileNavOpen(false)
   }
+
+  // Customer debts: shown under the customer list, or as its own page for roles without Customers.
+  // Period filter: on Customers it is the page filter; on the standalone page its own.
+  const debtsSectionKey = activeSection === 'customers' ? 'customers' : 'receivables'
+  const debtsDateFilter = sectionDateFilters[debtsSectionKey] || EMPTY_DATE_RANGE
+  const debtsInvoices = filterByDateRange(data.invoices, inv => inv.invoice_date, debtsDateFilter)
+  const receivablesView = (
+    <ReceivablesInsights
+      invoices={debtsInvoices}
+      periodNote={hasDateRange(debtsDateFilter) ? `Invoices issued ${summarizeDateRange(debtsDateFilter)} · age as of today` : 'As of today'}
+      customers={data.customers}
+      accountTransactions={data.accountTransactions}
+      onOpenCustomer={id => {
+        const customer = data.customers.find(c => String(c.id) === String(id))
+        if (customer) setSelectedCustomer(customer)
+      }}
+      onStatement={row => printStatementFor({ title: row.name, id: row.id })}
+      onExport={exportTableDataset}
+    />
+  )
 
   // ── Section renderer ──────────────────────────────────────────────────────
 
@@ -5060,7 +5090,6 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
           {SECTION_TABS.customers.map(tab => <span key={tab.key} className={`workspace-inline-tab ${tab.key === getSectionTab('customers') ? 'active' : ''}`}>{tab.label}</span>)}
           </section>
           {getSectionTab('customers') === 'customers' && <TableCardSkeleton title="Customers" columns={6} rows={6} />}
-          {getSectionTab('customers') === 'receivables' && <SnippetCardSkeleton title="Top Receivables" rows={5} />}
         </>
       )
       if (activeSection === 'suppliers') return (
@@ -5381,17 +5410,8 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
 
     if (activeSection === 'customers') return (
       <>
-        <DateFilterControl range={customersDateFilter} onOpen={openDateFilter} onClear={() => clearDateFilter('customers')} onPresetSelect={preset => applyQuickDatePreset('customers', preset)} activePreset={sectionDatePresets.customers || ''} inlineTitle="Customers" hideInlineTitle={isStandaloneView} onExport={format => runPageExport(format, 'Customers', async exportTableDataset => {
-          await exportTableDataset('Customers', ['Customer', 'Phone', 'Invoices', 'Total Billed', 'Paid', 'Outstanding'], customerRows)
-        })} />
-        <SummaryGrid items={customersSummary} />
-        <WorkspaceToolbar
-          className="workspace-toolbar-customers"
-          title=""
-          subtitle=""
-          actions={<button type="button" className="account-alert-button account-alert-button-dark" onClick={() => openModal('customer')}>Add Customer</button>}
-        />
-        {SECTION_TABS.customers.length > 1 ? <section className="workspace-inline-tabs" role="tablist" aria-label="Customers page tabs">
+        {!isStandaloneView ? <header className="mc-head"><h1 className="mc-title">Customers</h1></header> : null}
+        <section className="workspace-inline-tabs" role="tablist" aria-label="Customers page tabs">
           {SECTION_TABS.customers.map(tab => (
             <button
               key={tab.key}
@@ -5404,18 +5424,36 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
               {tab.label}
             </button>
           ))}
-        </section> : null}
-        {getSectionTab('customers') === 'customers' && (
-          <TableCard
-            title="Customers"
-            subtitle="Click a row to view full history. Click Edit to update."
-            columns={['Customer', 'Phone', 'Invoices', 'Total Billed', 'Paid', 'Outstanding', '']}
-            rows={customerRows}
-            mobileVariant="customers-list"
-            search={searchTerms.customers}
-            onSearch={v => setSearch('customers', v)}
-            onRowClick={id => setSelectedCustomer(customerLedger.find(c => c.id === id) || null)}
-          />
+        </section>
+        {getSectionTab('customers') === 'debtors' ? (
+          <>
+            <DateFilterControl range={debtsDateFilter} onOpen={openDateFilter} onClear={() => clearDateFilter('customers')} onPresetSelect={preset => applyQuickDatePreset('customers', preset)} activePreset={sectionDatePresets.customers || ''} inlineTitle="Customers" hideInlineTitle />
+            {receivablesView}
+          </>
+        ) : (
+          <>
+          <DateFilterControl range={customersDateFilter} onOpen={openDateFilter} onClear={() => clearDateFilter('customers')} onPresetSelect={preset => applyQuickDatePreset('customers', preset)} activePreset={sectionDatePresets.customers || ''} inlineTitle="Customers" hideInlineTitle onExport={format => runPageExport(format, 'Customers', async exportTableDataset => {
+            await exportTableDataset('Customers', ['Customer', 'Phone', 'Invoices', 'Total Billed', 'Paid', 'Outstanding'], customerRows)
+          })} />
+            <SummaryGrid items={customersSummary} />
+            <WorkspaceToolbar
+              className="workspace-toolbar-customers"
+              title=""
+              subtitle=""
+              actions={<button type="button" className="account-alert-button account-alert-button-dark" onClick={() => openModal('customer')}>Add Customer</button>}
+            />
+            <TableCard
+              title="Customers"
+              subtitle="Click a row to view full history. Click Edit to update."
+              columns={['Customer', 'Phone', 'Invoices', 'Total Billed', 'Paid', 'Outstanding', '']}
+              colWidths={['minmax(160px, 1.6fr)', 'minmax(110px, 1fr)', 'minmax(80px, 0.6fr)', 'minmax(120px, 1fr)', 'minmax(120px, 1fr)', 'minmax(120px, 1fr)', 'minmax(72px, 0.5fr)']}
+              rows={customerRows}
+              mobileVariant="customers-list"
+              search={searchTerms.customers}
+              onSearch={v => setSearch('customers', v)}
+              onRowClick={id => setSelectedCustomer(customerLedger.find(c => c.id === id) || null)}
+            />
+          </>
         )}
       </>
     )
@@ -5489,19 +5527,8 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
 
     if (activeSection === 'receivables') return (
       <>
-        {(
-          <ReceivablesInsights
-            invoices={data.invoices}
-            customers={data.customers}
-            accountTransactions={data.accountTransactions}
-            onOpenCustomer={id => {
-              const customer = data.customers.find(c => String(c.id) === String(id))
-              if (customer) setSelectedCustomer(customer)
-            }}
-            onStatement={row => printStatementFor({ title: row.name, id: row.id })}
-            onExport={exportTableDataset}
-          />
-        )}
+        <DateFilterControl range={debtsDateFilter} onOpen={openDateFilter} onClear={() => clearDateFilter('receivables')} onPresetSelect={preset => applyQuickDatePreset('receivables', preset)} activePreset={sectionDatePresets.receivables || ''} inlineTitle="Customer Debtors (AR)" hideInlineTitle />
+        {receivablesView}
       </>
     )
 
