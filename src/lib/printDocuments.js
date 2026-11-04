@@ -258,12 +258,11 @@ function linesTable(lines, fallbackTotal) {
 }
 
 /** Official invoice — the PlusYoghurt-App template. */
-export function printInvoice(invoice, { customer = null } = {}) {
-  if (!invoice) return
+function invoiceBody(invoice, { customer = null } = {}) {
   const tier = invoice.lines?.[0]?.pricing_category || customer?.pricing_category || customer?.customer_category_name || 'Customer'
   const linesTotal = (invoice.lines || []).reduce((t, l) => t + num(l.line_total), 0)
   const subtotal = num(invoice.subtotal) || linesTotal || num(invoice.total_amount) + num(invoice.discount_amount)
-  const body = `
+  return `
     ${header('INVOICE')}
     <div class="meta">
       <div class="meta-left">
@@ -283,7 +282,21 @@ export function printInvoice(invoice, { customer = null } = {}) {
     </div></div>
     ${invoice.notes && String(invoice.notes).trim().toUpperCase() !== 'OPENING_BALANCE' ? `<p style="font-size:12.5px;color:#334155;margin:0 0 16px"><b>Notes:</b> ${esc(invoice.notes)}</p>` : ''}
     ${footer()}`
-  openDocument(`Invoice ${invoiceNumber(invoice.id)}`, body)
+}
+
+export function printInvoice(invoice, { customer = null } = {}) {
+  if (!invoice) return
+  openDocument(`Invoice ${invoiceNumber(invoice.id)}`, invoiceBody(invoice, { customer }))
+}
+
+/** A sale: the invoice (what was bought) first, then every receipt recorded against it. */
+export function printSaleDocuments(invoice, payments = [], { customer = null } = {}) {
+  if (!invoice) return
+  const list = [...payments].sort((a, b) => String(a.payment_date || '').localeCompare(String(b.payment_date || '')) || num(a.id) - num(b.id))
+  const today = Math.max(0, num(invoice.outstanding_balance))
+  const receipts = list.map((p, i) => receiptBody(p, { invoice, customer, balanceAfter: today + list.slice(i + 1).reduce((t, q) => t + num(q.amount), 0) }))
+  const title = `Invoice ${invoiceNumber(invoice.id)}${list.length ? ` + ${list.length} receipt${list.length === 1 ? '' : 's'}` : ''}`
+  openDocument(title, [invoiceBody(invoice, { customer }), ...receipts])
 }
 
 /** Payment receipt in the same branded layout. */
@@ -301,6 +314,7 @@ function receiptBody(payment, { invoice = null, customer = null, balanceAfter = 
       </div>
       ${billTo(payment.customer_name || invoice?.customer_name, tier).replace('BILL TO', 'RECEIVED FROM').replace('margin:5px 0 0 68px', 'margin:5px 0 0 128px')}
     </div>
+    ${invoice && (invoice.lines || []).length ? `<div style="font-size:12px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:#64748b;margin:4px 0 6px">Items bought</div>${linesTable(invoice.lines, invoice.total_amount)}<div style="font-size:12px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:#64748b;margin:14px 0 6px">Payment</div>` : ''}
     <table>
       <thead><tr><th style="width:40%">Description</th><th class="c">Method</th><th class="c">Reference</th><th class="r">Amount</th></tr></thead>
       <tbody><tr>

@@ -14,7 +14,7 @@ import ReportingOverview from '../components/reports/ReportingOverview'
 import AiCopilot from '../components/ai/AiCopilot'
 import DocumentSettings from '../components/settings/DocumentSettings'
 import StockCount from '../components/reports/StockCount'
-import { printCustomerStatement, printInvoice, printReceipt, printReceipts, printReport } from '../lib/printDocuments'
+import { printCustomerStatement, printInvoice, printReceipt, printReport, printSaleDocuments } from '../lib/printDocuments'
 import ExportMenu from '../components/ExportMenu'
 import ReceivablesInsights from '../components/receivables/ReceivablesInsights'
 import ProductionPlanner from '../components/production/ProductionPlanner'
@@ -4269,9 +4269,7 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
         <span key="paid" className="sales-paid">{fmt(getInvoicePaidAmount(inv))}</span>,
         <span key="due" className={due > 0.005 ? 'sales-due' : 'sales-due-zero'}>{fmt(balance)}</span>,
         <div key="actions" className="sales-row-actions">
-          {receipts.length ? (
-            <button type="button" className="workspace-action-btn" title={`View ${receipts.length} receipt${receipts.length === 1 ? '' : 's'}`} onClick={event => { event.stopPropagation(); printReceipts(receipts, { invoice: inv, customer }) }}>View</button>
-          ) : null}
+          <button type="button" className="workspace-action-btn" title={receipts.length ? `Invoice and ${receipts.length} receipt${receipts.length === 1 ? '' : 's'}` : 'View invoice'} onClick={event => { event.stopPropagation(); printSaleDocuments(inv, receipts, { customer }) }}>View</button>
           {canManageSalesTransactions ? (
             <button type="button" className="workspace-action-btn" onClick={event => { event.stopPropagation(); openModal('sale', inv) }}>Edit</button>
           ) : null}
