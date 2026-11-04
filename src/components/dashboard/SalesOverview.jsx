@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import ExportMenu from '../ExportMenu'
+import { WalletCards } from './PositionStats'
 import './SalesOverview.css'
 
 // ─── Palette (validated: scripts/validate_palette.js, light mode on #ffffff) ──
@@ -269,12 +270,14 @@ function Sparkline({ values }) {
   )
 }
 
-function StatTile({ label, value, delta, upIsGood, trend, hasPrior }) {
+// Stat-strip tile for balances "as of today" (a note instead of a period-on-period change).
+function PositionTile({ label, value, fullValue, note, alert, trend }) {
   return (
-    <div className="so-stat">
+    <div className="so-stat" title={fullValue}>
       <span className="so-stat-label">{label}</span>
       <strong className="so-stat-value">{value}</strong>
-      {hasPrior ? <Delta value={delta} upIsGood={upIsGood} /> : <span className="so-delta so-delta-flat">All recorded sales</span>}
+      <span className="so-delta so-delta-flat">{note}</span>
+      {alert ? <span className="so-position-alert"><span aria-hidden="true">!</span> {alert}</span> : null}
       <Sparkline values={trend} />
     </div>
   )
@@ -740,6 +743,8 @@ export default function SalesOverview({
   inventoryLedger = [],
   rawMaterials = [],
   treasury = null,
+  position = null,
+  onViewWallet = null,
   range,
   activePreset = '',
   onPresetSelect,
@@ -1010,6 +1015,50 @@ export default function SalesOverview({
     }
   }, [base, payments, productionBatches, range])
 
+  const positionTrend = useMemo(() => {
+    if (!position) return null
+    const nSpark = Math.min(12, view.len)
+    const ends = Array.from({ length: nSpark }, (_, b) => view.start + Math.floor(((b + 1) * view.len) / nSpark) - 1)
+    const live = invoices.filter(inv => !['cancelled', 'draft'].includes(String(inv.status || '').toLowerCase()))
+    const paidByInvoice = new Map()
+    payments.forEach(p => {
+      const list = paidByInvoice.get(String(p.invoice)) || []
+      list.push({ day: dayIndex(p.payment_date), amount: num(p.amount) })
+      paidByInvoice.set(String(p.invoice), list)
+    })
+    const outputs = productionBatches.flatMap(b => (b.outputs || []).map(o => ({ day: dayIndex(b.production_date), qty: num(o.quantity) })))
+    const sold = live.flatMap(inv => (inv.lines || []).map(l => ({ day: dayIndex(inv.invoice_date), qty: num(l.quantity) })))
+    const walletAt = e => (treasury ? treasury.wallets.reduce((t, w) => {
+      const row = w.statement.find(r => dayIndex(r.date) <= e) // statement is newest first
+      return t + (row ? row.balance : 0)
+    }, 0) : 0)
+    const series = ends.map(e => {
+      const billed = live.filter(inv => dayIndex(inv.invoice_date) <= e)
+      return {
+        cash: walletAt(e),
+        ar: billed.reduce((t, inv) => {
+          const paid = (paidByInvoice.get(String(inv.id)) || []).filter(p => p.day <= e).reduce((u, p) => u + p.amount, 0)
+          return t + Math.max(0, num(inv.total_amount) - paid)
+        }, 0),
+        units: Math.max(0, outputs.filter(o => o.day <= e).reduce((t, o) => t + o.qty, 0) - sold.filter(x => x.day <= e).reduce((t, x) => t + x.qty, 0)),
+        revenue: billed.reduce((t, inv) => t + num(inv.total_amount), 0),
+      }
+    })
+    // The last point is today's figure exactly, so the line ends on the number shown.
+    if (series.length && view.end >= todayIndex()) {
+      const last = series[series.length - 1]
+      if (treasury) last.cash = treasury.total
+      last.ar = position.receivables
+      last.units = position.stock.units
+    }
+    return {
+      cash: series.map(p => p.cash),
+      ar: series.map(p => p.ar),
+      units: series.map(p => p.units),
+      revenue: series.map(p => p.revenue),
+    }
+  }, [position, treasury, invoices, payments, productionBatches, view.start, view.len, view.end])
+
   const stock = useMemo(() => {
     const finished = [...inventoryLedger]
       .map(f => ({ size: f.size, available: num(f.available), produceNow: Boolean(f.prodRequired) }))
@@ -1034,9 +1083,7 @@ export default function SalesOverview({
   const presetKnown = presets.some(p => p.key === activePreset)
   const shownPreset = presetKnown ? activePreset : (range?.start ? 'custom' : '')
   const rangeLabel = `${fmtDay(view.start)} to ${fmtDay(view.end)}`
-  const hasPrior = Boolean(view.prior)
-  const { cur, prev } = view
-  const margin = cur.revenue > 0 ? (cur.gross / cur.revenue) * 100 : 0
+  const { cur } = view
 
   const handleExport = onExport ? (format = 'xlsx') => {
     const rows = [
@@ -1057,15 +1104,52 @@ export default function SalesOverview({
     <div className="so-root">
       <PeriodBar presets={presets} activePreset={shownPreset} onSelect={onPresetSelect} onCustom={onCustomRange} rangeLabel={rangeLabel} onExport={handleExport} />
 
+      {position ? (
+        <>
+          <section className="so-card so-stats so-stats-position" aria-label="Position today">
+            {treasury ? (
+              <PositionTile label="Total liquid funds" value={moneyCompact(treasury.total, 2)} fullValue={money(treasury.total)} note="Across Cash, MoMo, GhanaPay & Cal Bank" trend={positionTrend.cash} />
+            ) : null}
+            <PositionTile label="Trade receivables (AR)" value={moneyCompact(position.receivables, 2)} fullValue={money(position.receivables)} note={`Owed on ${count(position.receivableInvoices)} open invoice${position.receivableInvoices === 1 ? '' : 's'}`} trend={positionTrend.ar} />
+            <PositionTile
+              label="Finished goods stock"
+              value={`${count(position.stock.units)} bottles`}
+              note={`Valued at ${moneyCompact(position.stock.value, 2)}`}
+              alert={position.stock.critical ? `${position.stock.critical} size${position.stock.critical === 1 ? '' : 's'} at reorder level` : ''}
+              trend={positionTrend.units}
+            />
+            <PositionTile label="Lifetime revenue" value={moneyCompact(position.lifetimeRevenue, 2)} fullValue={money(position.lifetimeRevenue)} note={`Billed across all ${count(position.lifetimeInvoices)} invoices`} trend={positionTrend.revenue} />
+          </section>
+          {treasury ? <WalletCards treasury={treasury} onViewWallet={onViewWallet} /> : null}
+        </>
+      ) : null}
+
       <SegmentedBar segments={view.segments} total={cur.revenue} tooltip={tooltip} />
 
-      <section className="so-card so-stats" aria-label="Key sales figures">
-        <StatTile label="Revenue" value={moneyCompact(cur.revenue, 2)} delta={pctChange(cur.revenue, prev?.revenue)} hasPrior={hasPrior} trend={view.spark.map(s => s.revenue)} />
-        <StatTile label={`Gross profit at ${margin.toFixed(1)}% margin`} value={moneyCompact(cur.gross, 2)} delta={pctChange(cur.gross, prev?.gross)} hasPrior={hasPrior} trend={view.spark.map(s => s.gross)} />
-        <StatTile label="Orders" value={count(cur.orders)} delta={pctChange(cur.orders, prev?.orders)} hasPrior={hasPrior} trend={view.spark.map(s => s.orders)} />
-        <StatTile label="Customers buying" value={count(cur.customers)} delta={pctChange(cur.customers, prev?.customers)} hasPrior={hasPrior} trend={view.spark.map(s => s.customers)} />
-        <StatTile label="Average order" value={moneyCompact(cur.avg, 2)} delta={pctChange(cur.avg, prev?.avg)} hasPrior={hasPrior} trend={view.spark.map(s => s.avg)} />
-      </section>
+      <Card title="Stock watch" subtitle="Live stock today: what to produce and what to reorder." actions={<button type="button" className="so-link-btn" onClick={() => onNavigate?.('supplies_stock', 'materials')}>Raw materials</button>}>
+        <StockWatch finished={stock.finished} materials={stock.materials} materialsAtRisk={stock.materialsAtRisk} />
+      </Card>
+
+      <div className="so-grid">
+        <Card title="Biggest customers" subtitle="Revenue in the selected period." actions={<button type="button" className="so-link-btn" onClick={() => onNavigate?.('customers', 'customers')}>All customers</button>}>
+          <BiggestCustomers rows={view.biggestCustomers} onOpen={() => onNavigate?.('customers', 'customers')} />
+        </Card>
+        <Card title="Customers to call" subtitle={`Bought in the 6 months before, then no order for ${QUIET_DAYS} days or more (as of ${fmtDay(view.end)}).`}>
+          <CustomersToCall rows={view.callRows} total={view.callTotal} />
+        </Card>
+      </div>
+
+      <div className="so-grid so-grid-3">
+        <Card title="Collections" subtitle="Cash collected in the period, and open invoices by age today." actions={<button type="button" className="so-link-btn" onClick={() => onNavigate?.('customers', 'receivables')}>Receivables</button>}>
+          <Collections ageing={view.ageing} outstanding={view.outstanding} openCount={view.openCount} collected={view.collected} billed={cur.revenue} tooltip={tooltip} />
+        </Card>
+        <Card title="Cash in by method" subtitle="Customer payments received in the period." actions={<button type="button" className="so-link-btn" onClick={() => onNavigate?.('sales_hub', 'recent_receipts')}>Receipts</button>}>
+          <MethodMix rows={view.methodRows} total={view.collected} tooltip={tooltip} />
+        </Card>
+        <Card title="Production" subtitle="Batches made in the period (development batches counted separately)." actions={<button type="button" className="so-link-btn" onClick={() => onNavigate?.('production_ops', 'batches')}>Batches</button>}>
+          <ProductionSnapshot prod={view.prod} />
+        </Card>
+      </div>
 
       <div className="so-grid so-grid-wide">
         <Card
@@ -1099,49 +1183,6 @@ export default function SalesOverview({
           {cur.revenue > 0 ? <SalesRhythm rhythm={view.rhythm} tooltip={tooltip} /> : <Empty />}
         </Card>
       </div>
-
-      <div className="so-grid">
-        <Card title="Biggest customers" subtitle="Revenue in the selected period." actions={<button type="button" className="so-link-btn" onClick={() => onNavigate?.('customers', 'customers')}>All customers</button>}>
-          <BiggestCustomers rows={view.biggestCustomers} onOpen={() => onNavigate?.('customers', 'customers')} />
-        </Card>
-        <Card title="Customers to call" subtitle={`Bought in the 6 months before, then no order for ${QUIET_DAYS} days or more (as of ${fmtDay(view.end)}).`}>
-          <CustomersToCall rows={view.callRows} total={view.callTotal} />
-        </Card>
-      </div>
-
-      <div className="so-grid so-grid-3">
-        <Card title="Collections" subtitle="Cash collected in the period, and open invoices by age today." actions={<button type="button" className="so-link-btn" onClick={() => onNavigate?.('customers', 'receivables')}>Receivables</button>}>
-          <Collections ageing={view.ageing} outstanding={view.outstanding} openCount={view.openCount} collected={view.collected} billed={cur.revenue} tooltip={tooltip} />
-        </Card>
-        <Card title="Cash in by method" subtitle="Customer payments received in the period." actions={<button type="button" className="so-link-btn" onClick={() => onNavigate?.('sales_hub', 'recent_receipts')}>Receipts</button>}>
-          <MethodMix rows={view.methodRows} total={view.collected} tooltip={tooltip} />
-        </Card>
-        <Card title="Production" subtitle="Batches made in the period (development batches counted separately)." actions={<button type="button" className="so-link-btn" onClick={() => onNavigate?.('production_ops', 'batches')}>Batches</button>}>
-          <ProductionSnapshot prod={view.prod} />
-        </Card>
-      </div>
-
-      {treasury ? (
-        <Card title="Cash & wallets" subtitle="Balance in every wallet today, using the same rules as the trial balance." actions={<button type="button" className="so-link-btn" onClick={() => onNavigate?.('accounts_pricing')}>Treasury</button>}>
-          <div className="so-wallets">
-            {treasury.wallets.map(w => (
-              <div key={w.key} className={`so-wallet${w.balance < 0 ? ' is-negative' : ''}`}>
-                <span>{w.label}</span>
-                <strong>{money(w.balance)}</strong>
-                {w.balance < 0 ? <em><span aria-hidden="true">!</span> Below zero</em> : null}
-              </div>
-            ))}
-            <div className="so-wallet so-wallet-total">
-              <span>Total cash &amp; bank</span>
-              <strong>{money(treasury.total)}</strong>
-            </div>
-          </div>
-        </Card>
-      ) : null}
-
-      <Card title="Stock watch" subtitle="Live stock today: what to produce and what to reorder." actions={<button type="button" className="so-link-btn" onClick={() => onNavigate?.('supplies_stock', 'materials')}>Raw materials</button>}>
-        <StockWatch finished={stock.finished} materials={stock.materials} materialsAtRisk={stock.materialsAtRisk} />
-      </Card>
 
       <Tooltip tip={tooltip.tip} />
     </div>

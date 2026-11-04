@@ -21,8 +21,8 @@ function WalletGlyph({ walletKey }) {
   return <svg viewBox="0 0 24 24" aria-hidden="true" className="tr-wallet-glyph">{paths[walletKey] || paths.Cash}</svg>
 }
 
-function TreasuryPanel({ treasury, isPeriodFiltered = false, periodLabel = '', onTransfer, canTransfer = true }) {
-  const [openWallet, setOpenWallet] = useState('')
+function TreasuryPanel({ treasury, isPeriodFiltered = false, periodLabel = '', onTransfer, canTransfer = true, initialWallet = '' }) {
+  const [openWallet, setOpenWallet] = useState(initialWallet)
   const [showAllRows, setShowAllRows] = useState(false)
   const selected = treasury.wallets.find(w => w.key === openWallet)
   const statementRows = selected ? (showAllRows ? selected.statement : selected.statement.slice(0, 15)) : []

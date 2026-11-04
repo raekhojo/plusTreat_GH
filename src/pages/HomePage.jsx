@@ -14,7 +14,7 @@ import ReportingOverview from '../components/reports/ReportingOverview'
 import AiCopilot from '../components/ai/AiCopilot'
 import DocumentSettings from '../components/settings/DocumentSettings'
 import StockCount from '../components/reports/StockCount'
-import { printCustomerStatement, printInvoice, printReceipt, printReport } from '../lib/printDocuments'
+import { printCustomerStatement, printInvoice, printReceipt, printReceipts, printReport } from '../lib/printDocuments'
 import ExportMenu from '../components/ExportMenu'
 import ReceivablesInsights from '../components/receivables/ReceivablesInsights'
 import ProductionPlanner from '../components/production/ProductionPlanner'
@@ -219,9 +219,6 @@ function getSalesStatusKey(invoice) {
   if (invoice?.is_sample_sale) return 'sample'
   const state = getInvoiceCollectionState(invoice)
   return state === 'overpaid' ? 'paid' : state
-}
-function isOpeningReceivableInvoice(invoice) {
-  return String(invoice?.notes || '').trim().toUpperCase() === 'OPENING_BALANCE'
 }
 function getPriceBand(price) {
   const amount = toNumber(price)
@@ -823,11 +820,13 @@ const SECTION_DEFAULT_TABS = {
 }
 
 const EMPTY_DATE_RANGE = { start: '', end: '' }
+// Same period choices as the dashboard. '' means all time (no date filter).
 const DATE_FILTER_PRESETS = [
-  { key: 'today', label: 'Today' },
-  { key: 'yesterday', label: 'Yesterday' },
-  { key: 'this_week', label: 'This Week' },
-  { key: 'this_month', label: 'This Month' },
+  { key: 'last_30', label: '30 days' },
+  { key: 'last_90', label: '3 months' },
+  { key: 'last_365', label: '12 months' },
+  { key: 'this_year', label: 'This year' },
+  { key: '', label: 'All time' },
 ]
 
 // ─── UI Components ────────────────────────────────────────────────────────────
@@ -868,10 +867,10 @@ function renderSummaryNote(item) {
   return <p>{item?.note}</p>
 }
 
-function SummaryGrid({ items, className = '' }) {
+function SummaryGrid({ items, className = '', primary = 4 }) {
   const stats = Array.isArray(items) ? items : []
   const [showAll, setShowAll] = useState(false)
-  const PRIMARY = 4
+  const PRIMARY = primary
   const visible = showAll ? stats : stats.slice(0, PRIMARY)
   if (!stats.length) return null
 
@@ -1368,8 +1367,10 @@ function TableCard({
   defaultRowsPerPage = 10,
   rowsPerPageOptions = [10, 20, 50],
   mobileVariant = 'default',
+  searchPlaceholder = 'Search…',
 }) {
-  const isNumericLikeCell = (cell) => {
+  const isNumericLikeCell = (rawCell) => {
+    const cell = isValidElement(rawCell) ? extractExportText(rawCell) : rawCell
     if (cell === null || cell === undefined) return false
     if (typeof cell === 'number') return Number.isFinite(cell)
     if (typeof cell !== 'string') return false
@@ -1385,7 +1386,7 @@ function TableCard({
   }
 
   const filtered = search
-    ? rows.filter(row => row.cells.some(c => String(c).toLowerCase().includes(search.toLowerCase())))
+    ? rows.filter(row => (row.searchText ? [row.searchText] : row.cells).some(c => String(c).toLowerCase().includes(search.toLowerCase())))
     : rows
   const [rowsPerPage, setRowsPerPage] = useState(defaultRowsPerPage)
   const [page, setPage] = useState(1)
@@ -1405,7 +1406,9 @@ function TableCard({
       let numericHits = 0
       let primitiveHits = 0
       sampleRows.forEach(row => {
-        const cell = row?.cells?.[colIndex]
+        const rawCell = row?.cells?.[colIndex]
+        // Coloured amounts (<span>GHS …</span>) count as numbers too.
+        const cell = isValidElement(rawCell) && typeof rawCell.props?.children === 'string' ? rawCell.props.children : rawCell
         if (typeof cell === 'string' || typeof cell === 'number') {
           primitiveHits += 1
           if (isNumericLikeCell(cell)) numericHits += 1
@@ -1441,7 +1444,7 @@ function TableCard({
       .map((column, index) => ({ column, index }))
       .filter(({ column }) => {
         const label = String(column || '').trim()
-        return label && !/^action$/i.test(label)
+        return label && !/^actions?$/i.test(label)
       })
       .map(({ index }) => index),
     [columns]
@@ -1482,7 +1485,7 @@ function TableCard({
             <input
               type="search"
               className="mc-search"
-              placeholder="Search…"
+              placeholder={searchPlaceholder}
               aria-label={`Search ${title}`}
               value={search || ''}
               onChange={e => onSearch(e.target.value)}
@@ -1496,7 +1499,8 @@ function TableCard({
           className="sales-list-table workspace-table"
           style={{
             '--table-cols': colTemplate,
-            width: hasCustomWidths ? 'max-content' : '100%',
+            // Flexible (fr) column widths fill the card; fixed widths size to content and scroll.
+            width: hasCustomWidths && !colWidths.some(w => /fr/.test(String(w))) ? 'max-content' : '100%',
             minWidth: '100%',
           }}
         >
@@ -1532,7 +1536,7 @@ function TableCard({
         {visibleRows.length
           ? visibleRows.map(row => {
               if (mobileVariant === 'sales-list') {
-                const [date, invoice, customer, total, paid, outstanding] = row.cells
+                const [invoice, date, customer, total, paid, outstanding, actions] = row.cells
                 return (
                   <article
                     key={`mobile-${row.key}`}
@@ -1554,6 +1558,7 @@ function TableCard({
                       <span className="workspace-mobile-sales-stat">Total <strong>{total}</strong></span>
                       <span className="workspace-mobile-sales-stat">Outstanding <strong>{outstanding}</strong></span>
                     </div>
+                    {actions ? <div className="workspace-mobile-sales-actions" onClick={e => e.stopPropagation()}>{actions}</div> : null}
                   </article>
                 )
               }
@@ -1913,34 +1918,31 @@ function WorkspaceToolbar({ title, subtitle, actions, className = '' }) {
 function DateFilterControl({ range, onOpen, onClear, onPresetSelect, activePreset = '', inlineTitle = '', hideInlineTitle = false, onExport = null }) {
   const active = hasDateRange(range)
 
+  const isAllTime = !active
+  const isCustom = active && !DATE_FILTER_PRESETS.some(preset => preset.key && preset.key === activePreset)
+  const pressed = key => (key ? active && activePreset === key : isAllTime)
+
   return (
     <section className="mc-head" aria-label="Section filters">
-      <div className="mc-head-row">
-        {inlineTitle && !hideInlineTitle ? <h1 className="mc-title">{inlineTitle}</h1> : <span />}
-        <div className="mc-head-controls">
-          <div className="mc-seg" role="group" aria-label="Quick date filters">
-            {DATE_FILTER_PRESETS.map(preset => (
-              <button
-                key={preset.key}
-                type="button"
-                className={activePreset === preset.key ? 'is-active' : ''}
-                aria-pressed={activePreset === preset.key}
-                onClick={() => onPresetSelect && onPresetSelect(preset.key)}
-              >
-                {preset.label}
-              </button>
-            ))}
-            <button type="button" className={active && !activePreset ? 'is-active' : ''} onClick={onOpen}>Custom…</button>
-          </div>
-          {onExport ? <ExportMenu onExport={onExport} /> : null}
+      {inlineTitle && !hideInlineTitle ? <h1 className="mc-title">{inlineTitle}</h1> : null}
+      <div className="mc-period-row">
+        <div className="mc-period-pills" role="group" aria-label="Period">
+          {DATE_FILTER_PRESETS.map(preset => (
+            <button
+              key={preset.key || 'all'}
+              type="button"
+              className={`mc-pill${pressed(preset.key) ? ' is-active' : ''}`}
+              aria-pressed={pressed(preset.key)}
+              onClick={() => (preset.key ? onPresetSelect && onPresetSelect(preset.key) : onClear && onClear())}
+            >
+              {preset.label}
+            </button>
+          ))}
+          <button type="button" className={`mc-pill${isCustom ? ' is-active' : ''}`} aria-pressed={isCustom} onClick={onOpen}>Custom…</button>
         </div>
+        <span className="mc-period-label">{active ? summarizeDateRange(range) : 'All records'}</span>
+        {onExport ? <ExportMenu onExport={onExport} className="mc-period-export" /> : null}
       </div>
-      {active ? (
-        <div className="mc-range">
-          <span>{summarizeDateRange(range)}</span>
-          <button type="button" onClick={onClear}>Clear</button>
-        </div>
-      ) : null}
     </section>
   )
 }
@@ -2339,6 +2341,15 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
     return visible.length ? visible : [SECTIONS[0]]
   }, [allowedSections, normalizedRole])
   const isStandaloneView = standaloneMode || availableSections.length === 1
+  // Sidebar can shrink to icons only; the choice is remembered on this device.
+  const [isNavCollapsed, setIsNavCollapsed] = useState(() => {
+    try { return localStorage.getItem('plusTreatNavCollapsed') === '1' } catch { return false }
+  })
+  const toggleNavCollapsed = () => setIsNavCollapsed(current => {
+    const next = !current
+    try { localStorage.setItem('plusTreatNavCollapsed', next ? '1' : '0') } catch { /* storage unavailable */ }
+    return next
+  })
   // Tools (AI, reports, settings, users) live in the top navbar when the app
   // layout provides a header slot; otherwise they stay in the sidebar.
   const headerNavSlot = useOutletContext()?.headerNavSlot || null
@@ -2761,6 +2772,8 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
     }
   }, [data.accountTransactions, data.payments, data.purchasePayments, data.purchases])
   const treasuryToday = useMemo(() => buildTreasury(treasuryInput, null), [treasuryInput])
+  // Wallet whose statement opens when Treasury is reached from a dashboard "View" button.
+  const [treasuryFocusWallet, setTreasuryFocusWallet] = useState('')
   const treasuryDateFilter = sectionDateFilters.treasury || EMPTY_DATE_RANGE
   const treasurySection = useMemo(() => buildTreasury(treasuryInput, hasDateRange(treasuryDateFilter) ? treasuryDateFilter : null), [treasuryInput, treasuryDateFilter])
   const reportsContext = useMemo(() => ({
@@ -2884,6 +2897,22 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
       .sort((a, b) => (toNumber(b.available) - toNumber(a.available)) || (toNumber(b.stockIn) - toNumber(a.stockIn)) || String(a.size).localeCompare(String(b.size)))
       .map((item, idx) => ({ ...item, id: `INV-${String(idx + 1).padStart(4, '0')}` }))
   }, [data.pricingRules, data.productionBatches, data.invoices, data.products])
+  // Dashboard "position today" figures (all time, not tied to the dashboard period).
+  const positionStats = useMemo(() => {
+    const live = data.invoices.filter(inv => !['cancelled', 'draft'].includes(String(inv.status || '').toLowerCase()))
+    const open = data.invoices.filter(inv => getInvoiceOutstandingDue(inv) > 0)
+    return {
+      receivables: sumBy(open, inv => getInvoiceOutstandingDue(inv)),
+      receivableInvoices: open.length,
+      lifetimeRevenue: sumBy(live, inv => inv.total_amount),
+      lifetimeInvoices: live.length,
+      stock: {
+        units: sumBy(inventoryLedger, item => Math.max(0, toNumber(item.available))),
+        value: sumBy(inventoryLedger, item => Math.max(0, toNumber(item.available)) * toNumber(item.price)),
+        critical: inventoryLedger.filter(item => item.prodRequired).length,
+      },
+    }
+  }, [data.invoices, inventoryLedger])
   const finishedGoodsAvailableBySizeKey = useMemo(
     () => inventoryLedger.reduce((map, item) => {
       map.set(normalizeSizeKey(item.size), toNumber(item.available))
@@ -4152,19 +4181,12 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
     })
     return acc
   }, { bottles: 0, litres: 0 })
-  const salesBilledTotal = sumBy(filteredSalesInvoices, inv => inv.total_amount)
-  const salesCollectionRate = ratioPct(sumBy(filteredSalesPayments, p => p.amount), salesBilledTotal)
   const sampleSalesInvoices = filteredSalesInvoices.filter(invoice => invoice.is_sample_sale)
-  const openingReceivableInvoices = filteredSalesInvoices.filter(isOpeningReceivableInvoice)
   const salesSummary      = [
-    { label: 'Invoices', value: String(filteredSalesInvoices.length), note: `${filteredSalesInvoices.filter(i => i.status === 'issued').length} open` },
     { label: 'Total Billed', value: fmt(sumBy(filteredSalesInvoices, inv => inv.total_amount)), note: `${filteredSalesInvoices.length} invoices` },
     { label: 'Total Paid', value: fmt(sumBy(filteredSalesPayments, p => p.amount)), note: `${filteredSalesPayments.length} receipts` },
     { label: 'Outstanding', value: fmt(sumBy(filteredSalesInvoices, inv => getInvoiceOutstandingDue(inv))), note: `${filteredSalesInvoices.filter(i => getInvoiceOutstandingDue(i) > 0).length} unpaid` },
     { label: 'Test Sample Value', value: fmt(sumBy(sampleSalesInvoices, inv => inv.subtotal)), note: `${sampleSalesInvoices.length} sample invoices` },
-    { label: 'Opening Receivables', value: fmt(sumBy(openingReceivableInvoices, inv => getInvoiceOutstandingDue(inv))), note: `${openingReceivableInvoices.filter(i => getInvoiceOutstandingDue(i) > 0).length} opening balances` },
-    { label: 'Collection Rate', value: `${salesCollectionRate.toFixed(1)}%`, note: 'Receipts collected vs sales billed' },
-    { label: 'Bottles Sold', value: fmtQ(salesLineTotals.bottles), note: 'Excludes sample invoices' },
     { label: 'Litres Sold', value: `${fmtQ(Math.round(salesLineTotals.litres * 10) / 10)} L`, note: 'Bottle size × quantity' },
   ]
   const productionSummary = [
@@ -4220,35 +4242,41 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
     navigate('/login', { replace: true })
   }
 
-  const salesRows    = statusFilteredSalesInvoices.map(inv => ({
-    key: inv.id,
-    emphasisIndex: 3,
-    cells: [
-      fmtD(inv.invoice_date),
-      fmtInv(inv.id),
-      inv.customer_name || '—',
-      fmt(inv.total_amount),
-      fmt(getInvoicePaidAmount(inv)),
-      fmt(getInvoiceOutstanding(inv)),
-      ...(canManageSalesTransactions
-        ? [(
-            <div key="actions" style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
-              <button type="button" className="workspace-action-btn" onClick={event => { event.stopPropagation(); openModal('sale', inv) }}>Edit</button>
-              <button
-                type="button"
-                className="workspace-action-btn"
-                onClick={event => {
-                  event.stopPropagation()
-                  handleDelete('sale', () => deleteInvoice(inv.id))
-                }}
-              >
-                Delete
-              </button>
-            </div>
-          )]
-        : []),
-    ],
-  }))
+  const paymentsByInvoice = new Map()
+  data.payments.forEach(p => {
+    const key = String(p.invoice)
+    paymentsByInvoice.set(key, [...(paymentsByInvoice.get(key) || []), p])
+  })
+  const salesRows    = statusFilteredSalesInvoices.map(inv => {
+    const due = getInvoiceOutstandingDue(inv)
+    const balance = getInvoiceOutstanding(inv)
+    const receipts = paymentsByInvoice.get(String(inv.id)) || []
+    const customer = data.customers.find(c => String(c.id) === String(inv.customer))
+    return {
+      key: inv.id,
+      emphasisIndex: 3,
+      searchText: [fmtInv(inv.id), fmtD(inv.invoice_date), inv.invoice_date, inv.customer_name, fmt(inv.total_amount), fmt(getInvoicePaidAmount(inv)), fmt(balance)].join(' '),
+      cells: [
+        <strong key="inv" className="sales-inv-no">{fmtInv(inv.id)}</strong>,
+        fmtD(inv.invoice_date),
+        inv.customer_name || '—',
+        fmt(inv.total_amount),
+        <span key="paid" className="sales-paid">{fmt(getInvoicePaidAmount(inv))}</span>,
+        <span key="due" className={due > 0.005 ? 'sales-due' : 'sales-due-zero'}>{fmt(balance)}</span>,
+        <div key="actions" className="sales-row-actions">
+          {receipts.length ? (
+            <button type="button" className="workspace-action-btn" title={`View ${receipts.length} receipt${receipts.length === 1 ? '' : 's'}`} onClick={event => { event.stopPropagation(); printReceipts(receipts, { invoice: inv, customer }) }}>View</button>
+          ) : null}
+          {canManageSalesTransactions ? (
+            <button type="button" className="workspace-action-btn" onClick={event => { event.stopPropagation(); openModal('sale', inv) }}>Edit</button>
+          ) : null}
+          {canManageSalesTransactions && due > 0.005 ? (
+            <button type="button" className="workspace-action-btn sales-row-receipt" onClick={event => { event.stopPropagation(); openModal('receipt', { invoice: inv.id, amount: due.toFixed(2) }) }}>Receipt</button>
+          ) : null}
+        </div>,
+      ],
+    }
+  })
   const batchRows    = productionBatchesFiltered.map(b => ({
     key: b.id,
     emphasisIndex: 5,
@@ -4457,46 +4485,6 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
     await exportRowsToXlsx(fileName, columns, exportRows)
   }
 
-  const salesFilterOptions = useMemo(() => {
-    if ((sectionTabs.sales_hub || SECTION_DEFAULT_TABS.sales_hub) === 'recent_receipts') {
-      return [
-        {
-          key: 'customer',
-          label: 'Customer',
-          placeholder: 'All customers',
-          searchPlaceholder: 'Search customers...',
-          options: buildSelectOptions(salesPayments.map(payment => payment.customer_name || `Invoice ${fmtInv(payment.invoice)}`)),
-        },
-        {
-          key: 'method',
-          label: 'Method',
-          placeholder: 'All methods',
-          options: buildSelectOptions(salesPayments.map(payment => payment.method), value => fmtStatus(value)),
-        },
-      ]
-    }
-    return [
-      {
-        key: 'customer',
-        label: 'Customer',
-        placeholder: 'All customers',
-        searchPlaceholder: 'Search customers...',
-        options: buildSelectOptions(salesInvoices.map(invoice => invoice.customer_name)),
-      },
-      {
-        key: 'status',
-        label: 'Collection State',
-        placeholder: 'All states',
-        searchPlaceholder: 'Search states...',
-        options: [
-          { value: 'paid', label: 'Collected' },
-          { value: 'overpaid', label: 'Overpaid' },
-          { value: 'partial', label: 'Partially Paid' },
-          { value: 'unpaid', label: 'Unpaid' },
-        ],
-      },
-    ]
-  }, [salesInvoices, salesPayments, sectionTabs.sales_hub])
 
   const pricingFilterOptions = useMemo(() => ([
     {
@@ -4991,8 +4979,6 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
   const activeContent = useMemo(() => availableSections.find(s => s.key === activeSection) || availableSections[0], [activeSection, availableSections])
   const getSectionTab = (sectionKey) => sectionTabs[sectionKey] || SECTION_DEFAULT_TABS[sectionKey]
   const setSectionTab = (sectionKey, tabKey) => setSectionTabs(cur => ({ ...cur, [sectionKey]: tabKey }))
-  const activeSalesFilterScope = `sales_hub:${getSectionTab('sales_hub')}`
-  const activeSalesFilters = getScopedFilters(activeSalesFilterScope)
   const activePricingFilterScope = `production_ops:${getSectionTab('production_ops')}`
   const activePricingFilters = getScopedFilters(activePricingFilterScope)
   const sectionsWithInlineHeader = new Set([
@@ -5022,6 +5008,7 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
   }
   const handleSectionSelect = (sectionKey) => {
     if (!canAccessSection(sectionKey)) return
+    setTreasuryFocusWallet('')
     setActiveSection(sectionKey)
     setIsMobileNavOpen(false)
   }
@@ -5121,51 +5108,23 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
           productionBatches={data.productionBatches}
           inventoryLedger={inventoryLedger}
           rawMaterials={lowStockRows}
-          treasury={canAccessSection('accounts_pricing') ? treasuryToday : null}
           range={dashboardDateFilter}
           activePreset={sectionDatePresets.dashboard || ''}
           onPresetSelect={preset => (preset ? applyQuickDatePreset('dashboard', preset) : clearDateFilter('dashboard'))}
           onCustomRange={openDateFilter}
           onExport={exportTableDataset}
           onNavigate={jumpToSection}
+          treasury={canAccessSection('treasury') ? treasuryToday : null}
+          position={positionStats}
+          onViewWallet={canAccessSection('treasury') ? key => { setTreasuryFocusWallet(key); jumpToSection('treasury') } : null}
         />
-        <section className="dashboard-snippet-grid dashboard-snippet-grid-hero">
-          <DonutBreakdownCard
-            title="Invoice Status Mix"
-            subtitle="Current invoice book split by collection state."
-            segments={dashboardContent.invoiceStatusSegments}
-            centerLabel="Outstanding"
-            centerValue={fmt(sumBy(dashboardContent.invoiceStatusSegments.slice(1), segment => segment.value))}
-            actionLabel="View Invoices"
-            onAction={() => jumpToSection('sales_hub', 'sales_list')}
-          />
-          <DonutBreakdownCard
-            title="Payment Method Mix"
-            subtitle="How cash is coming in across recorded payments."
-            segments={dashboardContent.paymentMethodSegments}
-            centerLabel="Collected"
-            centerValue={fmt(sumBy(dashboardContent.paymentMethodSegments, segment => segment.value))}
-            actionLabel="View Receipts"
-            onAction={() => jumpToSection('sales_hub', 'recent_receipts')}
-          />
-        </section>
-        <h2 className="dashboard-section-heading">Financial position</h2>
-        <DashboardCardCarousel className="dashboard-snippet-grid-compact sales-history-grid">
-          <SnippetCard title="P&L Statement (YTD)"     rows={dashboardContent.plStatement} actionLabel="Open Reporting" onAction={() => jumpToSection('reporting')} />
-          <SnippetCard title="Assets"                  rows={dashboardContent.assetsSummary} actionLabel="Open Reporting" onAction={() => jumpToSection('reporting')} />
-          <SnippetCard title="Liability"               rows={dashboardContent.liabilitySummary} actionLabel="Open Reporting" onAction={() => jumpToSection('reporting')} />
-          <SnippetCard title="Equity"                  rows={dashboardContent.equitySummary} actionLabel="Open Reporting" onAction={() => jumpToSection('reporting')} />
-          <SnippetCard title="Balance Sheet"           rows={dashboardContent.balanceSheet} actionLabel="Open Reporting" onAction={() => jumpToSection('reporting')} />
-          <SnippetCard title="Top 5 Receivables"       rows={dashboardContent.receivables} actionLabel="Open Receivables" onAction={() => jumpToSection('receivables')} rowAction={{ label: 'Statement', onClick: printStatementFor }} />
-          <SnippetCard title="Open Invoices"           rows={dashboardContent.openInvoices} actionLabel="Open Sales" onAction={() => jumpToSection('sales_hub', 'sales_list')} />
-        </DashboardCardCarousel>
       </>
     )
 
     if (activeSection === 'sales_hub') return (
       <>
         <DateFilterControl range={salesDateFilter} onOpen={openDateFilter} onClear={() => clearDateFilter('sales_hub')} onPresetSelect={preset => applyQuickDatePreset('sales_hub', preset)} activePreset={sectionDatePresets.sales_hub || ''} inlineTitle="Sales Hub" hideInlineTitle={isStandaloneView} onExport={format => runPageExport(format, 'Sales Hub', async exportTableDataset => {
-          await exportTableDataset('Sales_List', ['Date', 'Invoice', 'Customer', 'Total', 'Paid', 'Outstanding'], salesRows)
+          await exportTableDataset('Sales_List', ['Invoice #', 'Date', 'Customer', 'Total Billed', 'Paid', 'Balance Due'], salesRows)
         })} />
         <WorkspaceToolbar
           className="workspace-toolbar-sales"
@@ -5176,14 +5135,7 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
             <button type="button" className="account-alert-button account-alert-button-light" onClick={() => openModal('receipt')}>Add Receipt</button>
           </>}
         />
-        <FilterSelectRow
-          className="sales-mobile-filters"
-          filters={salesFilterOptions}
-          values={activeSalesFilters}
-          onChange={(key, value) => setScopedFilter(activeSalesFilterScope, key, value)}
-          onClear={() => clearScopedFilters(activeSalesFilterScope)}
-        />
-        <SummaryGrid items={salesSummary} />
+        <SummaryGrid items={salesSummary} primary={salesSummary.length} />
         <section className="workspace-inline-tabs" role="tablist" aria-label="Sales page tabs">
           {SECTION_TABS.sales_hub.map(tab => (
             <button
@@ -5215,14 +5167,26 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
           </div>
         )}
         {getSectionTab('sales_hub') === 'sales_list' && (
+          <label className="sales-search">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6.5" /><path d="m20 20-4.2-4.2" /></svg>
+            <input
+              type="search"
+              placeholder="Search invoice #, customer, date or amount…"
+              aria-label="Search sales"
+              value={searchTerms.sales_hub || ''}
+              onChange={e => setSearch('sales_hub', e.target.value)}
+            />
+          </label>
+        )}
+        {getSectionTab('sales_hub') === 'sales_list' && (
           <TableCard
             title="Sales List"
             subtitle="Mirrors Sales, Sales_Dtls, and Invoice workbook rows."
-            columns={canManageSalesTransactions ? ['Date', 'Invoice', 'Customer', 'Total', 'Paid', 'Outstanding', 'Actions'] : ['Date', 'Invoice', 'Customer', 'Total', 'Paid', 'Outstanding']}
+            columns={['Invoice #', 'Date', 'Customer', 'Total Billed', 'Paid', 'Balance Due', 'Actions']}
+            colWidths={['minmax(96px, 0.8fr)', 'minmax(104px, 0.9fr)', 'minmax(140px, 1.5fr)', 'minmax(108px, 1fr)', 'minmax(108px, 1fr)', 'minmax(108px, 1fr)', 'minmax(200px, 1.3fr)']}
             rows={salesRows}
             mobileVariant="sales-list"
             search={searchTerms.sales_hub}
-            onSearch={v => setSearch('sales_hub', v)}
             onRowClick={id => setSelectedInvoice(data.invoices.find(inv => inv.id === id) || null)}
           />
         )}
@@ -5547,6 +5511,8 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
           await exportTableDataset('Wallet_Balances', ['Wallet', 'Money in', 'Money out', 'Balance today'], treasurySection.wallets.map(w => ({ id: w.key, cells: [w.label, fmt(w.periodIn), fmt(w.periodOut), fmt(w.balance)] })))
         })} />
         <TreasuryPanel
+          key={treasuryFocusWallet || 'treasury'}
+          initialWallet={treasuryFocusWallet}
           treasury={treasurySection}
           isPeriodFiltered={hasDateRange(treasuryDateFilter)}
           periodLabel={summarizeDateRange(treasuryDateFilter)}
@@ -5751,14 +5717,26 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
         ) : null}
       </section>
 
-      <section className={`account-page-layout${isStandaloneView ? ' account-page-layout-standalone' : ''}`}>
+      <section className={`account-page-layout${isStandaloneView ? ' account-page-layout-standalone' : ''}${isNavCollapsed ? ' is-nav-collapsed' : ''}`}>
         {!isStandaloneView ? (
           <aside className="account-side-nav">
+            <div className="account-nav-top">
+              <button
+                type="button"
+                className="account-nav-toggle"
+                onClick={toggleNavCollapsed}
+                aria-expanded={!isNavCollapsed}
+                aria-label={isNavCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+                title={isNavCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+              >
+                <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="4.5" width="17" height="15" rx="3" /><path d="M9.5 4.5v15" /></svg>
+              </button>
+            </div>
             <nav className="account-nav-list" aria-label="Workbook sections">
               {sidebarSections.map((s, i) => (
                 <div key={s.key} className="account-nav-entry">
                   {s.group && s.group !== sidebarSections[i - 1]?.group ? <span className="account-nav-group">{s.group}</span> : null}
-                  <button type="button" className={`account-nav-item ${s.key === activeSection ? 'active' : ''}`} aria-current={s.key === activeSection ? 'page' : undefined} onClick={() => handleSectionSelect(s.key)}>
+                  <button type="button" className={`account-nav-item ${s.key === activeSection ? 'active' : ''}`} aria-current={s.key === activeSection ? 'page' : undefined} aria-label={isNavCollapsed ? s.label : undefined} title={isNavCollapsed ? s.label : undefined} onClick={() => handleSectionSelect(s.key)}>
                     <span className="account-nav-icon"><NavIcon type={s.icon} /></span>
                     <span className="account-nav-label">{s.label}</span>
                   </button>

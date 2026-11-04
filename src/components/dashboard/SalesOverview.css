@@ -511,3 +511,13 @@
 .so-wallet-total strong { color: #ffffff; }
 @media (max-width: 1100px) { .so-wallets { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
 @media (max-width: 680px) { .so-wallets { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+
+/* Position today: four balance tiles in the stat-strip design, then the wallet cards */
+.so-stats-position { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.so-stats-position .so-delta-flat { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.so-position-alert { display: inline-flex; align-items: center; gap: 6px; font-size: 0.78rem; font-weight: 600; color: #c23b3b; }
+.so-position-alert span { display: inline-grid; place-items: center; width: 15px; height: 15px; border-radius: 50%; background: #c23b3b; color: #ffffff; font-size: 0.68rem; font-weight: 800; }
+@media (max-width: 1100px) {
+  .so-stats-position { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .so-stats-position .so-stat:nth-child(3) { border-left: 0; }
+}

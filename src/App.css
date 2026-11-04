@@ -9509,3 +9509,102 @@
 .account-content .account-alert-button-dark { background: var(--brand-ink); border: 1px solid var(--brand-ink); color: #ffffff; }
 .account-content .account-alert-button-dark:hover { background: var(--brand-blue); border-color: var(--brand-blue); }
 .account-content .account-alert-button-light { background: #ffffff; border: 1px solid rgba(21, 52, 77, 0.12); color: var(--brand-ink); }
+
+/* Page period bar: identical to the dashboard's (30 days … All time, Custom) */
+.mc-head { gap: 12px; }
+.mc-period-row { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 16px; }
+.mc-period-pills {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 4px;
+  border-radius: 14px;
+  background: #ffffff;
+  border: 1px solid rgba(16, 36, 58, 0.08);
+  box-shadow: 0 1px 2px rgba(16, 36, 58, 0.04);
+}
+.mc-pill {
+  border: 0;
+  background: transparent;
+  color: #10243a;
+  font: inherit;
+  font-size: 0.9rem;
+  font-weight: 600;
+  padding: 8px 14px;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+.mc-pill:hover { background: #f1f4f8; }
+.mc-pill.is-active { background: #10243a; color: #ffffff; }
+.mc-pill:focus-visible { outline: 2px solid var(--brand-sky); outline-offset: 2px; }
+.mc-period-label { color: #8a94a3; font-size: 0.88rem; }
+.mc-period-export { margin-left: auto; }
+@media (max-width: 720px) {
+  .mc-period-pills { flex-wrap: nowrap; overflow-x: auto; max-width: 100%; scrollbar-width: none; }
+  .mc-pill { flex: none; }
+}
+
+/* Sales Hub row actions: Receipt (money owed) · View (receipts) · Edit */
+.sales-row-actions { display: flex; gap: 6px; align-items: center; flex-wrap: nowrap; }
+.account-content .sales-row-actions .workspace-action-btn { white-space: nowrap; }
+.account-content .sales-row-actions .sales-row-receipt { border-color: rgba(44, 134, 184, 0.35); color: var(--brand-blue); background: var(--brand-sky-soft); }
+.account-content .sales-row-actions .sales-row-receipt:hover { border-color: var(--brand-blue); }
+.workspace-mobile-sales-actions { margin-top: 10px; }
+
+/* Sales Hub: reference-style table cells and search bar */
+.sales-inv-no { color: var(--brand-blue); font-weight: 700; }
+.sales-paid { color: #1b8a5a; font-weight: 600; }
+.sales-due { color: #c23b3b; font-weight: 700; }
+.sales-due-zero { color: #8a98a6; }
+.sales-search {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 44px;
+  margin: 0 0 14px;
+  padding: 0 14px;
+  border: 1px solid rgba(21, 52, 77, 0.1);
+  border-radius: 12px;
+  background: #ffffff;
+}
+.sales-search:focus-within { border-color: var(--brand-sky); box-shadow: 0 0 0 3px rgba(49, 177, 228, 0.15); }
+.sales-search svg { flex: none; width: 18px; height: 18px; fill: none; stroke: #8a98a6; stroke-width: 1.8; stroke-linecap: round; }
+.sales-search input { flex: 1; min-width: 0; height: 100%; border: 0; outline: none; background: transparent; font: inherit; font-size: 0.92rem; color: var(--brand-ink); }
+.account-content .sales-row-actions .workspace-action-btn { padding-left: 9px; padding-right: 9px; }
+.account-content .sales-row-actions { padding-left: 14px; }
+.account-content .sales-list-card .workspace-table-head > span:last-child { padding-left: 14px; }
+
+/* ─── Sidebar: flush left, collapsible to icons ──────────────────────────────── */
+.account-nav-top { display: none; }
+.account-nav-toggle {
+  display: inline-grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  background: transparent;
+  color: #6b7d8e;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+.account-nav-toggle:hover { background: #ffffff; border-color: rgba(21, 52, 77, 0.1); color: var(--brand-ink); }
+.account-nav-toggle:focus-visible { outline: 2px solid var(--brand-sky); outline-offset: 2px; }
+.account-nav-toggle svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+
+@media (min-width: 1081px) {
+  .account-page-layout:not(.account-page-layout-standalone) {
+    max-width: none;
+    padding-left: 40px;
+    padding-right: 40px;
+    transition: grid-template-columns 0.2s ease, gap 0.2s ease;
+  }
+  .account-nav-top { display: flex; justify-content: flex-end; margin: -6px 0 6px; }
+  .account-page-layout.is-nav-collapsed:not(.account-page-layout-standalone) { grid-template-columns: 64px minmax(0, 1fr); gap: 32px; }
+  .is-nav-collapsed .account-nav-top { justify-content: center; }
+  .is-nav-collapsed .account-nav-label { display: none; }
+  .is-nav-collapsed .account-nav-group { height: 1px; margin: 10px 14px; padding: 0; overflow: hidden; font-size: 0; background: rgba(21, 52, 77, 0.12); }
+  .is-nav-collapsed .account-nav-entry:first-child .account-nav-group { display: none; }
+  .is-nav-collapsed .account-nav-list .account-nav-item { justify-content: center; gap: 0; padding: 9px 0; }
+}

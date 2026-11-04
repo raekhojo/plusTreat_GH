@@ -174,20 +174,74 @@ function billTo(name, tier) {
   </div>`
 }
 
-function openDocument(docTitle, bodyHtml) {
-  const win = window.open('', '_blank', 'width=960,height=1100')
-  if (!win) {
-    window.alert('Please allow pop-ups for this site to print documents.')
-    return
+const VIEWER_STYLE_ID = 'plus-doc-viewer-style'
+const VIEWER_CSS = `
+.pdv-overlay{position:fixed;inset:0;z-index:2000;display:flex;align-items:center;justify-content:center;padding:24px;background:rgba(15,23,42,.55);backdrop-filter:blur(2px)}
+.pdv-shell{display:flex;flex-direction:column;width:min(920px,100%);height:min(1100px,100%);background:#f1f5f9;border-radius:18px;overflow:hidden;box-shadow:0 24px 60px rgba(15,23,42,.35)}
+.pdv-bar{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 16px;background:#ffffff;border-bottom:1px solid #e2e8f0}
+.pdv-bar strong{font:600 0.95rem/1.3 "Nunito","Segoe UI",sans-serif;color:#15344d;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pdv-actions{display:flex;gap:8px;flex:none}
+.pdv-actions button{height:36px;padding:0 16px;border-radius:10px;font:600 0.86rem "Nunito","Segoe UI",sans-serif;cursor:pointer}
+.pdv-print{border:1px solid #15344d;background:#15344d;color:#fff}
+.pdv-print:hover{background:#2c86b8;border-color:#2c86b8}
+.pdv-close{border:1px solid rgba(21,52,77,.14);background:#fff;color:#15344d}
+.pdv-close:hover{border-color:#31b1e4;color:#2c86b8}
+.pdv-actions button:focus-visible{outline:2px solid #31b1e4;outline-offset:2px}
+.pdv-frame{flex:1;width:100%;border:0;background:#f1f5f9}
+@media (max-width:640px){.pdv-overlay{padding:0}.pdv-shell{border-radius:0;height:100%}}
+`
+
+// Shows a branded document inside the app (not a pop-up), with Print / Save as PDF and Close.
+function showViewer(docTitle, html) {
+  if (typeof document === 'undefined') return
+  if (!document.getElementById(VIEWER_STYLE_ID)) {
+    const style = document.createElement('style')
+    style.id = VIEWER_STYLE_ID
+    style.textContent = VIEWER_CSS
+    document.head.appendChild(style)
   }
-  win.document.open()
-  win.document.write(`<!doctype html><html lang="en"><head><meta charset="utf-8" /><title>${esc(docTitle)}</title><style>${STYLES}</style></head>
-<body>
-  <div class="toolbar"><button onclick="window.print()">Print / Save as PDF</button><button class="secondary" onclick="window.close()">Close</button></div>
-  <div class="page"><div class="canvas">${bodyHtml}</div></div>
-  <script>window.addEventListener('load', function () { setTimeout(function () { window.print() }, 250) })</${'script'}>
-</body></html>`)
-  win.document.close()
+  document.querySelector('.pdv-overlay')?.remove()
+  const overlay = document.createElement('div')
+  overlay.className = 'pdv-overlay'
+  overlay.setAttribute('role', 'dialog')
+  overlay.setAttribute('aria-modal', 'true')
+  overlay.setAttribute('aria-label', docTitle)
+  overlay.innerHTML = `<div class="pdv-shell">
+    <div class="pdv-bar"><strong></strong><div class="pdv-actions"><button type="button" class="pdv-print">Print / Save as PDF</button><button type="button" class="pdv-close">Close</button></div></div>
+    <iframe class="pdv-frame"></iframe>
+  </div>`
+  overlay.querySelector('strong').textContent = docTitle
+  const frame = overlay.querySelector('iframe')
+  frame.title = docTitle
+  frame.srcdoc = html
+  const previousOverflow = document.body.style.overflow
+  const close = () => {
+    overlay.remove()
+    document.body.style.overflow = previousOverflow
+    document.removeEventListener('keydown', onKey)
+  }
+  const onKey = e => { if (e.key === 'Escape') close() }
+  overlay.addEventListener('mousedown', e => { if (e.target === overlay) close() })
+  overlay.querySelector('.pdv-close').addEventListener('click', close)
+  overlay.querySelector('.pdv-print').addEventListener('click', () => {
+    frame.contentWindow?.focus()
+    frame.contentWindow?.print()
+  })
+  document.addEventListener('keydown', onKey)
+  document.body.style.overflow = 'hidden'
+  document.body.appendChild(overlay)
+  overlay.querySelector('.pdv-print').focus()
+}
+
+// bodyHtml may be a list: each entry becomes its own page (e.g. every receipt of an invoice).
+function openDocument(docTitle, bodyHtml) {
+  const pages = (Array.isArray(bodyHtml) ? bodyHtml : [bodyHtml])
+    .map(body => `<div class="page"><div class="canvas">${body}</div></div>`).join('')
+  const html = `<!doctype html><html lang="en"><head><meta charset="utf-8" /><title>${esc(docTitle)}</title><style>${STYLES}
+body{padding-top:24px}
+@media print{body{padding-top:0}.page{break-after:page}.page:last-child{break-after:auto}}
+</style></head><body>${pages}</body></html>`
+  showViewer(docTitle, html)
 }
 
 function linesTable(lines, fallbackTotal) {
@@ -233,12 +287,11 @@ export function printInvoice(invoice, { customer = null } = {}) {
 }
 
 /** Payment receipt in the same branded layout. */
-export function printReceipt(payment, { invoice = null, customer = null } = {}) {
-  if (!payment) return
+function receiptBody(payment, { invoice = null, customer = null, balanceAfter = null } = {}) {
   const tier = invoice?.lines?.[0]?.pricing_category || customer?.pricing_category || 'Customer'
   const invoiceTotal = invoice ? num(invoice.previous_balance) + num(invoice.total_amount) : null
-  const balance = invoice ? Math.max(0, num(invoice.outstanding_balance)) : null
-  const body = `
+  const balance = balanceAfter !== null ? Math.max(0, balanceAfter) : (invoice ? Math.max(0, num(invoice.outstanding_balance)) : null)
+  return `
     ${header('RECEIPT', 'PAYMENT RECEIVED')}
     <div class="meta">
       <div class="meta-left">
@@ -265,7 +318,28 @@ export function printReceipt(payment, { invoice = null, customer = null } = {}) 
     </div></div>
     ${balance === 0 ? '<div class="stamp">PAID IN FULL</div>' : ''}
     ${footer({ showPaymentDetails: balance === null || balance > 0 })}`
-  openDocument(`Receipt ${receiptNumber(payment)}`, body)
+}
+
+export function printReceipt(payment, { invoice = null, customer = null } = {}) {
+  if (!payment) return
+  openDocument(`Receipt ${receiptNumber(payment)}`, receiptBody(payment, { invoice, customer }))
+}
+
+/** Every receipt recorded against one invoice, oldest first, one page each. */
+export function printReceipts(payments = [], { invoice = null, customer = null } = {}) {
+  const list = [...payments].sort((a, b) => String(a.payment_date || '').localeCompare(String(b.payment_date || '')) || num(a.id) - num(b.id))
+  if (!list.length) return
+  if (list.length === 1) {
+    printReceipt(list[0], { invoice, customer })
+    return
+  }
+  // Balance after each receipt: what is still outstanding today plus every later receipt.
+  const today = invoice ? Math.max(0, num(invoice.outstanding_balance)) : null
+  const bodies = list.map((p, i) => {
+    const later = list.slice(i + 1).reduce((t, q) => t + num(q.amount), 0)
+    return receiptBody(p, { invoice, customer, balanceAfter: today !== null ? today + later : null })
+  })
+  openDocument(`Receipts for ${invoice ? invoiceNumber(invoice.id) : 'invoice'} (${list.length})`, bodies)
 }
 
 /** Customer statement: every invoice and payment, with balance due. */
