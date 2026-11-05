@@ -1,9 +1,15 @@
-import { useState } from 'react'
-import { walletLabel } from '../../lib/treasury'
+import { useMemo, useState } from 'react'
+import { CASHBOOK_TYPES } from '../../lib/treasury'
+import ExportMenu from '../ExportMenu'
 import './TreasuryPanel.css'
 
 function money(v) {
   return `GHS ${new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(Number(v) || 0)}`
+}
+function signed(v) {
+  const n = Number(v) || 0
+  if (Math.abs(n) < 0.005) return money(0)
+  return `${n > 0 ? '+' : '−'}${money(Math.abs(n))}`
 }
 function fmtDate(raw) {
   const m = String(raw || '').match(/^(\d{4})-(\d{2})-(\d{2})/)
@@ -21,47 +27,72 @@ function WalletGlyph({ walletKey }) {
   return <svg viewBox="0 0 24 24" aria-hidden="true" className="tr-wallet-glyph">{paths[walletKey] || paths.Cash}</svg>
 }
 
-function TreasuryPanel({ treasury, isPeriodFiltered = false, periodLabel = '', onTransfer, canTransfer = true, initialWallet = '' }) {
-  const [openWallet, setOpenWallet] = useState(initialWallet)
-  const [showAllRows, setShowAllRows] = useState(false)
-  const selected = treasury.wallets.find(w => w.key === openWallet)
-  const statementRows = selected ? (showAllRows ? selected.statement : selected.statement.slice(0, 15)) : []
+const PAGE_SIZE = 25
+
+// Unified cashbook: wallet balances on top (each filters the table), then every
+// money movement in one table with type chips, search and an Edit action.
+function TreasuryPanel({ treasury, rows = [], onEdit = null, onTransfer, onAddEntry, canTransfer = true, initialWallet = '', onExport }) {
+  const [wallet, setWallet] = useState(initialWallet)
+  const [type, setType] = useState('')
+  const [query, setQuery] = useState('')
+  const [limit, setLimit] = useState(PAGE_SIZE)
+
+  // Rows seen through the chosen wallet: a transfer only counts its own side.
+  const walletRows = useMemo(() => {
+    if (!wallet) return rows
+    return rows
+      .filter(r => r.walletKey === wallet || r.walletToKey === wallet)
+      .map(r => {
+        if (r.kind !== 'transfer') return r
+        const inflow = r.walletToKey === wallet ? r.inflow || r.outflow : 0
+        const outflow = r.walletKey === wallet ? r.outflow || r.inflow : 0
+        return { ...r, inflow, outflow, net: inflow - outflow }
+      })
+  }, [rows, wallet])
+
+  const typeCounts = useMemo(() => {
+    const counts = {}
+    walletRows.forEach(r => { counts[r.kind] = (counts[r.kind] || 0) + 1 })
+    return counts
+  }, [walletRows])
+
+  const visible = useMemo(() => {
+    const q = query.trim().toLowerCase()
+    return walletRows.filter(r => {
+      if (type && r.kind !== type) return false
+      if (!q) return true
+      return [r.reference, r.type, r.counterparty, r.category, r.wallet, r.description, fmtDate(r.date), money(r.inflow), money(r.outflow)]
+        .join(' ').toLowerCase().includes(q)
+    })
+  }, [walletRows, type, query])
+
+  const totals = useMemo(() => visible.reduce((t, r) => ({ in: t.in + r.inflow, out: t.out + r.outflow }), { in: 0, out: 0 }), [visible])
+  const shown = visible.slice(0, limit)
+  const walletName = treasury.wallets.find(w => w.key === wallet)?.label || ''
+  const resetPaging = () => setLimit(PAGE_SIZE)
 
   return (
-    <section className="tr-panel" aria-label="Treasury and wallet balances">
-      <header className="tr-head">
-        <div>
-          <h2>Treasury</h2>
-          <p>Live balance of every wallet, using the same rules as the trial balance.{isPeriodFiltered ? ` Money in and out shown for ${periodLabel}.` : ''}</p>
-        </div>
-        {canTransfer ? (
-          <button type="button" className="account-alert-button account-alert-button-dark" onClick={() => onTransfer?.()}>Transfer Money</button>
-        ) : null}
-      </header>
-
+    <section className="tr-panel" aria-label="Cashbook and treasury">
       <div className="tr-wallets">
         {treasury.wallets.map(w => {
-          const active = w.key === openWallet
+          const active = w.key === wallet
           return (
-            <button
-              key={w.key}
-              type="button"
-              className={`tr-wallet${active ? ' is-open' : ''}${w.balance < 0 ? ' is-negative' : ''}`}
-              aria-expanded={active}
-              onClick={() => { setOpenWallet(active ? '' : w.key); setShowAllRows(false) }}
-            >
+            <div key={w.key} className={`tr-wallet${active ? ' is-open' : ''}${w.balance < 0 ? ' is-negative' : ''}`}>
               <span className="tr-wallet-top">
                 <span className="tr-wallet-icon"><WalletGlyph walletKey={w.key} /></span>
                 <span className="tr-wallet-name">{w.label}</span>
               </span>
               <strong className="tr-wallet-balance">{money(w.balance)}</strong>
-              <span className="tr-wallet-flow">
-                <span><em aria-hidden="true">▲</em> {money(w.periodIn)}</span>
-                <span><em aria-hidden="true">▼</em> {money(w.periodOut)}</span>
-              </span>
               {w.balance < 0 ? <span className="tr-wallet-warn">! Below zero — check entries</span> : null}
-              <span className="tr-wallet-link">{active ? 'Hide statement' : 'View statement'}</span>
-            </button>
+              <button
+                type="button"
+                className="tr-wallet-filter"
+                aria-pressed={active}
+                onClick={() => { setWallet(active ? '' : w.key); resetPaging() }}
+              >
+                {active ? 'Clear filter' : 'Filter'}
+              </button>
+            </div>
           )
         })}
         <div className="tr-wallet tr-wallet-total">
@@ -71,68 +102,88 @@ function TreasuryPanel({ treasury, isPeriodFiltered = false, periodLabel = '', o
         </div>
       </div>
 
-      {selected ? (
-        <article className="tr-card">
-          <div className="tr-card-head">
-            <h3>{selected.label} statement</h3>
-            <span>{selected.count} movement{selected.count === 1 ? '' : 's'} · balance {money(selected.balance)}</span>
+      <article className="tr-card tr-cashbook">
+        <div className="mc-table-head">
+          <div className="mc-table-title">
+            <h2>{walletName ? `${walletName} transactions` : 'All transactions'}</h2>
+            <span className="mc-table-count">{visible.length} of {rows.length}</span>
           </div>
-          {selected.statement.length ? (
-            <div className="tr-table-scroll">
-              <table className="tr-table">
-                <thead>
-                  <tr><th>Date</th><th>Type</th><th>Details</th><th className="num">In</th><th className="num">Out</th><th className="num">Balance</th></tr>
-                </thead>
-                <tbody>
-                  {statementRows.map(r => (
-                    <tr key={r.id}>
-                      <td className="nowrap">{fmtDate(r.date)}</td>
-                      <td className="nowrap">{r.type}</td>
-                      <td>{r.detail || '—'}{r.reference ? <span className="tr-ref">{r.reference}</span> : null}</td>
-                      <td className="num tr-in">{r.inflow ? money(r.inflow) : ''}</td>
-                      <td className="num tr-out">{r.outflow ? money(r.outflow) : ''}</td>
-                      <td className="num"><strong>{money(r.balance)}</strong></td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          ) : <p className="tr-empty">No movements recorded for {selected.label} yet.</p>}
-          {selected.statement.length > 15 ? (
-            <button type="button" className="tr-more" onClick={() => setShowAllRows(v => !v)}>
-              {showAllRows ? 'Show latest 15' : `Show all ${selected.statement.length} movements`}
-            </button>
-          ) : null}
-        </article>
-      ) : null}
-
-      <article className="tr-card">
-        <div className="tr-card-head">
-          <h3>Wallet transfers</h3>
-          <span>{treasury.transfers.length} transfer{treasury.transfers.length === 1 ? '' : 's'}{isPeriodFiltered ? ` in ${periodLabel}` : ''}</span>
+          <div className="mc-table-tools">
+            <input
+              type="search"
+              className="mc-search tr-search"
+              placeholder="Search entries, references, descriptions…"
+              value={query}
+              onChange={e => { setQuery(e.target.value); resetPaging() }}
+              aria-label="Search cashbook"
+            />
+            {onExport ? <ExportMenu onExport={format => onExport(format, visible)} /> : null}
+            {canTransfer ? <button type="button" className="account-alert-button account-alert-button-light" onClick={() => onTransfer?.()}>Transfer Money</button> : null}
+            {onAddEntry ? <button type="button" className="account-alert-button account-alert-button-dark" onClick={() => onAddEntry()}>Add Account Entry</button> : null}
+          </div>
         </div>
-        {treasury.transfers.length ? (
+
+        <div className="tr-filter-row">
+          <span className="tr-filter-label">Filter by type</span>
+          <div className="tr-chips" role="group" aria-label="Filter by type">
+            <button type="button" className={`tr-chip${type === '' ? ' is-active' : ''}`} aria-pressed={type === ''} onClick={() => { setType(''); resetPaging() }}>
+              All Types <em>{walletRows.length}</em>
+            </button>
+            {CASHBOOK_TYPES.map(t => (
+              <button key={t.key} type="button" className={`tr-chip tr-chip-${t.key}${type === t.key ? ' is-active' : ''}`} aria-pressed={type === t.key} onClick={() => { setType(type === t.key ? '' : t.key); resetPaging() }}>
+                <i aria-hidden="true" />{t.label} <em>{typeCounts[t.key] || 0}</em>
+              </button>
+            ))}
+          </div>
+          <div className="tr-totals" aria-label="Totals for the rows shown">
+            <span>In <strong className="tr-in">{money(totals.in)}</strong></span>
+            <span>Out <strong className="tr-out">{money(totals.out)}</strong></span>
+            <span>Net <strong className={totals.in - totals.out < 0 ? 'tr-out' : 'tr-in'}>{signed(totals.in - totals.out)}</strong></span>
+          </div>
+        </div>
+
+        {visible.length ? (
           <div className="tr-table-scroll">
-            <table className="tr-table">
+            <table className="tr-table tr-cashbook-table">
               <thead>
-                <tr><th>Date</th><th>Reference</th><th>From</th><th aria-label="direction" /><th>To</th><th>Note</th><th className="num">Amount</th></tr>
+                <tr>
+                  <th>Date</th><th>Reference</th><th>Type</th><th>Counterparty</th><th>Category</th><th>Wallet / Account</th>
+                  <th className="num">Inflow (+)</th><th className="num">Outflow (−)</th><th className="num">Net flow</th><th>Description</th>
+                  {onEdit ? <th className="tr-actions-head">Actions</th> : null}
+                </tr>
               </thead>
               <tbody>
-                {treasury.transfers.slice(0, 20).map(t => (
-                  <tr key={t.id}>
-                    <td className="nowrap">{fmtDate(t.transaction_date)}</td>
-                    <td className="nowrap tr-muted">{t.transaction_id || `#${t.id}`}</td>
-                    <td>{walletLabel(t.payment_method)}</td>
-                    <td className="tr-arrow" aria-hidden="true">→</td>
-                    <td>{walletLabel(t.category)}</td>
-                    <td className="tr-muted">{t.description || '—'}</td>
-                    <td className="num"><strong>{money(t.amount)}</strong></td>
+                {shown.map(r => (
+                  <tr key={r.id}>
+                    <td className="nowrap">{fmtDate(r.date)}</td>
+                    <td className="nowrap tr-reference">{r.reference}</td>
+                    <td><span className={`tr-type tr-type-${r.kind}`}>{r.type}</span></td>
+                    <td className="tr-strong">{r.counterparty}</td>
+                    <td className="tr-muted">{r.category}</td>
+                    <td className="nowrap">{r.wallet}</td>
+                    <td className="num tr-in">{r.inflow ? `+${money(r.inflow)}` : <span className="tr-faint">—</span>}</td>
+                    <td className="num tr-out">{r.outflow ? `−${money(r.outflow)}` : <span className="tr-faint">—</span>}</td>
+                    <td className={`num tr-net ${r.net < -0.005 ? 'tr-out' : r.net > 0.005 ? 'tr-in' : 'tr-faint'}`}>{signed(r.net)}</td>
+                    <td className="tr-muted tr-desc">{r.description || '—'}</td>
+                    {onEdit ? (
+                      <td className="tr-actions">
+                        <button type="button" className="workspace-action-btn" onClick={() => onEdit(r)}>Edit</button>
+                      </td>
+                    ) : null}
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
-        ) : <p className="tr-empty">No wallet transfers recorded{isPeriodFiltered ? ' in this period' : ''}. Use “Transfer Money” to move cash between wallets.</p>}
+        ) : <p className="tr-empty tr-pad">No transactions match{type ? ` “${CASHBOOK_TYPES.find(t => t.key === type)?.label}”` : ''}{walletName ? ` for ${walletName}` : ''}{query ? ` “${query}”` : ''}.</p>}
+
+        {visible.length > limit ? (
+          <div className="tr-pad">
+            <button type="button" className="tr-more" onClick={() => setLimit(l => l + PAGE_SIZE * 2)}>
+              Show more ({visible.length - limit} left)
+            </button>
+          </div>
+        ) : null}
       </article>
     </section>
   )

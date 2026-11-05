@@ -8,7 +8,7 @@ import { FiDownload } from 'react-icons/fi'
 import { AppAutocomplete, AppFilterPicker, AppSelect } from '../components/FormSelects'
 import SalesOverview from '../components/dashboard/SalesOverview'
 import TreasuryPanel from '../components/treasury/TreasuryPanel'
-import { WALLETS, buildAccountLedger, buildTreasury, walletLabel } from '../lib/treasury'
+import { WALLETS, buildAccountLedger, buildCashbook, buildTreasury, walletLabel } from '../lib/treasury'
 import ReportsCenter from '../components/reports/ReportsCenter'
 import ReportingOverview from '../components/reports/ReportingOverview'
 import AiCopilot from '../components/ai/AiCopilot'
@@ -48,8 +48,9 @@ const SECTIONS = [
   { key: 'customers',       label: 'Customers',          icon: 'customers', roles: ['admin', 'sales'],             subtitle: 'Customer records, invoice history, and outstanding balances.',                                          sheets: ['Customers_Dtls', 'Customers'], group: 'Operations' },
   { key: 'receivables',     label: 'Customer Debtors (AR)', icon: 'debtors', roles: ['admin', 'sales', 'accounts'], subtitle: 'Who owes us, how long it has been unpaid, and staff / home advances.', sheets: [], group: 'Operations' },
   { key: 'suppliers',       label: 'Suppliers',          icon: 'suppliers', roles: ['admin', 'accounts'],          subtitle: 'Supplier records, purchases, and payable balances.',                                                       sheets: ['Supplier_Dtls'], group: 'Operations' },
-  { key: 'treasury',        label: 'Cashbook & Treasury', icon: 'treasury', roles: ['admin', 'accounts'],          subtitle: 'Wallet balances, statements and transfers between wallets.', sheets: [], group: 'Finance' },
-  { key: 'accounts_pricing',label: 'Accounts',           icon: 'accounts',   roles: ['admin', 'accounts'],          subtitle: 'Accounts entries and configuration.',                                                                       sheets: ['Accounts_Entry', 'Accounts_Dtls'], group: 'Finance' },
+  { key: 'treasury',        label: 'Cashbook & Treasury', icon: 'treasury', roles: ['admin', 'accounts'],          subtitle: 'Every receipt, expense, supplier payment and transfer, by wallet.', sheets: ['Accounts_Entry', 'Accounts_Dtls'], group: 'Finance' },
+  // Replaced by the Cashbook (account entries are added and edited there).
+  { key: 'accounts_pricing',label: 'Accounts',           icon: 'accounts',   roles: ['admin', 'accounts'],          subtitle: 'Accounts entries and configuration.',                                                                       sheets: ['Accounts_Entry', 'Accounts_Dtls'], group: 'Finance', hidden: true },
   { key: 'reporting',       label: 'Reporting',          icon: 'reporting', roles: ['admin', 'accounts'],          subtitle: 'Financial reporting and workbook-style summaries.',                                                        sheets: ['Trial Balance'], group: 'Finance' },
   { key: 'reconciliation',  label: 'Asset Reconciliation', icon: 'reconcile', roles: ['admin', 'accounts'],         subtitle: 'Physical count of cash, receivables and stock against the books.', sheets: [], group: 'Finance' },
   { key: 'reports',         label: 'Reports & Exports',  icon: 'reports',   roles: ['admin', 'accounts'],          subtitle: 'Preview any report and download it as Excel or PDF.', sheets: [], group: 'Finance', placement: 'top', navLabel: 'Reports' },
@@ -772,6 +773,7 @@ const BASIC_PAYMENT_METHOD_OPTIONS = [
   { value: 'cash', label: 'Cash' },
   { value: 'momo', label: 'Mobile Money' },
   { value: 'bank_transfer', label: 'Bank Transfer' },
+  { value: 'ghanapay', label: 'GhanaPay' },
   { value: 'other', label: 'Other' },
 ]
 
@@ -2338,7 +2340,7 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
     const visible = SECTIONS
       .filter(section => !section.hidden)
       .filter(section => !section.roles || section.roles.includes(normalizedRole))
-      .filter(section => !allowedSections || allowedSections.includes(section.key))
+      .filter(section => !allowedSections || allowedSections.includes(section.key) || (section.key === 'treasury' && allowedSections.includes('accounts_pricing')))
     return visible.length ? visible : [SECTIONS[0]]
   }, [allowedSections, normalizedRole])
   const isStandaloneView = standaloneMode || availableSections.length === 1
@@ -2780,7 +2782,14 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
   // Wallet whose statement opens when Treasury is reached from a dashboard "View" button.
   const [treasuryFocusWallet, setTreasuryFocusWallet] = useState('')
   const treasuryDateFilter = sectionDateFilters.treasury || EMPTY_DATE_RANGE
-  const treasurySection = useMemo(() => buildTreasury(treasuryInput, hasDateRange(treasuryDateFilter) ? treasuryDateFilter : null), [treasuryInput, treasuryDateFilter])
+  const cashbookAll = useMemo(() => {
+    const purchaseById = new Map(data.purchases.map(p => [String(p.id), p]))
+    return buildCashbook({
+      ...treasuryInput,
+      purchasePayments: treasuryInput.purchasePayments.map(pp => ({ ...pp, purchase_category: fmtStatus(purchaseById.get(String(pp.purchase))?.category || '') || '' })),
+    })
+  }, [treasuryInput, data.purchases])
+  const cashbookRows = useMemo(() => filterByDateRange(cashbookAll, r => r.date, treasuryDateFilter), [cashbookAll, treasuryDateFilter])
   const reportsContext = useMemo(() => ({
     invoices: data.invoices,
     payments: data.payments,
@@ -4411,7 +4420,7 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
       ],
     }
   })
-  const customerRows = filteredCustomerLedger.map(c => ({ key: c.id, emphasisIndex: 5, cells: [c.name, c.phone || '—', String(c.invoiceCount), fmt(c.totalBilled), fmt(c.paid), fmt(c.outstanding), <button key="edit" type="button" className="workspace-action-btn" onClick={e => { e.stopPropagation(); openModal('customer', c) }}>Edit</button>] }))
+  const customerRows = filteredCustomerLedger.map(c => ({ key: c.id, emphasisIndex: 3, searchText: [c.name, c.phone, c.invoiceCount, fmt(c.totalBilled), fmt(c.paid), fmt(c.outstanding)].join(' '), cells: [c.name, c.phone || '—', String(c.invoiceCount), fmt(c.totalBilled), <span key="paid" className="sales-paid">{fmt(c.paid)}</span>, <span key="due" className={toNumber(c.outstanding) > 0.005 ? 'sales-due' : 'sales-due-zero'}>{fmt(c.outstanding)}</span>, <button key="edit" type="button" className="workspace-action-btn" onClick={e => { e.stopPropagation(); openModal('customer', c) }}>Edit</button>] }))
   const supplierRows = filteredSupplierLedger.map(s => ({ key: s.id, emphasisIndex: 5, cells: [s.name, resolveSupplierMaterials(s, data.rawMaterials), resolveSupplierItemCategory(s, data.purchases, data.rawMaterials), String(s.purchaseCount), fmt(s.paid), fmt(s.outstanding), ...(canManageDataEntryEditDelete ? [<button key="edit" type="button" className="workspace-action-btn" onClick={e => { e.stopPropagation(); openModal('supplier', s) }}>Edit</button>] : [])] }))
   const accountRows  = accountTransactionsFiltered.map(e => ({
     key: e.id,
@@ -5004,6 +5013,7 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
   }
   const canAccessSection = (sectionKey) => availableSections.some(section => section.key === sectionKey)
   const jumpToSection = (sectionKey, tabKey = null) => {
+    if (sectionKey === 'accounts_pricing') sectionKey = 'treasury'
     if (sectionKey === 'receivables' && canAccessSection('customers')) {
       // Debtors are the "Customer Debts" tab of Customers.
       sectionKey = 'customers'
@@ -5013,6 +5023,15 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
     setActiveSection(sectionKey)
     setIsMobileNavOpen(false)
     if (tabKey) setSectionTab(sectionKey, tabKey)
+  }
+  const editCashbookRow = row => {
+    if (row.kind === 'receipt') return openModal('receipt', row.source)
+    if (row.kind === 'supplier') {
+      const purchase = data.purchases.find(p => String(p.id) === String(row.source.purchase))
+      if (purchase) openModal('purchase', purchase)
+      return
+    }
+    openModal('account', row.source)
   }
   const handleSectionSelect = (sectionKey) => {
     if (!canAccessSection(sectionKey)) return
@@ -5532,16 +5551,19 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
 
     if (activeSection === 'treasury') return (
       <>
-        <DateFilterControl range={treasuryDateFilter} onOpen={openDateFilter} onClear={() => clearDateFilter('treasury')} onPresetSelect={preset => applyQuickDatePreset('treasury', preset)} activePreset={sectionDatePresets.treasury || ''} inlineTitle="Cashbook & Treasury" hideInlineTitle={isStandaloneView} onExport={format => runPageExport(format, 'Cashbook & Treasury', async exportTableDataset => {
-          await exportTableDataset('Wallet_Balances', ['Wallet', 'Money in', 'Money out', 'Balance today'], treasurySection.wallets.map(w => ({ id: w.key, cells: [w.label, fmt(w.periodIn), fmt(w.periodOut), fmt(w.balance)] })))
-        })} />
+        <DateFilterControl range={treasuryDateFilter} onOpen={openDateFilter} onClear={() => clearDateFilter('treasury')} onPresetSelect={preset => applyQuickDatePreset('treasury', preset)} activePreset={sectionDatePresets.treasury || ''} inlineTitle="Cashbook & Treasury" hideInlineTitle={isStandaloneView} />
         <TreasuryPanel
           key={treasuryFocusWallet || 'treasury'}
           initialWallet={treasuryFocusWallet}
-          treasury={treasurySection}
-          isPeriodFiltered={hasDateRange(treasuryDateFilter)}
-          periodLabel={summarizeDateRange(treasuryDateFilter)}
+          treasury={treasuryToday}
+          rows={cashbookRows}
           onTransfer={() => openTransferModal()}
+          onAddEntry={() => openModal('account')}
+          onEdit={canManageDataEntryEditDelete ? editCashbookRow : null}
+          onExport={(format, visibleRows) => runPageExport(format, 'Cashbook & Treasury', async exportTableDataset => {
+            await exportTableDataset('Wallet_Balances', ['Wallet', 'Balance today'], treasuryToday.wallets.map(w => ({ id: w.key, cells: [w.label, fmt(w.balance)] })))
+            await exportTableDataset('Cashbook', ['Date', 'Reference', 'Type', 'Counterparty', 'Category', 'Wallet / Account', 'Inflow', 'Outflow', 'Net Flow', 'Description'], visibleRows.map(r => ({ id: r.id, cells: [fmtD(r.date), r.reference, r.type, r.counterparty, r.category, r.wallet, fmt(r.inflow), fmt(r.outflow), fmt(r.net), r.description] })))
+          })}
         />
       </>
     )
@@ -6133,6 +6155,7 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
           return (
           <ModalShell kicker="Plus Treat Collections" title={isEditingReceipt ? `Edit Receipt #${receiptForm._editId}` : 'Receipt Entry'} stat={isEditingReceipt ? undefined : `${invoiceOptions.length} open invoices`} onClose={() => setActiveModal('')}>
           <form className="sales-form sales-form-redesign" onSubmit={handleReceiptSubmit}>
+            <div className="receipt-head-row">
             <label className="sales-field"><span>Outstanding Invoice</span>
               <AppAutocomplete
                 ariaLabel="Outstanding invoice"
@@ -6144,6 +6167,7 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
               />
             </label>
             <label className="sales-field"><span>Date</span><input type="date" value={receiptForm.paymentDate} onChange={e => setReceiptForm(c => ({ ...c, paymentDate: e.target.value }))} /></label>
+            </div>
             <section className="sales-lines-panel">
               <div className="sales-lines-panel-header">
                 <div>

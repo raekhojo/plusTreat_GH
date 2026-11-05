@@ -173,7 +173,7 @@ function ReceivablesInsights({ invoices = [], customers = [], accountTransaction
                         : <span className="rv-name">{r.name}</span>}
                       <span className="rv-sub">{plural(r.invoices, 'open invoice')}</span>
                     </td>
-                    <td className="num"><strong>{money(r.total)}</strong></td>
+                    <td className="num"><strong className="rv-due">{money(r.total)}</strong></td>
                     {BUCKETS.map(b => <td key={b.key} className={`num${r[b.key] ? '' : ' rv-faint'}`}>{r[b.key] ? money(r[b.key]) : '—'}</td>)}
                     <td className={`num${r.oldest > LATE_DAYS ? ' rv-late' : ''}`}>{r.oldest > LATE_DAYS ? <span aria-hidden="true">! </span> : null}{r.oldest} days</td>
                     {onStatement ? (

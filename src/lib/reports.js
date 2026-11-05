@@ -3,7 +3,7 @@
 // loads. Income statement & balance sheet come from the backend trial balance.
 import { WALLETS, buildTreasury, walletLabel } from './treasury'
 
-const METHOD_LABELS = { cash: 'Cash', momo: 'Mobile Money', bank_transfer: 'Bank Transfer', other: 'Other' }
+const METHOD_LABELS = { cash: 'Cash', momo: 'Mobile Money', bank_transfer: 'Bank Transfer', ghanapay: 'GhanaPay', other: 'Other' }
 const DAY_MS = 86400000
 
 function num(v) { const n = Number(v); return Number.isFinite(n) ? n : 0 }

@@ -42,7 +42,7 @@ export function saveCompanyProfile(profile) {
   else localStorage.removeItem(PROFILE_KEY)
 }
 
-const METHOD_LABELS = { cash: 'Cash', momo: 'Mobile Money', bank_transfer: 'Bank Transfer', other: 'Other' }
+const METHOD_LABELS = { cash: 'Cash', momo: 'Mobile Money', bank_transfer: 'Bank Transfer', ghanapay: 'GhanaPay', other: 'Other' }
 
 function esc(value) {
   return String(value ?? '')
@@ -54,7 +54,6 @@ function esc(value) {
 }
 function num(v) { const n = Number(v); return Number.isFinite(n) ? n : 0 }
 function amount(v) { return new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(num(v)) }
-function ghs(v) { return `GHS ${amount(v)}` }
 function qty(v) { return new Intl.NumberFormat('en-US', { maximumFractionDigits: 2 }).format(num(v)) }
 function date(raw) {
   const m = String(raw || '').match(/^(\d{4})-(\d{2})-(\d{2})/)
@@ -234,17 +233,33 @@ function showViewer(docTitle, html) {
 }
 
 // bodyHtml may be a list: each entry becomes its own page (e.g. every receipt of an invoice).
-function openDocument(docTitle, bodyHtml) {
+function openDocument(docTitle, bodyHtml, { plain = false } = {}) {
   const pages = (Array.isArray(bodyHtml) ? bodyHtml : [bodyHtml])
-    .map(body => `<div class="page"><div class="canvas">${body}</div></div>`).join('')
+    .map(body => `<div class="page"><div class="canvas${plain ? ' canvas-plain' : ''}">${body}</div></div>`).join('')
   const html = `<!doctype html><html lang="en"><head><meta charset="utf-8" /><title>${esc(docTitle)}</title><style>${STYLES}
-body{padding-top:24px}
-@media print{body{padding-top:0}.page{break-after:page}.page:last-child{break-after:auto}}
-</style></head><body>${pages}</body></html>`
+body{padding-top:20px}
+.canvas-plain{border:0;border-radius:10px;padding:32px 36px 0}
+@media print{body{padding-top:0;zoom:1!important}.page{break-after:page}.page:last-child{break-after:auto}.canvas-plain{padding:0}}
+</style></head><body>${pages}
+<script>
+// Shrink the page so a whole A4 sheet fits in the viewer without scrolling (screen only).
+(function(){
+  function fit(){
+    var z = Math.min(1, (window.innerHeight - 28) / 1110, (window.innerWidth - 24) / 856);
+    document.body.style.zoom = String(Math.max(0.45, z));
+  }
+  window.addEventListener('load', fit);
+  window.addEventListener('resize', fit);
+  window.addEventListener('beforeprint', function(){ document.body.style.zoom = '1' });
+  window.addEventListener('afterprint', fit);
+  fit();
+})();
+</${'script'}>
+</body></html>`
   showViewer(docTitle, html)
 }
 
-function linesTable(lines, fallbackTotal) {
+function linesTable(lines, fallbackTotal, { minRows = 0 } = {}) {
   const rows = (lines || []).length
     ? lines.map(l => `
       <tr>
@@ -254,7 +269,9 @@ function linesTable(lines, fallbackTotal) {
         <td class="r amt">${amount(l.line_total)}</td>
       </tr>`).join('')
     : `<tr><td class="desc">Plus Yoghurt Assorted Line</td><td class="c">${amount(fallbackTotal)}</td><td class="c">1</td><td class="r amt">${amount(fallbackTotal)}</td></tr>`
-  return `<table><thead><tr><th style="width:48%">Description</th><th class="c" style="width:22%">Unit Cost</th><th class="c" style="width:14%">Qty</th><th class="r" style="width:16%">Amount</th></tr></thead><tbody>${rows}</tbody></table>`
+  const filled = Math.max(0, minRows - Math.max(1, (lines || []).length))
+  const blanks = Array.from({ length: filled }, () => '<tr class="blank"><td>&nbsp;</td><td></td><td></td><td></td></tr>').join('')
+  return `<table><thead><tr><th style="width:48%">Description</th><th class="c" style="width:22%">Unit Cost</th><th class="c" style="width:14%">Qty</th><th class="r" style="width:16%">Amount</th></tr></thead><tbody>${rows}${blanks}</tbody></table>`
 }
 
 /** Official invoice — the PlusYoghurt-App template. */
@@ -272,7 +289,7 @@ function invoiceBody(invoice, { customer = null } = {}) {
       </div>
       ${billTo(invoice.customer_name, tier)}
     </div>
-    ${linesTable(invoice.lines, invoice.total_amount)}
+    ${linesTable(invoice.lines, invoice.total_amount, { minRows: 8 })}
     <div class="totals"><div class="totals-box">
       <div class="calc"><span>Subtotal :</span><span>${amount(subtotal)}</span></div>
       <div class="calc"><span>Discount :</span><span>${amount(invoice.discount_amount)}</span></div>
@@ -357,45 +374,118 @@ export function printReceipts(payments = [], { invoice = null, customer = null }
 }
 
 /** Customer statement: every invoice and payment, with balance due. */
+const STATEMENT_CSS = `
+.st-brand{display:flex;align-items:center;justify-content:space-between;gap:16px;padding-bottom:14px;border-bottom:2px solid #0f172a}
+.st-brand-left{display:flex;align-items:center;gap:12px}
+.st-brand img{height:54px}
+.st-brand .company{font-weight:800;font-size:15px}
+.st-brand .muted{font-size:11.5px;color:#64748b}
+.st-title{text-align:right}
+.st-title h1{margin:0;font-size:20px;font-weight:800;letter-spacing:.02em}
+.st-title span{font-size:11.5px;color:#64748b}
+.st-card{display:flex;justify-content:space-between;align-items:center;gap:18px;margin:18px 0 20px;padding:16px 18px;border:1px solid #e2e8f0;border-radius:10px}
+.st-name{font-size:19px;font-weight:800}
+.st-sub{margin-top:4px;font-size:12px;color:#64748b}
+.st-sub b{color:#334155}
+.st-totals{display:flex;gap:26px;text-align:right}
+.st-totals span{display:block;font-size:10px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:#64748b}
+.st-totals strong{display:block;margin-top:3px;font-size:18px;font-weight:800;white-space:nowrap}
+.st-section{display:flex;align-items:center;gap:8px;margin:18px 0 8px;font-size:13px;font-weight:800}
+.st-table{width:100%;border-collapse:collapse;font-size:12px}
+.st-table th{padding:8px 10px;background:#f8fafc;border-top:1px solid #e2e8f0;border-bottom:1px solid #e2e8f0;font-size:10.5px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:#64748b;text-align:left;white-space:nowrap}
+.st-table td{padding:9px 10px;border-bottom:1px solid #eef2f6;white-space:nowrap}
+.st-table .r{text-align:right}
+.st-table .c{text-align:center}
+.st-inv{color:#2c86b8;font-weight:700}
+.st-billed{font-weight:700;color:#0f172a}
+.st-paid{color:#059669;font-weight:600}
+.st-due{color:#dc2626;font-weight:700}
+.st-zero{color:#94a3b8}
+.st-badge{display:inline-block;padding:2px 8px;border-radius:999px;font-size:10px;font-weight:800;letter-spacing:.04em}
+.st-badge.paid{background:#dcfce7;color:#15803d}
+.st-badge.partial{background:#fef3c7;color:#b45309}
+.st-badge.pending{background:#fee2e2;color:#b91c1c}
+.st-badge.sample{background:#e0f2fe;color:#0369a1}
+.st-empty{text-align:center;color:#94a3b8;padding:16px}
+.st-foot{margin-top:auto;padding:14px 0 18px;font-size:11px;color:#94a3b8;text-align:center}
+`
+
+/** Customer ledger statement: who the customer is, totals, every invoice and every payment. */
 export function printCustomerStatement(customer, invoices = [], payments = []) {
   if (!customer) return
-  const sortedInv = [...invoices].sort((a, b) => String(a.invoice_date || '').localeCompare(String(b.invoice_date || '')))
-  const sortedPay = [...payments].sort((a, b) => String(a.payment_date || '').localeCompare(String(b.payment_date || '')))
-  const billed = sortedInv.reduce((t, i) => t + num(i.previous_balance) + num(i.total_amount), 0)
-  const due = sortedInv.reduce((t, i) => t + Math.max(0, num(i.outstanding_balance)), 0)
-  // Matches the invoice table: paid = billed − what is still outstanding.
+  const p = getCompanyProfile()
+  const logo = new URL(invoiceLogo, window.location.href).href
+  const sortedInv = [...invoices].sort((a, b) => String(b.invoice_date || '').localeCompare(String(a.invoice_date || '')))
+  const sortedPay = [...payments].sort((a, b) => String(b.payment_date || '').localeCompare(String(a.payment_date || '')))
+  const billedOf = i => num(i.previous_balance) + num(i.total_amount)
+  const dueOf = i => Math.max(0, num(i.outstanding_balance))
+  const billed = sortedInv.reduce((t, i) => t + billedOf(i), 0)
+  const due = sortedInv.reduce((t, i) => t + dueOf(i), 0)
   const paid = Math.max(0, billed - due)
-  const today = new Date().toISOString().slice(0, 10)
+  const status = i => {
+    if (i.is_sample_sale) return ['sample', 'SAMPLE']
+    if (dueOf(i) <= 0.005) return ['paid', 'PAID']
+    return billedOf(i) - dueOf(i) > 0.005 ? ['partial', 'PARTIAL'] : ['pending', 'PENDING']
+  }
   const invRows = sortedInv.length
     ? sortedInv.map(i => {
-      const out = Math.max(0, num(i.outstanding_balance))
-      return `<tr><td>${esc(invoiceNumber(i.id))}</td><td class="c">${date(i.invoice_date)}</td><td class="r">${amount(num(i.previous_balance) + num(i.total_amount))}</td><td class="r">${amount(Math.max(0, num(i.previous_balance) + num(i.total_amount) - num(i.outstanding_balance)))}</td><td class="r" style="${out > 0 ? 'color:#dc2626;font-weight:700' : ''}">${amount(out)}</td></tr>`
+      const out = dueOf(i)
+      const [cls, label] = status(i)
+      const notes = String(i.notes || '').trim()
+      return `<tr>
+        <td class="st-inv">${esc(invoiceNumber(i.id))}</td>
+        <td>${date(i.invoice_date)}</td>
+        <td class="r st-billed">GHS ${amount(billedOf(i))}</td>
+        <td class="r st-paid">GHS ${amount(Math.max(0, billedOf(i) - out))}</td>
+        <td class="r ${out > 0 ? 'st-due' : 'st-zero'}">GHS ${amount(out)}</td>
+        <td class="c"><span class="st-badge ${cls}">${label}</span></td>
+        <td style="white-space:normal;color:#64748b">${esc(notes || '—')}</td>
+      </tr>`
     }).join('')
-    : '<tr><td colspan="5" class="empty">No invoices recorded.</td></tr>'
+    : '<tr><td colspan="7" class="st-empty">No invoices recorded.</td></tr>'
   const payRows = sortedPay.length
-    ? sortedPay.map(p => `<tr><td class="c">${date(p.payment_date)}</td><td class="c">${esc(p.invoice ? invoiceNumber(p.invoice) : '—')}</td><td class="c">${esc(METHOD_LABELS[p.method] || p.method || '—')}</td><td class="c">${esc(p.reference || '—')}</td><td class="r">${amount(p.amount)}</td></tr>`).join('')
-    : '<tr><td colspan="5" class="empty">No payments recorded.</td></tr>'
-  const body = `
-    ${header('STATEMENT', 'CUSTOMER ACCOUNT')}
-    <div class="meta">
-      <div class="meta-left">
-        <div class="meta-row"><b>Statement Date:</b><span>${date(today)}</span></div>
-        ${customer.phone ? `<div class="meta-row"><b>Phone:</b><span>${esc(customer.phone)}</span></div>` : ''}
-        ${customer.customer_category_name ? `<div class="meta-row"><b>Category:</b><span>${esc(customer.customer_category_name)}</span></div>` : ''}
+    ? sortedPay.map(x => `<tr>
+        <td>${date(x.payment_date)}</td>
+        <td class="st-inv">${esc(x.invoice ? invoiceNumber(x.invoice) : '—')}</td>
+        <td>${esc(METHOD_LABELS[x.method] || x.method || '—')}</td>
+        <td>${esc(x.reference || '—')}</td>
+        <td class="r st-paid">GHS ${amount(x.amount)}</td>
+      </tr>`).join('')
+    : '<tr><td colspan="5" class="st-empty">No payments recorded.</td></tr>'
+  const tier = customer.pricing_category_name || customer.pricing_category
+  const facts = [
+    customer.customer_category_name ? `Category: <b>${esc(customer.customer_category_name)}</b>` : '',
+    tier && typeof tier === 'string' ? `Pricing Tier: <b>${esc(tier)}</b>` : '',
+    `Phone: <b>${esc(customer.phone || 'N/A')}</b>`,
+  ].filter(Boolean).join(' · ')
+  const body = `<style>${STATEMENT_CSS}</style>
+    <div class="st-brand">
+      <div class="st-brand-left">
+        <img src="${esc(logo)}" alt="Plus Yoghurt" />
+        <div><div class="company">${esc(p.name)}</div><div class="muted">${esc(p.phone)} · ${esc(p.email)}</div></div>
       </div>
-      ${billTo(customer.name, customer.pricing_category || customer.customer_category_name)}
+      <div class="st-title"><h1>Customer Ledger Statement</h1><span>Generated ${date(new Date().toISOString().slice(0, 10))}</span></div>
     </div>
-    <div class="summary">
-      <div><span>Total Billed</span><strong>${ghs(billed)}</strong></div>
-      <div><span>Total Paid</span><strong class="paid">${ghs(paid)}</strong></div>
-      <div><span>Balance Due</span><strong style="color:${due > 0 ? '#dc2626' : '#059669'}">${ghs(due)}</strong></div>
+    <div class="st-card">
+      <div><div class="st-name">${esc(customer.name)}</div><div class="st-sub">${facts}</div></div>
+      <div class="st-totals">
+        <div><span>Lifetime billed</span><strong>GHS ${amount(billed)}</strong></div>
+        <div><span>Total paid</span><strong style="color:#059669">GHS ${amount(paid)}</strong></div>
+        <div><span>Current balance due</span><strong style="color:${due > 0 ? '#dc2626' : '#059669'}">GHS ${amount(due)}</strong></div>
+      </div>
     </div>
-    <div class="section-title">Invoices</div>
-    <table><thead><tr><th>Invoice #</th><th class="c">Date</th><th class="r">Billed</th><th class="r">Paid</th><th class="r">Balance</th></tr></thead><tbody>${invRows}</tbody></table>
-    <div class="section-title">Payments received</div>
-    <table><thead><tr><th class="c">Date</th><th class="c">Invoice</th><th class="c">Method</th><th class="c">Reference</th><th class="r">Amount</th></tr></thead><tbody>${payRows}</tbody></table>
-    ${footer({ showPaymentDetails: due > 0 })}`
-  openDocument(`Statement — ${customer.name}`, body)
+    <div class="st-section">Invoices &amp; Orders Ledger</div>
+    <table class="st-table">
+      <thead><tr><th>Invoice #</th><th>Date</th><th class="r">Total billed</th><th class="r">Paid</th><th class="r">Balance due</th><th class="c">Status</th><th>Notes</th></tr></thead>
+      <tbody>${invRows}</tbody>
+    </table>
+    <div class="st-section">Recorded Customer Receipts &amp; Payments</div>
+    <table class="st-table">
+      <thead><tr><th>Payment date</th><th>Invoice ref</th><th>Method</th><th>Reference #</th><th class="r">Amount paid</th></tr></thead>
+      <tbody>${payRows}</tbody>
+    </table>
+    <div class="st-foot">${esc(p.name)} · Customer statement for ${esc(customer.name)}</div>`
+  openDocument(`Statement — ${customer.name}`, body, { plain: true })
 }
 
 /**

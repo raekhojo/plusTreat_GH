@@ -9608,3 +9608,7 @@
   .is-nav-collapsed .account-nav-entry:first-child .account-nav-group { display: none; }
   .is-nav-collapsed .account-nav-list .account-nav-item { justify-content: center; gap: 0; padding: 9px 0; }
 }
+
+/* Receipt Entry: invoice and date share one line */
+.receipt-head-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(160px, 220px); gap: 14px; align-items: end; grid-column: 1 / -1; }
+@media (max-width: 640px) { .receipt-head-row { grid-template-columns: minmax(0, 1fr); } }

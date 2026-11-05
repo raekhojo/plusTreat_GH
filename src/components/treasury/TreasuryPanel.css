@@ -166,3 +166,121 @@
   .tr-wallets { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .tr-wallet-total { grid-column: 1 / -1; }
 }
+
+/* Unified cashbook */
+.tr-panel { margin-top: 8px; }
+.tr-wallet { cursor: default; }
+.tr-wallet:hover { border-color: rgba(16, 36, 58, 0.08); }
+.tr-wallet.is-open:hover { border-color: #1c5cab; }
+.tr-wallet-filter {
+  margin-top: 4px;
+  height: 28px;
+  padding: 0 12px;
+  border: 1px solid rgba(16, 36, 58, 0.14);
+  border-radius: 8px;
+  background: #ffffff;
+  color: #10243a;
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+.tr-wallet-filter:hover { border-color: #31b1e4; color: #1c5cab; }
+.tr-wallet.is-open .tr-wallet-filter { background: #1c5cab; border-color: #1c5cab; color: #ffffff; }
+.tr-wallet-filter:focus-visible, .tr-chip:focus-visible { outline: 2px solid #31b1e4; outline-offset: 2px; }
+
+.tr-cashbook { padding: 0; overflow: hidden; }
+.tr-cashbook .mc-table-tools { flex-wrap: wrap; }
+.tr-search { width: 280px; }
+.tr-filter-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 14px;
+  padding: 0 20px 14px;
+  border-bottom: 1px solid #e4e8ee;
+}
+.tr-filter-label { font-size: 0.72rem; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: #8a94a3; }
+.tr-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.tr-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 30px;
+  padding: 0 12px;
+  border: 1px solid rgba(16, 36, 58, 0.12);
+  border-radius: 999px;
+  background: #ffffff;
+  color: #10243a;
+  font: inherit;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+.tr-chip i { width: 8px; height: 8px; border-radius: 50%; background: #8a94a3; }
+.tr-chip em { font-style: normal; font-weight: 500; color: #8a94a3; font-variant-numeric: tabular-nums; }
+.tr-chip:hover { background: #f5f7fb; }
+.tr-chip.is-active { background: #10243a; border-color: #10243a; color: #ffffff; }
+.tr-chip.is-active em { color: #c3cad4; }
+.tr-chip-receipt i { background: #0a8a4a; }
+.tr-chip-expense i { background: #c23b3b; }
+.tr-chip-supplier i { background: #c27700; }
+.tr-chip-transfer i { background: #1c5cab; }
+.tr-chip-income i { background: #0f8a8a; }
+.tr-totals { margin-left: auto; display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 0.8rem; color: #8a94a3; }
+.tr-totals strong { margin-left: 4px; font-variant-numeric: tabular-nums; }
+
+.tr-cashbook-table th {
+  padding: 10px 12px;
+  background: #f8fafc;
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.tr-cashbook-table td { padding: 11px 12px; vertical-align: middle; }
+.tr-cashbook-table th:first-child, .tr-cashbook-table td:first-child { padding-left: 20px; }
+.tr-cashbook-table th:last-child, .tr-cashbook-table td:last-child { padding-right: 20px; }
+.tr-cashbook-table tbody tr:hover td { background: #fbfcfd; }
+.tr-reference { color: #c23b3b; font-weight: 600; font-size: 0.82rem; }
+.tr-strong { font-weight: 600; }
+.tr-desc { min-width: 180px; font-size: 0.82rem; }
+.tr-net { font-weight: 700; }
+.tr-faint { color: #c3ccd5; }
+.tr-in, .tr-out { font-variant-numeric: tabular-nums; }
+.tr-type {
+  display: inline-block;
+  padding: 3px 9px;
+  border-radius: 999px;
+  font-size: 0.7rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  background: #eef1f5;
+  color: #52606d;
+}
+.tr-type-receipt { background: #e3f6ec; color: #0a7a40; }
+.tr-type-expense { background: #fbe7e7; color: #b23131; }
+.tr-type-supplier { background: #fdf0dc; color: #a55f00; }
+.tr-type-transfer { background: #e6eefa; color: #1c5cab; }
+.tr-type-income { background: #e0f4f4; color: #0b7676; }
+.tr-actions, .tr-actions-head { text-align: right; white-space: nowrap; }
+.tr-pad { padding: 14px 20px; margin: 0; }
+@media (max-width: 720px) {
+  .tr-search { width: 100%; }
+  .tr-totals { margin-left: 0; }
+}
+.tr-cashbook-table { font-size: 0.84rem; }
+.tr-cashbook-table th, .tr-cashbook-table td { padding-left: 10px; padding-right: 10px; }
+.tr-cashbook-table td { white-space: nowrap; }
+.tr-cashbook-table td.tr-desc { white-space: normal; min-width: 170px; max-width: 260px; }
+.tr-cashbook-table .tr-actions, .tr-cashbook-table .tr-actions-head {
+  position: sticky;
+  right: 0;
+  background: #ffffff;
+  box-shadow: -8px 0 8px -8px rgba(16, 36, 58, 0.18);
+}
+.tr-cashbook-table .tr-actions-head { background: #f8fafc; }
+.tr-cashbook-table tbody tr:hover td.tr-actions { background: #fbfcfd; }

@@ -21,7 +21,7 @@ export const WALLETS = [
 
 // Customer payments store a method code; the backend maps them to wallets.
 // ('other' is not mapped to any wallet, matching the backend.)
-const RECEIPT_METHOD_TO_WALLET = { cash: 'Cash', momo: 'MoMo Wallet', bank_transfer: 'CalBank' }
+const RECEIPT_METHOD_TO_WALLET = { cash: 'Cash', momo: 'MoMo Wallet', bank_transfer: 'CalBank', ghanapay: 'GhanaPay' }
 
 function num(v) { const n = Number(v); return Number.isFinite(n) ? n : 0 }
 function same(a, b) { return String(a || '').trim().toLowerCase() === String(b || '').trim().toLowerCase() }
@@ -149,4 +149,73 @@ export function buildTreasury({ payments = [], accountTransactions = [], purchas
     total: wallets.reduce((t, w) => t + w.balance, 0),
     transfers,
   }
+}
+
+// Cashbook: every money movement in one list (receipts, expenses, supplier
+// payments, transfers, other income), newest first. `kind` says which record
+// it came from so the page can open the right edit form.
+export const CASHBOOK_TYPES = [
+  { key: 'receipt', label: 'Receipts' },
+  { key: 'expense', label: 'Operating Expenses' },
+  { key: 'supplier', label: 'Supplier Payments' },
+  { key: 'transfer', label: 'Account Transfers' },
+  { key: 'income', label: 'Other Income' },
+]
+const RECEIPT_METHOD_LABELS = { cash: 'Cash', momo: 'MoMo Wallet', bank_transfer: 'Cal Bank', ghanapay: 'GhanaPay', other: 'Other' }
+
+export function buildCashbook({ payments = [], accountTransactions = [], purchasePayments = [] }) {
+  const rows = []
+  payments.forEach(p => {
+    const amount = num(p.amount)
+    const method = String(p.method || '').toLowerCase()
+    rows.push({
+      id: `pay-${p.id}`, kind: 'receipt', source: p, date: p.payment_date,
+      reference: p.reference || `RCPT-${String(p.receipt_id || p.id).padStart(4, '0')}`,
+      type: 'Receipt', counterparty: p.customer_name || '—', category: 'Sales Receipt',
+      walletKey: RECEIPT_METHOD_TO_WALLET[method] || '', wallet: RECEIPT_METHOD_LABELS[method] || p.method || '—',
+      inflow: amount, outflow: 0,
+      description: p.notes || (p.invoice ? `Payment for INV-${String(p.invoice).padStart(4, '0')}` : 'Customer payment'),
+    })
+  })
+  accountTransactions.forEach(t => {
+    const amount = num(t.amount)
+    const type = String(t.entry_type || '').toLowerCase()
+    const base = { id: `acc-${t.id}`, source: t, date: t.transaction_date, reference: t.transaction_id || `#${t.id}`, description: t.description || '' }
+    if (type === 'transfers') {
+      const fromWallet = isWallet(t.payment_method)
+      const toWallet = isWallet(t.category)
+      rows.push({
+        ...base, kind: 'transfer', type: 'Transfer',
+        counterparty: `${walletLabel(t.payment_method) || '—'} → ${walletLabel(t.category) || '—'}`,
+        category: 'Account Transfer',
+        walletKey: fromWallet ? WALLETS.find(w => same(w.key, t.payment_method)).key : '',
+        walletToKey: toWallet ? WALLETS.find(w => same(w.key, t.category)).key : '',
+        wallet: `${walletLabel(t.payment_method) || '—'} → ${walletLabel(t.category) || '—'}`,
+        inflow: toWallet ? amount : 0, outflow: fromWallet ? amount : 0,
+      })
+    } else if (type === 'income' || type === 'expense') {
+      const wallet = WALLETS.find(w => same(w.key, t.payment_method))
+      rows.push({
+        ...base, kind: type, type: type === 'income' ? 'Income' : 'Expense',
+        counterparty: t.comments || '—',
+        category: t.category || '—',
+        walletKey: wallet?.key || '', wallet: wallet ? wallet.label : (t.payment_method || '—'),
+        inflow: type === 'income' ? amount : 0, outflow: type === 'expense' ? amount : 0,
+      })
+    }
+  })
+  purchasePayments.forEach(pp => {
+    const wallet = WALLETS.find(w => same(w.key, pp.payment_method))
+    rows.push({
+      id: `pp-${pp.id}`, kind: 'supplier', source: pp, date: pp.payment_date,
+      reference: pp.purchase ? `PUR-${String(pp.purchase).padStart(4, '0')}` : `#${pp.id}`,
+      type: 'Supplier Payment', counterparty: pp.supplier_name || '—', category: pp.purchase_category || 'Supplier Payment',
+      walletKey: wallet?.key || '', wallet: wallet ? wallet.label : (pp.payment_method || '—'),
+      inflow: 0, outflow: num(pp.amount),
+      description: pp.notes || (pp.purchase ? `Payment for purchase #${pp.purchase}` : 'Supplier payment'),
+    })
+  })
+  rows.forEach(r => { r.net = r.inflow - r.outflow })
+  rows.sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')) || String(b.id).localeCompare(String(a.id), undefined, { numeric: true }))
+  return rows
 }

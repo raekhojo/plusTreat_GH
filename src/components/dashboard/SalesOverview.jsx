@@ -12,8 +12,8 @@ const ACCENT = '#1c5cab'
 const ACCENT_SOFT = '#86b6ef'
 const HEAT = ['#cde2fb', '#9ec5f4', '#5598e7', '#256abf', '#104281']
 const AGEING = ['#86b6ef', '#3987e5', '#1c5cab', '#0d366b']
-const METHOD_ORDER = ['cash', 'momo', 'bank_transfer', 'other']
-const METHOD_LABELS = { cash: 'Cash', momo: 'Mobile Money', bank_transfer: 'Bank Transfer', other: 'Other' }
+const METHOD_ORDER = ['cash', 'momo', 'bank_transfer', 'ghanapay', 'other']
+const METHOD_LABELS = { cash: 'Cash', momo: 'Mobile Money', bank_transfer: 'Bank Transfer', ghanapay: 'GhanaPay', other: 'Other' }
 
 const DAY_MS = 86400000
 const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
