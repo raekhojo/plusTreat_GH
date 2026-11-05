@@ -94,6 +94,8 @@ function LoginPage() {
             </button>
 
             {errorMessage ? <p className="login-error">{errorMessage}</p> : null}
+
+            <p className="login-helper-text login-contact-note">If you are a Plus Treat employee and don&apos;t have an account yet, please contact your administrator. They will set up your login and give you access.</p>
           </form>
         </section>
       </section>

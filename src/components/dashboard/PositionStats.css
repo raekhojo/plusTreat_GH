@@ -32,4 +32,9 @@
 .ps-view:focus-visible { outline: 2px solid var(--brand-sky, #31b1e4); outline-offset: 2px; }
 
 @media (max-width: 1100px) { .ps-wallets { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
-@media (max-width: 480px) { .ps-wallets { grid-template-columns: minmax(0, 1fr); } }
+/* Phones: wallets slide sideways in one row instead of stacking. */
+@media (max-width: 480px) {
+  .ps-wallets { display: flex; overflow-x: auto; scroll-snap-type: x mandatory; scrollbar-width: none; -webkit-overflow-scrolling: touch; }
+  .ps-wallets::-webkit-scrollbar { display: none; }
+  .ps-wallet { flex: 0 0 78%; scroll-snap-align: start; }
+}

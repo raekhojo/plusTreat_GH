@@ -9629,3 +9629,126 @@
 .account-content .batch-surplus.is-negative { background: #fbe7e7; color: #b23131; }
 .account-content .batch-delete-btn { color: #c23b3b; }
 .account-content .batch-delete-btn:hover { border-color: rgba(194, 59, 59, 0.4); background: #fdf1f1; }
+
+/* Mobile login: fit the screen without scrolling — smaller logo, no brand text. */
+@media (max-width: 720px) {
+  .login-page {
+    min-height: 100dvh;
+    padding: 28px 16px 12px;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-start;
+    box-sizing: border-box;
+  }
+
+  .login-shell {
+    min-height: 0;
+    gap: 8px;
+    align-content: center;
+  }
+
+  .login-brand-panel {
+    padding: 0;
+  }
+
+  .login-brand-logo {
+    width: min(100%, 180px);
+  }
+
+  .login-brand-copy {
+    display: none;
+  }
+
+  .login-form-panel {
+    padding: 0 4px;
+  }
+
+  .login-form-header h2 {
+    margin-top: 8px;
+    font-size: 1.7rem;
+  }
+}
+
+/* Mobile login: centred header, no card background (button unchanged). */
+@media (max-width: 720px) {
+  .login-form-card {
+    gap: 14px;
+  }
+
+  .login-form-header {
+    display: grid;
+    justify-items: center;
+    text-align: center;
+    margin-bottom: 4px;
+  }
+
+  .login-kicker {
+    display: none;
+  }
+
+  .login-form-header h2 {
+    margin-top: 0;
+    font-size: 1.6rem;
+    letter-spacing: -0.02em;
+    color: var(--brand-ink, #15344d);
+  }
+
+  .login-field span {
+    color: var(--brand-ink, #15344d);
+  }
+
+  .login-field input {
+    padding: 13px 14px;
+    border-radius: 14px;
+    border-color: #dbe3ec;
+  }
+
+  .login-field input:focus {
+    background: #ffffff;
+    border-color: var(--brand-blue, #2c86b8);
+    box-shadow: 0 0 0 3px var(--brand-sky-soft, #e8f6fd);
+  }
+}
+
+/* "No account" note: shown on mobile only. */
+.login-contact-note { display: none; }
+@media (max-width: 720px) {
+  .login-contact-note { display: block; margin: 2px 0 0; text-align: center; font-size: 0.84rem; }
+}
+
+/* Mobile: filter chips and tab rows stay on one line and slide sideways instead of stacking. */
+@media (max-width: 720px) {
+  .sales-status-chips,
+  .workspace-inline-tabs,
+  .tr-chips,
+  .le-chips,
+  .ai-chips,
+  .pp-presets,
+  .workspace-chip-list {
+    display: flex;
+    flex-wrap: nowrap !important;
+    overflow-x: auto;
+    max-width: 100%;
+    scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+    scroll-snap-type: x proximity;
+  }
+  .sales-status-chips::-webkit-scrollbar,
+  .workspace-inline-tabs::-webkit-scrollbar,
+  .tr-chips::-webkit-scrollbar,
+  .le-chips::-webkit-scrollbar,
+  .ai-chips::-webkit-scrollbar,
+  .pp-presets::-webkit-scrollbar,
+  .workspace-chip-list::-webkit-scrollbar { display: none; }
+  .sales-status-chips > *,
+  .workspace-inline-tabs > *,
+  .tr-chips > *,
+  .le-chips > *,
+  .ai-chips > *,
+  .pp-presets > *,
+  .workspace-chip-list > * {
+    flex: none;
+    white-space: nowrap;
+    scroll-snap-align: start;
+  }
+}

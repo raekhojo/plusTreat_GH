@@ -401,6 +401,26 @@ export function deleteStaffProfile(id) {
 
 // ─── Composite loaders ───────────────────────────────────────────────────────
 
+// One loader per dataset, so each page fetches only what it shows.
+export const DATA_LOADERS = {
+  invoices: () => getInvoices().then(asCollection),
+  payments: () => getPayments().then(asCollection),
+  products: () => getProducts().then(asCollection),
+  suppliers: () => getSuppliers().then(asCollection),
+  purchases: () => getPurchases().then(asCollection),
+  purchasePayments: () => getPurchasePayments().then(asCollection),
+  productionBatches: () => getProductionBatches().then(asCollection),
+  rawMaterials: () => getRawMaterials().then(asCollection),
+  accountTransactions: () => getAccountTransactions().then(asCollection),
+  pricingRules: () => getPricingRules().then(asCollection),
+  customers: () => getCustomers().then(asCollection),
+  staffProfiles: () => getStaffProfiles().then(list => (Array.isArray(list) ? list : [])),
+  pricingCategories: () => getPricingCategories().then(asCollection),
+  customerCategories: () => getCustomerCategories().then(asCollection),
+  itemCategories: () => getItemCategories().then(asCollection),
+  trialBalanceReport: () => getTrialBalanceReport(),
+}
+
 export function getAnalyticsSummary() {
   return Promise.all([
     getInvoices(),

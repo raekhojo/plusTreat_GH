@@ -66,6 +66,12 @@
 }
 .so-period-label { color: var(--so-muted); font-size: 0.88rem; }
 .so-export { margin-left: auto; }
+/* Same as the other pages: one row of periods that slides sideways on small screens. */
+@media (max-width: 720px) {
+  .so-period-pills { flex-wrap: nowrap; overflow-x: auto; max-width: 100%; scrollbar-width: none; -webkit-overflow-scrolling: touch; }
+  .so-period-pills::-webkit-scrollbar { display: none; }
+  .so-pill { flex: none; white-space: nowrap; }
+}
 
 .so-link-btn {
   border: 1px solid var(--so-border);

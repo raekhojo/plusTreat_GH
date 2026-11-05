@@ -1,4 +1,4 @@
-import { Children, isValidElement, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { Children, isValidElement, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useOutletContext } from 'react-router-dom'
 import { createPortal } from 'react-dom'
 import { useAuth } from '../context/AuthContext'
@@ -39,7 +39,7 @@ import {
   updateRawMaterial, deleteRawMaterial,
   createStaffProfile, updateStaffProfile,
   updateProductionBatch, updateProductionOutput,
-  getAnalyticsSummary, getDashboardOverview, getTrialBalanceDetail,
+  DATA_LOADERS, getTrialBalanceDetail,
 } from '../lib/api'
 
 // ─── Section config ───────────────────────────────────────────────────────────
@@ -73,6 +73,28 @@ const INITIAL_DATA = {
   pricingCategories: [], customerCategories: [], itemCategories: [],
   dashboardOverview: null, trialBalanceReport: null,
 }
+
+// Data is fetched per page instead of all at once. The small lists every page and
+// form uses load first; each page then loads the larger tables it shows, once.
+const CORE_DATA = ['products', 'pricingRules', 'pricingCategories', 'customerCategories', 'itemCategories', 'staffProfiles', 'customers', 'suppliers']
+const ALL_DATA = [...CORE_DATA, 'invoices', 'payments', 'purchases', 'purchasePayments', 'productionBatches', 'rawMaterials', 'accountTransactions', 'trialBalanceReport']
+const SECTION_DATA = {
+  dashboard: ['invoices', 'payments', 'productionBatches', 'rawMaterials', 'accountTransactions', 'purchasePayments'],
+  sales_hub: ['invoices', 'payments', 'productionBatches'],
+  production_ops: ['productionBatches', 'rawMaterials', 'invoices'],
+  supplies_stock: ['purchases', 'purchasePayments', 'rawMaterials', 'productionBatches', 'invoices'],
+  customers: ['invoices', 'payments', 'accountTransactions'],
+  receivables: ['invoices', 'payments', 'accountTransactions'],
+  suppliers: ['purchases', 'purchasePayments'],
+  treasury: ['payments', 'accountTransactions', 'purchasePayments', 'purchases', 'invoices'],
+  accounts_pricing: ['payments', 'accountTransactions', 'purchasePayments', 'purchases', 'invoices'],
+  reconciliation: ['invoices', 'payments', 'accountTransactions', 'purchasePayments', 'productionBatches', 'rawMaterials'],
+  settings: [],
+  user_mgmt: [],
+}
+// Opening a form may need lists the current page did not load (e.g. invoices for a receipt).
+const FORM_DATA = ['invoices', 'payments', 'rawMaterials', 'productionBatches', 'purchases']
+const sectionData = key => [...CORE_DATA, ...(SECTION_DATA[key] || ALL_DATA)]
 
 const FINISHED_GOODS_SIZE_TEMPLATES = [
   '200ml',
@@ -2262,7 +2284,7 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
   const [sectionTabs,      setSectionTabs]      = useState(SECTION_DEFAULT_TABS)
   const [activeModal,      setActiveModal]      = useState('')
   const [data,             setData]             = useState(INITIAL_DATA)
-  const [isLoading,        setIsLoading]        = useState(true)
+  const [loadedData,       setLoadedData]       = useState(() => new Set())
   const [loadError,        setLoadError]        = useState('')
   const [uiMode, setUiMode] = useUiMode()
   // Which ledger the Financials & Audit explorer shows (statement lines drill into it).
@@ -2348,15 +2370,29 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
 
   // ── Data loading ──────────────────────────────────────────────────────────
 
-  useEffect(() => {
-    let active = true
-    setIsLoading(true)
-    getAnalyticsSummary()
-      .then(summary => { if (active) { setData({ ...INITIAL_DATA, ...summary }); setLoadError(''); setLastSyncedAt(new Date()) } })
-      .catch(() => { if (active) setLoadError('Could not load data. Check the API server and refresh.') })
-      .finally(() => { if (active) setIsLoading(false) })
-    return () => { active = false }
+  // Fetches the given datasets (skipping ones already loaded or on the way unless
+  // `force`), storing each as soon as it arrives.
+  const inflightRef = useRef(new Set())
+  const loadedRef = useRef(new Set())
+  const loadData = useCallback(async (keys, force = false) => {
+    const todo = [...new Set(keys)].filter(k => DATA_LOADERS[k] && !inflightRef.current.has(k) && (force || !loadedRef.current.has(k)))
+    if (!todo.length) return
+    todo.forEach(k => inflightRef.current.add(k))
+    let failed = false
+    await Promise.all(todo.map(k => DATA_LOADERS[k]()
+      .then(value => setData(current => ({ ...current, [k]: value })))
+      .catch(() => { failed = true })
+      .finally(() => {
+        inflightRef.current.delete(k)
+        loadedRef.current.add(k)
+        setLoadedData(new Set(loadedRef.current))
+      })))
+    // A failed background refresh keeps what is on screen and simply retries on the next tick.
+    if (failed && !force) setLoadError('Could not load data. Check the API server and refresh.')
+    else if (!failed) { setLoadError(''); setLastSyncedAt(new Date()) }
   }, [])
+  useEffect(() => { loadData(sectionData(activeSection)) }, [activeSection, loadData])
+  const isLoading = !sectionData(activeSection).every(k => loadedData.has(k))
 
   useEffect(() => {
     function handlePointerDown(event) {
@@ -2408,15 +2444,9 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
     return () => cancelAnimationFrame(frame)
   }, [activeSection, sectionTabs])
 
+  // Reloads everything already loaded (after a save, and on the live timer).
   async function refreshData() {
-    try {
-      const summary = await getAnalyticsSummary()
-      setData({ ...INITIAL_DATA, ...summary })
-      setLoadError('')
-      setLastSyncedAt(new Date())
-    } catch {
-      setLoadError('Data refresh failed. Your view may be stale.')
-    }
+    await loadData([...loadedRef.current], true)
   }
 
   // Live connection: reload from the API in the background every 20 seconds while
@@ -2741,23 +2771,6 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
   const dashboardBatches = useMemo(() => filterByDateRange(data.productionBatches, b => b.production_date, dashboardDateFilter), [data.productionBatches, dashboardDateFilter])
   const dashboardAccounts = useMemo(() => filterByDateRange(data.accountTransactions, e => e.transaction_date, dashboardDateFilter), [data.accountTransactions, dashboardDateFilter])
 
-  useEffect(() => {
-    let active = true
-    getDashboardOverview({
-      ...(dashboardDateFilter.start ? { start_date: dashboardDateFilter.start } : {}),
-      ...(dashboardDateFilter.end ? { end_date: dashboardDateFilter.end } : {}),
-    })
-      .then((dashboardOverview) => {
-        if (!active) return
-        setData(current => ({ ...current, dashboardOverview }))
-      })
-      .catch(() => {
-        if (!active) return
-        setLoadError('Dashboard report refresh failed. Showing the latest available data.')
-      })
-
-    return () => { active = false }
-  }, [dashboardDateFilter.end, dashboardDateFilter.start])
 
   const salesInvoices = useMemo(() => filterByDateRange(data.invoices, inv => inv.invoice_date, salesDateFilter), [data.invoices, salesDateFilter])
   const salesPayments = useMemo(() => filterByDateRange(data.payments, p => p.payment_date, salesDateFilter), [data.payments, salesDateFilter])
@@ -3474,6 +3487,7 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
   }
 
   function openModal(type, entity = null) {
+    loadData(FORM_DATA)
     setActiveModal(type)
     setFB(type, '')
     if (type === 'sale') {
