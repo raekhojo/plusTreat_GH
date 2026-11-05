@@ -1,8 +1,9 @@
 import { Children, isValidElement, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useOutletContext } from 'react-router-dom'
-import { createPortal } from 'react-dom'
 import { useAuth } from '../context/AuthContext'
-import plusLogo from '../assets/plusLogo.png'
+import ClassicApp from '../classic/ClassicApp'
+import ClassicForms from '../classic/ClassicForms'
+import { CLASSIC_FORM_TYPES } from '../classic/formTypes'
 import ExcelJS from 'exceljs'
 import { FiDownload } from 'react-icons/fi'
 import { AppAutocomplete, AppFilterPicker, AppSelect } from '../components/FormSelects'
@@ -18,23 +19,7 @@ import { printCustomerStatement, printInvoice, printReceipt, printReport, printS
 import ExportMenu from '../components/ExportMenu'
 import ReceivablesInsights from '../components/receivables/ReceivablesInsights'
 import ProductionPlanner from '../components/production/ProductionPlanner'
-import {
-  createAccountTransaction, createCustomer, createInvoice, createPayment,
-  createPricingRule, createProductionBatch, createPurchase, createSupplier,
-  createProductionOutput,
-  createPurchasePayment, updatePurchasePayment, createProduct, createRawMaterial, createItemCategory,
-  deleteInvoice, deletePayment, deleteProductionBatch, deleteProductionOutput, deletePurchase, deletePurchaseItem,
-  updateInvoice, updatePayment, updatePurchase,
-  updateCustomer, deleteCustomer,
-  updateSupplier, deleteSupplier,
-  updateAccountTransaction, deleteAccountTransaction,
-  updatePricingRule, deletePricingRule,
-  updateProduct, deleteProduct,
-  updateRawMaterial, deleteRawMaterial,
-  createStaffProfile, updateStaffProfile,
-  updateProductionBatch, updateProductionOutput,
-  getAnalyticsSummary, getDashboardOverview, getTrialBalanceDetail,
-} from '../lib/api'
+import { createAccountTransaction, createCustomer, createInvoice, createPayment, createPricingRule, createProductionBatch, createPurchase, createSupplier, createProductionOutput, createPurchasePayment, updatePurchasePayment, createProduct, createRawMaterial, createItemCategory, deleteInvoice, deletePayment, deleteProductionBatch, deleteProductionOutput, deletePurchase, deletePurchaseItem, updateInvoice, updatePayment, updatePurchase, updateCustomer, deleteCustomer, updateSupplier, deleteSupplier, updateAccountTransaction, deleteAccountTransaction, updatePricingRule, deletePricingRule, updateProduct, deleteProduct, updateRawMaterial, deleteRawMaterial, createStaffProfile, updateStaffProfile, updateProductionBatch, updateProductionOutput, getAnalyticsSummary, getDashboardOverview } from '../lib/api'
 
 // ─── Section config ───────────────────────────────────────────────────────────
 
@@ -131,14 +116,6 @@ function normalizePlainText(value) {
     .replace(/[ \t]+/g, ' ')
     .trim()
 }
-function escapeHtml(value) {
-  return String(value ?? '')
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;')
-}
 function sanitizeDecimalInput(value, maxDecimalPlaces) {
   const text = String(value ?? '').replace(/[^\d.]/g, '')
   if (!text) return ''
@@ -164,12 +141,6 @@ function toFixedDecimalString(value, decimalPlaces, maxDigits, label = 'Value') 
   return rounded
 }
 function sumBy(rows, fn) { return rows.reduce((s, r) => s + toNumber(fn(r)), 0) }
-function clampRows(rows, n = 5) { return rows.slice(0, n) }
-function isThisYear(v) {
-  if (!v) return false
-  const d = new Date(v)
-  return !Number.isNaN(d.getTime()) && d.getFullYear() === new Date().getFullYear()
-}
 
 function fmt(v)   { return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'GHS', maximumFractionDigits: 2 }).format(toNumber(v)) }
 function fmtQ(v)  { return new Intl.NumberFormat('en-US', { maximumFractionDigits: 3 }).format(toNumber(v)) }
@@ -216,26 +187,6 @@ const SALES_STATUS_TABS = [
   { key: 'unpaid', label: 'Unpaid' },
   { key: 'sample', label: 'Samples' },
 ]
-function getSalesStatusKey(invoice) {
-  if (invoice?.is_sample_sale) return 'sample'
-  const state = getInvoiceCollectionState(invoice)
-  return state === 'overpaid' ? 'paid' : state
-}
-function getPriceBand(price) {
-  const amount = toNumber(price)
-  if (amount < 10) return 'budget'
-  if (amount < 30) return 'standard'
-  return 'premium'
-}
-function buildSelectOptions(values, formatter = value => value) {
-  return [...new Set((values || []).map(value => String(value || '').trim()).filter(Boolean))]
-    .sort((a, b) => a.localeCompare(b))
-    .map(value => ({ value, label: formatter(value) }))
-}
-function matchesSelectFilter(actualValue, selectedValue) {
-  if (!selectedValue) return true
-  return normalizeFilterValue(actualValue) === normalizeFilterValue(selectedValue)
-}
 function smoothScrollIntoView(target) {
   if (!target || typeof target.scrollIntoView !== 'function') return
   requestAnimationFrame(() => {
@@ -354,15 +305,6 @@ function resolveSupplierItemCategory(supplier, purchases = [], rawMaterials = []
   if (!uniqueCategories.length) return directCategory || 'General'
   return uniqueCategories.slice(0, 2).join(', ')
 }
-function buildCustomerLedger(customers, invoices) {
-  return customers.map(c => {
-    const invs = invoices.filter(inv => String(inv.customer) === String(c.id))
-    const totalBilled = sumBy(invs, inv => inv.total_amount)
-    const paid = sumBy(invs, inv => getInvoicePaidAmount(inv))
-    const outstanding = sumBy(invs, inv => getInvoiceOutstandingDue(inv))
-    return { ...c, invoiceCount: invs.length, totalBilled, paid, outstanding }
-  }).sort((a, b) => b.outstanding - a.outstanding)
-}
 function sanitizeExportFileName(value) {
   const text = String(value || 'plus_treat_export').trim().toLowerCase()
   const safe = text.replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '')
@@ -372,56 +314,6 @@ function fmtD(v)  {
   if (!v) return EMPTY_TEXT
   const d = new Date(v)
   return Number.isNaN(d.getTime()) ? String(v) : new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric' }).format(d)
-}
-function truncateText(value, maxLength = 12) {
-  const text = String(value || '').trim()
-  if (!text) return EMPTY_TEXT
-  if (text.length <= maxLength) return text
-  return `${text.slice(0, maxLength).trimEnd()}...`
-}
-function formatDateRange(values) {
-  const unique = [...new Set((values || []).filter(Boolean))]
-  if (!unique.length) return EMPTY_TEXT
-  unique.sort((a, b) => new Date(a).getTime() - new Date(b).getTime())
-  if (unique.length === 1) return fmtD(unique[0])
-  return `${fmtD(unique[0])} - ${fmtD(unique[unique.length - 1])}`
-}
-function collapseDateRange(values) {
-  const unique = [...new Set((values || []).filter(Boolean))]
-  if (!unique.length) return EMPTY_TEXT
-  unique.sort((a, b) => new Date(a).getTime() - new Date(b).getTime())
-
-  const start = new Date(unique[0])
-  const end = new Date(unique[unique.length - 1])
-  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return formatDateRange(unique)
-  if (unique.length === 1 || start.getTime() === end.getTime()) return fmtD(unique[0])
-
-  const sameYear = start.getFullYear() === end.getFullYear()
-  const sameMonth = sameYear && start.getMonth() === end.getMonth()
-  const shortMonth = new Intl.DateTimeFormat('en-US', { month: 'short' })
-
-  if (sameMonth) return `${shortMonth.format(start)} ${start.getDate()}-${end.getDate()}, ${start.getFullYear()}`
-  if (sameYear) return `${shortMonth.format(start)} ${start.getDate()}-${shortMonth.format(end)} ${end.getDate()}, ${start.getFullYear()}`
-  return `${shortMonth.format(start)} ${start.getDate()}, ${start.getFullYear()}-${shortMonth.format(end)} ${end.getDate()}, ${end.getFullYear()}`
-}
-function collapseDateText(value) {
-  const text = String(value || '').trim()
-  if (!text || text === EMPTY_TEXT) return EMPTY_TEXT
-  if (!text.includes(' - ')) return fmtD(text)
-  const [start, end] = text.split(' - ').map(part => part.trim())
-  return collapseDateRange([start, end])
-}
-function resolveSupplierMaterials(supplier, rawMaterials = []) {
-  const supplierId = String(supplier?.id || '')
-  const materials = rawMaterials
-    .filter(material => String(material.supplier) === supplierId)
-    .map(material => String(material.name || '').trim())
-    .filter(Boolean)
-
-  const uniqueMaterials = [...new Set(materials)]
-  if (!uniqueMaterials.length) return EMPTY_TEXT
-  if (uniqueMaterials.length <= 2) return uniqueMaterials.join(', ')
-  return `${uniqueMaterials.slice(0, 2).join(', ')} +${uniqueMaterials.length - 2}`
 }
 function extractExportText(value) {
   if (value === null || value === undefined || typeof value === 'boolean') return ''
@@ -490,12 +382,6 @@ async function exportRowsToXlsx(fileName, columns, rows) {
   link.click()
   document.body.removeChild(link)
   URL.revokeObjectURL(url)
-}
-function buildSupplierLedger(suppliers, purchases) {
-  return suppliers.map(s => {
-    const purch = purchases.filter(p => String(p.supplier) === String(s.id))
-    return { ...s, purchaseCount: purch.length, paid: sumBy(purch, p => p.total_paid), outstanding: sumBy(purch, p => getPurchaseOutstanding(p)) }
-  }).sort((a, b) => b.outstanding - a.outstanding)
 }
 function normalizeSizeKey(v) {
   return String(v || '').toLowerCase().replaceAll(',', '').replace(/\s+/g, '')
@@ -834,29 +720,6 @@ const DATE_FILTER_PRESETS = [
 
 // ─── UI Components ────────────────────────────────────────────────────────────
 
-function NavIcon({ type }) {
-  const icons = {
-    treasury:   <><path d="M2.25 18.75a60.07 60.07 0 0 1 15.797 2.101c.727.198 1.453-.342 1.453-1.096V18.75M3.75 4.5v.75A.75.75 0 0 1 3 6h-.75m0 0v-.375c0-.621.504-1.125 1.125-1.125H20.25M2.25 6v9m18-10.5v.75c0 .414.336.75.75.75h.75m-1.5-1.5h.375c.621 0 1.125.504 1.125 1.125v9.75c0 .621-.504 1.125-1.125 1.125h-.375m1.5-1.5H21a.75.75 0 0 0-.75.75v.75m0 0H3.75m0 0h-.375a1.125 1.125 0 0 1-1.125-1.125V15m1.5 1.5v-.75A.75.75 0 0 0 3 15h-.75M15 10.5a3 3 0 1 1-6 0 3 3 0 0 1 6 0Zm3 0h.008v.008H18V10.5Zm-12 0h.008v.008H6V10.5Z" /></>,
-    debtors:    <><circle cx="9" cy="8" r="3" /><path d="M3.5 19c.8-3 3-4.5 5.5-4.5 1.2 0 2.3.3 3.2.9" /><path d="M18 11v8" /><path d="M20.2 12.6c-.4-.8-1.2-1.1-2.2-1.1-1.3 0-2.2.6-2.2 1.6 0 2.2 4.6 1.2 4.6 3.5 0 1-1 1.7-2.4 1.7-1.1 0-2-.4-2.4-1.3" /></>,
-    reconcile:  <><path d="M12 4v16" /><path d="M5 20h14" /><path d="M4 8h16" /><path d="M6.5 8 4 14h5l-2.5-6Z" /><path d="M17.5 8 15 14h5l-2.5-6Z" /></>,
-    reports:    <><path d="M10.5 6a7.5 7.5 0 1 0 7.5 7.5h-7.5V6Z" /><path d="M13.5 10.5H21A7.5 7.5 0 0 0 13.5 3v7.5Z" /></>,
-    reporting:  <><path d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 0 1 3 19.875v-6.75ZM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 0 1-1.125-1.125V8.625ZM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 0 1-1.125-1.125V4.125Z" /></>,
-    ai:         <><path d="M12 3.5 13.7 9 19 10.5l-5.3 1.6L12 17.5l-1.7-5.4L5 10.5 10.3 9 12 3.5Z" /><path d="M18.5 15.5 19.2 17.6 21.3 18.3 19.2 19 18.5 21.1 17.8 19 15.7 18.3 17.8 17.6Z" /></>,
-    settings:   <><path d="M11.42 15.17 17.25 21A2.652 2.652 0 0 0 21 17.25l-5.877-5.877M11.42 15.17l2.496-3.03c.317-.384.74-.626 1.208-.766M11.42 15.17l-4.655 5.653a2.548 2.548 0 1 1-3.586-3.586l6.837-5.63m5.108-.233c.55-.164 1.163-.188 1.743-.14a4.5 4.5 0 0 0 4.486-6.336l-3.276 3.277a3.004 3.004 0 0 1-2.25-2.25l3.276-3.276a4.5 4.5 0 0 0-6.336 4.486c.091 1.076-.071 2.264-.904 2.95l-.102.085m-1.745 1.437L5.909 7.5H4.5L2.25 3.75l1.5-1.5L7.5 4.5v1.409l4.26 4.26m-1.745 1.437 1.745-1.437m6.615 8.206L15.75 15.75M4.867 19.125h.008v.008h-.008v-.008Z" /></>,
-    accounts:   <><path d="M4 7.5h14.5A1.5 1.5 0 0 1 20 9v9.5a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 4 18.5V7.5Z" /><path d="M4 7.5 15.5 4v3.5" /><path d="M20 12h-3.5a1.5 1.5 0 0 0 0 3H20" /></>,
-    finance:    <><path d="M5 18h14" /><path d="M7 18V10" /><path d="M12 18V6" /><path d="M17 18V12" /></>,
-    sales:      <><path d="M4 7h16v10H4z" /><path d="M8 11h8" /><path d="M8 15h5" /></>,
-    production: <><path d="M7 5h10v14H7z" /><path d="M10 2v3" /><path d="M14 2v3" /><path d="M9.5 10h5" /><path d="M9.5 14h5" /></>,
-    inventory:  <><path d="M4 8l8-4 8 4-8 4-8-4z" /><path d="M4 8v8l8 4 8-4V8" /><path d="M12 12v8" /></>,
-    customers:  <><circle cx="9" cy="9" r="3" /><path d="M4.5 18c1.1-2.2 7-2.2 8.9 0" /><circle cx="17" cy="10" r="2.2" /><path d="M14.8 17.2c.7-1.4 4.2-1.4 5.2 0" /></>,
-    suppliers:  <><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/><line x1="12" y1="12" x2="12" y2="16"/><line x1="10" y1="14" x2="14" y2="14"/></>,
-    users:      <><path strokeLinecap="round" strokeLinejoin="round" d="M18 18.72a9.094 9.094 0 0 0 3.741-.479 3 3 0 0 0-4.682-2.72m.94 3.198.001.031c0 .225-.012.447-.037.666A11.944 11.944 0 0 1 12 21c-2.17 0-4.207-.576-5.963-1.584A6.062 6.062 0 0 1 6 18.719m12 0a5.971 5.971 0 0 0-.941-3.197m0 0A5.995 5.995 0 0 0 12 12.75a5.995 5.995 0 0 0-5.058 2.772m0 0a3 3 0 0 0-4.681 2.72 8.986 8.986 0 0 0 3.74.477m.94-3.197a5.971 5.971 0 0 0-.94 3.197M15 6.75a3 3 0 1 1-6 0 3 3 0 0 1 6 0Zm6 3a2.25 2.25 0 1 1-4.5 0 2.25 2.25 0 0 1 4.5 0Zm-13.5 0a2.25 2.25 0 1 1-4.5 0 2.25 2.25 0 0 1 4.5 0Z" /></>,
-    home:       <><path d="M4 10.5L12 4l8 6.5V20h-5v-5H9v5H4z" /></>,
-    menu:       <><path d="M5 7h14" /><path d="M5 12h14" /><path d="M5 17h14" /></>,
-  }
-  return <svg viewBox="0 0 24 24" aria-hidden="true">{icons[type] || icons.home}</svg>
-}
-
 function renderSummaryNote(item) {
   if (Array.isArray(item?.noteLines) && item.noteLines.length) {
     return (
@@ -897,117 +760,9 @@ function SummaryGrid({ items, className = '', primary = 4 }) {
   )
 }
 
-function buildBalanceSheetSnippetRows(rows = []) {
-  const normalizedRows = rows
-    .filter(row => String(row?.account_type || '').trim().toLowerCase() === 'balance sheet')
-    .map(row => ({
-      accountClass: String(row?.account_class || '').trim().toLowerCase(),
-      available: toNumber(row?.available),
-    }))
 
-  const totalAssets = sumBy(normalizedRows.filter(row => row.accountClass === 'assets'), row => row.available)
-  const totalLiabilities = sumBy(normalizedRows.filter(row => row.accountClass === 'liability'), row => row.available)
-  const totalEquity = totalAssets + totalLiabilities
 
-  return [
-    { id: 'assets', title: 'Assets', meta: 'What the business owns', value: fmt(totalAssets) },
-    { id: 'liabilities', title: 'Liabilities', meta: 'What the business owes', value: fmt(totalLiabilities) },
-    { id: 'equity', title: 'Equity', meta: 'Assets plus liabilities', value: fmt(totalEquity) },
-  ]
-}
 
-function buildAssetsSnippetRows(rows = []) {
-  const normalizedRows = rows
-    .filter(row =>
-      String(row?.account_type || '').trim().toLowerCase() === 'balance sheet'
-      && String(row?.account_class || '').trim().toLowerCase() === 'assets'
-    )
-    .map(row => ({
-      subAccounts: String(row?.sub_accounts || '').trim().toLowerCase(),
-      description: String(row?.description || '').trim().toLowerCase(),
-      available: toNumber(row?.available),
-    }))
-
-  const totalNonCurrentAssets = sumBy(
-    normalizedRows.filter(row => row.subAccounts === 'non current assets'),
-    row => row.available
-  )
-  const totalCashAndCashEquivalent = sumBy(
-    normalizedRows.filter(row => row.subAccounts === 'cash and cash equivalent'),
-    row => row.available
-  )
-  const totalOtherReceivables = sumBy(
-    normalizedRows.filter(row => row.description === 'trade receivables' || row.description === 'other receivables'),
-    row => row.available
-  )
-  const totalFinishedGoodsInventory = sumBy(
-    normalizedRows.filter(row => row.description === 'finished goods'),
-    row => row.available
-  )
-  const totalAssets = sumBy(normalizedRows, row => row.available)
-
-  return [
-    { id: 'non-current-assets', title: 'Non Current Assets', meta: 'From reporting', value: fmt(totalNonCurrentAssets) },
-    { id: 'cash-and-cash-equivalent', title: 'Cash and Cash Equivalent', meta: 'From reporting', value: fmt(totalCashAndCashEquivalent) },
-    { id: 'other-receivables', title: 'Recievables', meta: 'Trade receivables plus other receivables', value: fmt(totalOtherReceivables) },
-    { id: 'finished-goods-inventory', title: 'Finished Goods Inventory', meta: 'Inventory asset from reporting', value: fmt(totalFinishedGoodsInventory) },
-    { id: 'total-assets', title: 'Total Assets', meta: 'All asset rows from reporting', value: fmt(totalAssets) },
-  ]
-}
-
-function buildLiabilitySnippetRows(rows = []) {
-  const normalizedRows = rows
-    .filter(row =>
-      String(row?.account_type || '').trim().toLowerCase() === 'balance sheet'
-      && String(row?.account_class || '').trim().toLowerCase() === 'liability'
-    )
-    .map(row => ({
-      description: String(row?.description || '').trim().toLowerCase(),
-      available: toNumber(row?.available),
-    }))
-
-  const totalPayables = sumBy(
-    normalizedRows.filter(row => row.description === 'payables'),
-    row => row.available
-  )
-  const totalLiabilities = sumBy(normalizedRows, row => row.available)
-
-  return [
-    { id: 'payables', title: 'Payables', meta: 'Liability account from reporting', value: fmt(totalPayables) },
-    { id: 'total-liabilities', title: 'Total Liabilities', meta: 'All liability rows from reporting', value: fmt(totalLiabilities) },
-  ]
-}
-
-function buildEquitySnippetRows(rows = []) {
-  const balanceSheetRows = rows
-    .filter(row => String(row?.account_type || '').trim().toLowerCase() === 'balance sheet')
-    .map(row => ({
-      accountClass: String(row?.account_class || '').trim().toLowerCase(),
-      subAccounts: String(row?.sub_accounts || '').trim().toLowerCase(),
-      available: toNumber(row?.available),
-    }))
-
-  const totalAssets = sumBy(
-    balanceSheetRows.filter(row => row.accountClass === 'assets'),
-    row => row.available
-  )
-  const totalLiabilities = sumBy(
-    balanceSheetRows.filter(row => row.accountClass === 'liability'),
-    row => row.available
-  )
-  const equityRows = balanceSheetRows.filter(row => row.accountClass === 'equity')
-
-  const totalNetWorth = sumBy(
-    equityRows,
-    row => row.available
-  )
-  const totalEquity = totalAssets + totalLiabilities
-
-  return [
-    { id: 'net-worth', title: 'Net Worth', meta: 'All equity rows from reporting', value: fmt(totalNetWorth) },
-    { id: 'total-equity', title: 'Total Equity', meta: 'Assets plus liabilities from trial balance', value: fmt(totalEquity) },
-  ]
-}
 
 function SkeletonLine({ className = '' }) {
   return <span className={`dashboard-skeleton-line ${className}`.trim()} aria-hidden="true" />
@@ -1567,7 +1322,7 @@ function TableCard({
               }
 
               if (mobileVariant === 'production-batches') {
-                const [date, batchNumber, expiryDate, outputs, productionCost, totalCost, profit] = row.cells
+                const [batchNumber, date, litres, outputValue, , , totalCost, surplus] = row.cells
                 return (
                   <article
                     key={`mobile-${row.key}`}
@@ -1580,42 +1335,9 @@ function TableCard({
                     </div>
                     <div className="workspace-mobile-sales-bottom">
                       <div className="workspace-mobile-sales-meta">
-                        <span className="workspace-mobile-sales-customer">{outputs} outputs</span>
-                        <span className="workspace-mobile-production-list-meta">Production {productionCost} · Expiry {expiryDate}</span>
-                        <span className="workspace-mobile-production-list-meta">Total {totalCost}</span>
-                      </div>
-                    </div>
-                  </article>
-                )
-                return (
-                  <article
-                    key={`mobile-${row.key}`}
-                    className={`workspace-mobile-card workspace-mobile-card-production${onRowClick ? ' workspace-mobile-card-clickable' : ''}`}
-                    onClick={() => onRowClick && onRowClick(row.key)}
-                  >
-                    <div className="workspace-mobile-production-top">
-                      <div className="workspace-mobile-production-copy">
-                        <strong className="workspace-mobile-production-title">{batchNumber}</strong>
-                        <span className="workspace-mobile-production-meta">{date}</span>
-                      </div>
-                      <span className="workspace-mobile-sales-arrow" aria-hidden="true">{'>'}</span>
-                    </div>
-                    <div className="workspace-mobile-production-grid">
-                      <div className="workspace-mobile-production-stat">
-                        <span>Expiry</span>
-                        <strong>{expiryDate}</strong>
-                      </div>
-                      <div className="workspace-mobile-production-stat">
-                        <span>Outputs</span>
-                        <strong>{outputs}</strong>
-                      </div>
-                      <div className="workspace-mobile-production-stat">
-                        <span>Total Cost</span>
-                        <strong>{totalCost}</strong>
-                      </div>
-                      <div className="workspace-mobile-production-stat">
-                        <span>Production Gain</span>
-                        <strong>{profit}</strong>
+                        <span className="workspace-mobile-sales-customer">{litres} produced</span>
+                        <span className="workspace-mobile-production-list-meta">Output {outputValue} · Cost {totalCost}</span>
+                        <span className="workspace-mobile-production-list-meta">Surplus {surplus}</span>
                       </div>
                     </div>
                   </article>
@@ -2284,13 +2006,14 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
   const accountContentRef = useRef(null)
 
   const [activeSection,    setActiveSection]    = useState(initialSection)
-  const [isMobileNavOpen,  setIsMobileNavOpen]  = useState(false)
-  const [isMobileProfileOpen, setIsMobileProfileOpen] = useState(false)
+  const [,  setIsMobileNavOpen]  = useState(false)
+  const [, setIsMobileProfileOpen] = useState(false)
   const [sectionTabs,      setSectionTabs]      = useState(SECTION_DEFAULT_TABS)
   const [activeModal,      setActiveModal]      = useState('')
   const [data,             setData]             = useState(INITIAL_DATA)
-  const [isLoading,        setIsLoading]        = useState(true)
+  const [,        setIsLoading]        = useState(true)
   const [loadError,        setLoadError]        = useState('')
+  const [lastSyncedAt, setLastSyncedAt] = useState(null)
 
   const [saleForm,         setSaleForm]         = useState(() => mkSaleForm(loggedInStaffId))
   const [receiptForm,      setReceiptForm]      = useState(mkReceiptForm)
@@ -2304,15 +2027,12 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
   const [rawMatForm,       setRawMatForm]       = useState(mkRawMatForm)
   const [accountForm,      setAccountForm]      = useState(mkAccountForm)
   const [transferForm,     setTransferForm]     = useState(mkTransferForm)
-  const [salesStatusTab,   setSalesStatusTab]   = useState('all')
   const [pricingForm,      setPricingForm]      = useState(mkPricingForm)
 
   const [feedback,         setFeedback]         = useState({})
   const [submitting,       setSubmitting]       = useState({})
-  const [searchTerms,      setSearchTerms]      = useState({})
-  const [sectionFilters,   setSectionFilters]   = useState({})
   const [sectionDateFilters, setSectionDateFilters] = useState(() => ({ dashboard: buildDatePresetRange('last_365') }))
-  const [sectionDatePresets, setSectionDatePresets] = useState({ dashboard: 'last_365' })
+  const [, setSectionDatePresets] = useState({ dashboard: 'last_365' })
   const [dateFilterDraft, setDateFilterDraft] = useState(EMPTY_DATE_RANGE)
   const [customItemCategories, setCustomItemCategories] = useState([])
   const [categoryModalTarget, setCategoryModalTarget] = useState('')
@@ -2343,31 +2063,10 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
       .filter(section => !allowedSections || allowedSections.includes(section.key) || (section.key === 'treasury' && allowedSections.includes('accounts_pricing')))
     return visible.length ? visible : [SECTIONS[0]]
   }, [allowedSections, normalizedRole])
-  const isStandaloneView = standaloneMode || availableSections.length === 1
   // Sidebar can shrink to icons only; the choice is remembered on this device.
-  const [isNavCollapsed, setIsNavCollapsed] = useState(() => {
-    try { return localStorage.getItem('plusTreatNavCollapsed') === '1' } catch { return false }
-  })
-  const toggleNavCollapsed = () => setIsNavCollapsed(current => {
-    const next = !current
-    try { localStorage.setItem('plusTreatNavCollapsed', next ? '1' : '0') } catch { /* storage unavailable */ }
-    return next
-  })
   // Tools (AI, reports, settings, users) live in the top navbar when the app
   // layout provides a header slot; otherwise they stay in the sidebar.
-  const headerNavSlot = useOutletContext()?.headerNavSlot || null
-  const sidebarSections = useMemo(
-    () => {
-      const hasCustomers = availableSections.some(section => section.key === 'customers')
-      const visible = availableSections.filter(section => !(hasCustomers && section.key === 'receivables'))
-      return headerNavSlot ? visible.filter(section => section.placement !== 'top') : visible
-    },
-    [availableSections, headerNavSlot]
-  )
-  const topNavSections = useMemo(
-    () => (headerNavSlot ? availableSections.filter(section => section.placement === 'top').sort((a, b) => TOP_NAV_ORDER.indexOf(a.key) - TOP_NAV_ORDER.indexOf(b.key)) : []),
-    [availableSections, headerNavSlot]
-  )
+  const openProfile = useOutletContext()?.openProfile
 
   // ── Data loading ──────────────────────────────────────────────────────────
 
@@ -2375,7 +2074,7 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
     let active = true
     setIsLoading(true)
     getAnalyticsSummary()
-      .then(summary => { if (active) { setData({ ...INITIAL_DATA, ...summary }); setLoadError('') } })
+      .then(summary => { if (active) { setData({ ...INITIAL_DATA, ...summary }); setLoadError(''); setLastSyncedAt(new Date()) } })
       .catch(() => { if (active) setLoadError('Could not load data. Check the API server and refresh.') })
       .finally(() => { if (active) setIsLoading(false) })
     return () => { active = false }
@@ -2436,10 +2135,33 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
       const summary = await getAnalyticsSummary()
       setData({ ...INITIAL_DATA, ...summary })
       setLoadError('')
+      setLastSyncedAt(new Date())
     } catch {
       setLoadError('Data refresh failed. Your view may be stale.')
     }
   }
+
+  // Live connection: reload from the API in the background every 20 seconds while
+  // the tab is visible, and straight away when the user comes back to it.
+  const refreshRef = useRef(refreshData)
+  useEffect(() => { refreshRef.current = refreshData })
+  useEffect(() => {
+    let busy = false
+    const pull = async () => {
+      if (busy || document.visibilityState !== 'visible') return
+      busy = true
+      try { await refreshRef.current() } finally { busy = false }
+    }
+    const timer = setInterval(pull, 20000)
+    const onVisible = () => { if (document.visibilityState === 'visible') pull() }
+    window.addEventListener('focus', pull)
+    document.addEventListener('visibilitychange', onVisible)
+    return () => {
+      clearInterval(timer)
+      window.removeEventListener('focus', pull)
+      document.removeEventListener('visibilitychange', onVisible)
+    }
+  }, [])
 
   useEffect(() => {
     if (!availableSections.some(section => section.key === activeSection)) {
@@ -2557,21 +2279,6 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
       .map(customer => ({ value: String(customer.id), label: customer.name, meta: customer.phone || customer.customer_category_name || '' }))
       .sort((a, b) => a.label.localeCompare(b.label)),
     [data.customers]
-  )
-  const salesStaffSelectOptions = useMemo(
-    () => data.staffProfiles
-      .filter(profile => profile.user?.is_active !== false)
-      .filter(profile => profile.is_sales_staff !== false)
-      .map(profile => {
-        const fullName = `${profile.user?.first_name || ''} ${profile.user?.last_name || ''}`.trim()
-        return {
-          value: String(profile.id),
-          label: fullName || profile.user?.username || 'Staff',
-          meta: fmtRole(profile.role || 'sales'),
-        }
-      })
-      .sort((a, b) => a.label.localeCompare(b.label)),
-    [data.staffProfiles]
   )
   const invoiceSelectOptions = useMemo(() => {
     const options = openInvoiceOptions.map(invoice => ({
@@ -2725,21 +2432,10 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
     [accountForm.payment_method]
   )
 
-  const customerLedger = useMemo(() => buildCustomerLedger(data.customers, data.invoices), [data.customers, data.invoices])
-  const supplierLedger = useMemo(() => buildSupplierLedger(data.suppliers, data.purchases), [data.suppliers, data.purchases])
 
   const dashboardDateFilter = sectionDateFilters.dashboard || EMPTY_DATE_RANGE
   const salesDateFilter = sectionDateFilters.sales_hub || EMPTY_DATE_RANGE
-  const productionDateFilter = sectionDateFilters.production_ops || EMPTY_DATE_RANGE
-  const suppliesDateFilter = sectionDateFilters.supplies_stock || EMPTY_DATE_RANGE
-  const customersDateFilter = sectionDateFilters.customers || EMPTY_DATE_RANGE
-  const suppliersDateFilter = sectionDateFilters.suppliers || EMPTY_DATE_RANGE
-  const accountsDateFilter = sectionDateFilters.accounts_pricing || EMPTY_DATE_RANGE
 
-  const dashboardInvoices = useMemo(() => filterByDateRange(data.invoices, inv => inv.invoice_date, dashboardDateFilter), [data.invoices, dashboardDateFilter])
-  const dashboardPayments = useMemo(() => filterByDateRange(data.payments, p => p.payment_date, dashboardDateFilter), [data.payments, dashboardDateFilter])
-  const dashboardBatches = useMemo(() => filterByDateRange(data.productionBatches, b => b.production_date, dashboardDateFilter), [data.productionBatches, dashboardDateFilter])
-  const dashboardAccounts = useMemo(() => filterByDateRange(data.accountTransactions, e => e.transaction_date, dashboardDateFilter), [data.accountTransactions, dashboardDateFilter])
 
   useEffect(() => {
     let active = true
@@ -2759,15 +2455,6 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
     return () => { active = false }
   }, [dashboardDateFilter.end, dashboardDateFilter.start])
 
-  const salesInvoices = useMemo(() => filterByDateRange(data.invoices, inv => inv.invoice_date, salesDateFilter), [data.invoices, salesDateFilter])
-  const salesPayments = useMemo(() => filterByDateRange(data.payments, p => p.payment_date, salesDateFilter), [data.payments, salesDateFilter])
-  const productionBatchesFiltered = useMemo(() => filterByDateRange(data.productionBatches, b => b.production_date, productionDateFilter), [data.productionBatches, productionDateFilter])
-  const purchasesFiltered = useMemo(() => filterByDateRange(data.purchases, p => p.purchase_date, suppliesDateFilter), [data.purchases, suppliesDateFilter])
-  const customerInvoicesFiltered = useMemo(() => filterByDateRange(data.invoices, inv => inv.invoice_date, customersDateFilter), [data.invoices, customersDateFilter])
-  const customerPaymentsFiltered = useMemo(() => filterByDateRange(data.payments, p => p.payment_date, customersDateFilter), [data.payments, customersDateFilter])
-  const supplierPurchasesFiltered = useMemo(() => filterByDateRange(data.purchases, p => p.purchase_date, suppliersDateFilter), [data.purchases, suppliersDateFilter])
-  const accountTransactionsFiltered = useMemo(() => filterByDateRange(data.accountTransactions, e => e.transaction_date, accountsDateFilter), [data.accountTransactions, accountsDateFilter])
-  const accountInvoicesFiltered = useMemo(() => filterByDateRange(data.invoices, inv => inv.invoice_date, accountsDateFilter), [data.invoices, accountsDateFilter])
 
   // Treasury: wallet balances (always as of today) + period in/out for the Accounts date filter.
   const treasuryInput = useMemo(() => {
@@ -2780,8 +2467,7 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
   }, [data.accountTransactions, data.payments, data.purchasePayments, data.purchases])
   const treasuryToday = useMemo(() => buildTreasury(treasuryInput, null), [treasuryInput])
   // Wallet whose statement opens when Treasury is reached from a dashboard "View" button.
-  const [treasuryFocusWallet, setTreasuryFocusWallet] = useState('')
-  const treasuryDateFilter = sectionDateFilters.treasury || EMPTY_DATE_RANGE
+  const [, setTreasuryFocusWallet] = useState('')
   const cashbookAll = useMemo(() => {
     const purchaseById = new Map(data.purchases.map(p => [String(p.id), p]))
     return buildCashbook({
@@ -2789,7 +2475,6 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
       purchasePayments: treasuryInput.purchasePayments.map(pp => ({ ...pp, purchase_category: fmtStatus(purchaseById.get(String(pp.purchase))?.category || '') || '' })),
     })
   }, [treasuryInput, data.purchases])
-  const cashbookRows = useMemo(() => filterByDateRange(cashbookAll, r => r.date, treasuryDateFilter), [cashbookAll, treasuryDateFilter])
   const reportsContext = useMemo(() => ({
     invoices: data.invoices,
     payments: data.payments,
@@ -2800,41 +2485,10 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
     treasuryInput,
   }), [data.accountTransactions, data.invoices, data.payments, data.productionBatches, data.rawMaterials, data.trialBalanceReport, treasuryInput])
 
-  const salesFilterScope = `sales_hub:${sectionTabs.sales_hub || SECTION_DEFAULT_TABS.sales_hub}`
-  const pricingFilterScope = `production_ops:${sectionTabs.production_ops || SECTION_DEFAULT_TABS.production_ops}`
 
-  const filteredSalesInvoices = useMemo(() => {
-    const filters = sectionFilters[salesFilterScope] || {}
-    return salesInvoices.filter(invoice => {
-      if (!matchesSelectFilter(invoice.customer_name, filters.customer)) return false
-      if (!matchesSelectFilter(getInvoiceCollectionState(invoice), filters.status)) return false
-      return true
-    })
-  }, [salesFilterScope, salesInvoices, sectionFilters])
 
-  const filteredSalesPayments = useMemo(() => {
-    const filters = sectionFilters[salesFilterScope] || {}
-    return salesPayments.filter(payment => {
-      if (!matchesSelectFilter(payment.customer_name, filters.customer)) return false
-      if (!matchesSelectFilter(payment.method, filters.method)) return false
-      return true
-    })
-  }, [salesFilterScope, salesPayments, sectionFilters])
 
-  const filteredPricingRules = useMemo(() => {
-    const filters = sectionFilters[pricingFilterScope] || {}
-    return data.pricingRules.filter(rule => {
-      if (!matchesSelectFilter(rule.pricing_category_name, filters.price_type)) return false
-      if (!matchesSelectFilter(rule.size, filters.size)) return false
-      if (!matchesSelectFilter(rule.product_name || rule.size, filters.item)) return false
-      if (!matchesSelectFilter(getPriceBand(rule.price), filters.price_band)) return false
-      return true
-    })
-  }, [data.pricingRules, pricingFilterScope, sectionFilters])
 
-  const filteredCustomerLedger = useMemo(() => buildCustomerLedger(data.customers, customerInvoicesFiltered), [data.customers, customerInvoicesFiltered])
-  const filteredSupplierLedgerForSupplies = useMemo(() => buildSupplierLedger(data.suppliers, purchasesFiltered), [data.suppliers, purchasesFiltered])
-  const filteredSupplierLedger = useMemo(() => buildSupplierLedger(data.suppliers, supplierPurchasesFiltered), [data.suppliers, supplierPurchasesFiltered])
 
   function handlePurchaseSupplierChange(value) {
     const nextSupplier = String(value || '')
@@ -2912,21 +2566,6 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
       .map((item, idx) => ({ ...item, id: `INV-${String(idx + 1).padStart(4, '0')}` }))
   }, [data.pricingRules, data.productionBatches, data.invoices, data.products])
   // Dashboard "position today" figures (all time, not tied to the dashboard period).
-  const positionStats = useMemo(() => {
-    const live = data.invoices.filter(inv => !['cancelled', 'draft'].includes(String(inv.status || '').toLowerCase()))
-    const open = data.invoices.filter(inv => getInvoiceOutstandingDue(inv) > 0)
-    return {
-      receivables: sumBy(open, inv => getInvoiceOutstandingDue(inv)),
-      receivableInvoices: open.length,
-      lifetimeRevenue: sumBy(live, inv => inv.total_amount),
-      lifetimeInvoices: live.length,
-      stock: {
-        units: sumBy(inventoryLedger, item => Math.max(0, toNumber(item.available))),
-        value: sumBy(inventoryLedger, item => Math.max(0, toNumber(item.available)) * toNumber(item.price)),
-        critical: inventoryLedger.filter(item => item.prodRequired).length,
-      },
-    }
-  }, [data.invoices, inventoryLedger])
   const finishedGoodsAvailableBySizeKey = useMemo(
     () => inventoryLedger.reduce((map, item) => {
       map.set(normalizeSizeKey(item.size), toNumber(item.available))
@@ -2935,426 +2574,11 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
     [inventoryLedger]
   )
 
-  const dashboardContent = useMemo(() => {
-    const reportingRowsForDashboard = (data.trialBalanceReport?.rows || [])
-      .filter(row => (
-        Math.abs(toNumber(row.opening)) > 0.000001
-        || Math.abs(toNumber(row.acct_in)) > 0.000001
-        || Math.abs(toNumber(row.acct_out)) > 0.000001
-        || Math.abs(toNumber(row.available)) > 0.000001
-      ))
-      .map(row => ({
-        accountType: row.account_type,
-        accountClass: row.account_class,
-        movement: toNumber(row.acct_in) - toNumber(row.acct_out),
-      }))
-
-    const dashboardTotalIncome = sumBy(
-      reportingRowsForDashboard.filter(row => row.accountType === 'Income Statement' && row.accountClass === 'Income'),
-      row => row.movement
-    )
-    const dashboardTotalDirectCost = sumBy(
-      reportingRowsForDashboard.filter(row => row.accountType === 'Income Statement' && row.accountClass === 'Direct Cost'),
-      row => row.movement
-    )
-    const dashboardTotalExpenses = sumBy(
-      reportingRowsForDashboard.filter(row => row.accountType === 'Income Statement' && row.accountClass === 'Expenses'),
-      row => row.movement
-    )
-    const dashboardGrossProfitOrLoss = dashboardTotalIncome + dashboardTotalDirectCost
-    const dashboardNetProfitOrLoss = dashboardGrossProfitOrLoss + dashboardTotalExpenses
-
-    const ytdInvForCharts = dashboardInvoices.filter(inv => isThisYear(inv.invoice_date))
-    const ytdBatchForCharts = dashboardBatches.filter(b => isThisYear(b.production_date))
-    const ytdAcctForCharts = dashboardAccounts.filter(e => isThisYear(e.transaction_date))
-    const totalSalesForCharts = sumBy(ytdInvForCharts, inv => inv.total_amount)
-    const totalCostForCharts = sumBy(ytdBatchForCharts, b => b.total_cost)
-    const receiptsTotalForCharts = sumBy(dashboardPayments, p => p.amount)
-    const expenseTotalForCharts = sumBy(ytdAcctForCharts.filter(e => e.entry_type === 'expense'), e => e.amount)
-    const grossProfitForCharts = totalSalesForCharts - totalCostForCharts
-    const avgInvoiceValueForCharts = ytdInvForCharts.length ? totalSalesForCharts / ytdInvForCharts.length : 0
-    const collectionRateForCharts = ratioPct(receiptsTotalForCharts, Math.max(totalSalesForCharts, receiptsTotalForCharts))
-    const grossMarginPctForCharts = ratioPct(grossProfitForCharts, totalSalesForCharts)
-    const lowStockCountForCharts = lowStockRows.filter(m => toNumber(m.available) <= toNumber(m.reorder_level || 0)).length
-    const stockRiskPctForCharts = ratioPct(lowStockCountForCharts, Math.max(data.rawMaterials.length, 1))
-
-    const monthlyTrendForCharts = Array.from({ length: 6 }, (_, index) => {
-      const monthDate = new Date()
-      monthDate.setDate(1)
-      monthDate.setMonth(monthDate.getMonth() - (5 - index))
-      const month = monthDate.getMonth()
-      const year = monthDate.getFullYear()
-
-      const monthSales = sumBy(dashboardInvoices.filter(inv => {
-        const invoiceDate = new Date(inv.invoice_date)
-        return !Number.isNaN(invoiceDate.getTime()) && invoiceDate.getMonth() === month && invoiceDate.getFullYear() === year
-      }), inv => inv.total_amount)
-
-      const monthReceipts = sumBy(dashboardPayments.filter(payment => {
-        const paymentDate = new Date(payment.payment_date)
-        return !Number.isNaN(paymentDate.getTime()) && paymentDate.getMonth() === month && paymentDate.getFullYear() === year
-      }), payment => payment.amount)
-
-      return {
-        label: monthDate.toLocaleString('en-US', { month: 'short' }),
-        sales: monthSales,
-        receipts: monthReceipts,
-      }
-    })
-
-    const invoiceStatusSegmentsForCharts = [
-      {
-        label: 'Collected',
-        value: sumBy(dashboardInvoices.filter(inv => getInvoiceOutstandingDue(inv) <= 0), inv => inv.total_amount),
-        meta: `${dashboardInvoices.filter(inv => getInvoiceOutstandingDue(inv) <= 0).length} invoices settled`,
-        color: '#2492da',
-      },
-      {
-        label: 'Partially Paid',
-        value: sumBy(dashboardInvoices.filter(inv => {
-          const paidAmount = getInvoicePaidAmount(inv)
-          return getInvoiceOutstandingDue(inv) > 0 && paidAmount > 0
-        }), inv => getInvoiceOutstandingDue(inv)),
-        meta: `${dashboardInvoices.filter(inv => {
-          const paidAmount = getInvoicePaidAmount(inv)
-          return getInvoiceOutstandingDue(inv) > 0 && paidAmount > 0
-        }).length} invoices still collecting`,
-        color: '#f2b13a',
-      },
-      {
-        label: 'Unpaid',
-        value: sumBy(dashboardInvoices.filter(inv => {
-          const paidAmount = getInvoicePaidAmount(inv)
-          return getInvoiceOutstandingDue(inv) > 0 && paidAmount <= 0
-        }), inv => getInvoiceOutstandingDue(inv)),
-        meta: `${dashboardInvoices.filter(inv => {
-          const paidAmount = getInvoicePaidAmount(inv)
-          return getInvoiceOutstandingDue(inv) > 0 && paidAmount <= 0
-        }).length} invoices untouched`,
-        color: '#ef4444',
-      },
-    ]
-
-    const paymentMethodSegmentsForCharts = Object.entries(
-      dashboardPayments.reduce((acc, payment) => {
-        const key = fmtStatus(payment.method || 'other')
-        acc[key] = (acc[key] || 0) + toNumber(payment.amount)
-        return acc
-      }, {})
-    )
-      .map(([label, value]) => ({
-        label,
-        value,
-        meta: `${fmt(value)} collected`,
-      }))
-      .sort((a, b) => b.value - a.value)
-      .map((segment, index) => ({
-        ...segment,
-        color: ['#2492da', '#f2b13a', '#14b8a6', '#7c3aed', '#ef4444'][index % 5],
-      }))
-
-    const dashboardSignalsForCharts = [
-      {
-        label: 'Collection Rate',
-        value: `${collectionRateForCharts.toFixed(0)}%`,
-        meta: 'Receipts collected versus sales booked',
-        percent: collectionRateForCharts,
-        color: 'linear-gradient(90deg, #2492da, #48b1ec)',
-      },
-      {
-        label: 'Gross Margin',
-        value: `${grossMarginPctForCharts.toFixed(0)}%`,
-        meta: 'Sales left after production cost',
-        percent: grossMarginPctForCharts,
-        color: 'linear-gradient(90deg, #f2b13a, #c7851d)',
-      },
-      {
-        label: 'Average Invoice',
-        value: fmt(avgInvoiceValueForCharts),
-        meta: `${ytdInvForCharts.length} YTD invoices averaged`,
-        percent: ratioPct(avgInvoiceValueForCharts, Math.max(...ytdInvForCharts.map(inv => toNumber(inv.total_amount)), avgInvoiceValueForCharts, 1)),
-        color: 'linear-gradient(90deg, #14b8a6, #0f766e)',
-      },
-      {
-        label: 'Raw Material Risk',
-        value: `${lowStockCountForCharts} low stock`,
-        meta: 'Materials at or below reorder level',
-        percent: stockRiskPctForCharts,
-        color: 'linear-gradient(90deg, #ef4444, #b91c1c)',
-      },
-    ]
-
-    if (data.dashboardOverview) {
-      const overview = data.dashboardOverview
-      const kpis = overview.kpis || {}
-      const balanceSheet = buildBalanceSheetSnippetRows(data.trialBalanceReport?.rows || [])
-      const assetsSummary = buildAssetsSnippetRows(data.trialBalanceReport?.rows || [])
-      const liabilitySummary = buildLiabilitySnippetRows(data.trialBalanceReport?.rows || [])
-      const equitySummary = buildEquitySnippetRows(data.trialBalanceReport?.rows || [])
-      return {
-        metrics: [
-          { label: 'Total Sales (YTD)', value: fmt(kpis.total_sales_ytd), note: `${overview.period?.start_date || 'YTD'} to ${overview.period?.end_date || 'today'}` },
-          { label: 'Outstanding Receivables', value: fmt(kpis.outstanding_receivables), note: `${(overview.open_invoices || []).length} open invoices` },
-          { label: 'Production Batches (YTD)', value: fmtQ(kpis.batches), note: 'Batches recorded in selected period' },
-          { label: 'Production Cost (YTD)', value: fmt(kpis.total_cost), note: 'Sum of batch costs' },
-          { label: 'Profit / Loss (YTD)', value: fmt(kpis.profit_loss), note: 'Sales minus production cost' },
-        ],
-        monthlyTrend: monthlyTrendForCharts,
-        invoiceStatusSegments: invoiceStatusSegmentsForCharts,
-        paymentMethodSegments: paymentMethodSegmentsForCharts,
-        dashboardSignals: dashboardSignalsForCharts,
-        topCustomers: (overview.top_customers_by_value || []).map((row, index) => ({
-          id: index,
-          title: row.customer__name || 'Customer',
-          meta: 'Total sales',
-          value: fmt(row.total_sales),
-        })),
-        topProducts: (overview.top_products_sold || []).map((row, index) => ({
-          id: index,
-          title: row.pricing_rule__size || row.description || 'Product',
-          meta: `${fmtQ(row.total_qty)} sold`,
-          value: fmt(row.total_amount),
-        })),
-        rawMaterials: (overview.raw_materials_status || []).map((row, index) => ({
-          id: index,
-          title: row.name || 'Raw Material',
-          meta: 'Available quantity',
-          value: fmtQ(row.qty_available),
-        })),
-        finishedGoods: (overview.finished_goods_status || []).map((row, index) => ({
-          id: index,
-          title: row.pricing_rule__size || row.item || 'Finished Good',
-          meta: `${fmtQ(row.qty_sold)} sold`,
-          value: fmtQ(row.qty_left),
-        })),
-        plStatement: [
-          { id: 'income', title: 'Income', meta: 'All income accounts in reporting', value: fmt(dashboardTotalIncome) },
-          { id: 'direct-cost', title: 'Direct Cost', meta: 'All direct cost accounts in reporting', value: fmt(dashboardTotalDirectCost) },
-          { id: 'gross', title: 'Gross Profit / Loss', meta: 'Income plus direct cost', value: fmt(dashboardGrossProfitOrLoss) },
-          { id: 'expenses', title: 'Expenses', meta: 'All expense accounts in reporting', value: fmt(dashboardTotalExpenses) },
-          { id: 'net', title: 'Net Profit / Loss', meta: 'Gross profit plus expenses', value: fmt(dashboardNetProfitOrLoss) },
-        ],
-        balanceSheet,
-        assetsSummary,
-        liabilitySummary,
-        equitySummary,
-        receivables: (overview.top_receivables || []).map((row, index) => ({
-          id: index,
-          title: row.customer__name || 'Customer',
-          meta: 'Amount outstanding',
-          value: fmt(row.amount_outstanding),
-        })),
-        openInvoices: (overview.open_invoices || []).map((row, index) => ({
-          id: row.id || index,
-          title: row.invoice_number || fmtInv(row.id),
-          meta: row.customer__name || 'Customer',
-          value: fmt(row.amount_outstanding),
-        })),
-      }
-    }
-
-    const ytdInv   = dashboardInvoices.filter(inv => isThisYear(inv.invoice_date))
-    const ytdBatch = dashboardBatches.filter(b => isThisYear(b.production_date))
-    const ytdAcct  = dashboardAccounts.filter(e => isThisYear(e.transaction_date))
-
-    const totalSales       = sumBy(ytdInv, inv => inv.total_amount)
-    const outstanding      = sumBy(dashboardInvoices, inv => getInvoiceOutstandingDue(inv))
-    const totalCost        = sumBy(ytdBatch, b => b.total_cost)
-    const receiptsTotal    = sumBy(dashboardPayments, p => p.amount)
-    const expenseTotal     = sumBy(ytdAcct.filter(e => e.entry_type === 'expense'), e => e.amount)
-    const grossProfit      = totalSales - totalCost
-    const netProfit        = grossProfit - expenseTotal
-    const openInvoices     = dashboardInvoices.filter(inv => getInvoiceOutstandingDue(inv) > 0)
-    const avgInvoiceValue  = ytdInv.length ? totalSales / ytdInv.length : 0
-    const collectionRate   = ratioPct(receiptsTotal, Math.max(totalSales, receiptsTotal))
-    const grossMarginPct   = ratioPct(grossProfit, totalSales)
-    const lowStockCount    = lowStockRows.filter(m => toNumber(m.available) <= toNumber(m.reorder_level || 0)).length
-    const stockRiskPct     = ratioPct(lowStockCount, Math.max(data.rawMaterials.length, 1))
-    const balanceSheet = buildBalanceSheetSnippetRows(data.trialBalanceReport?.rows || [])
-    const assetsSummary = buildAssetsSnippetRows(data.trialBalanceReport?.rows || [])
-    const liabilitySummary = buildLiabilitySnippetRows(data.trialBalanceReport?.rows || [])
-    const equitySummary = buildEquitySnippetRows(data.trialBalanceReport?.rows || [])
-
-    const custSales = data.customers.map(c => {
-      const invs = dashboardInvoices.filter(inv => String(inv.customer) === String(c.id))
-      return { id: c.id, title: c.name, meta: `${invs.length} invoices`, salesValue: sumBy(invs, inv => inv.total_amount), outstanding: sumBy(invs, inv => getInvoiceOutstandingDue(inv)) }
-    }).sort((a, b) => b.salesValue - a.salesValue)
-
-    const prodMap = new Map()
-    dashboardInvoices.forEach(inv => (inv.lines || []).forEach(line => {
-      const title = String(line.product_size || line.pricing_category || 'Product').trim()
-      const k = normalizeSizeKey(title) || String(line.pricing_rule || line.id)
-      const cur = prodMap.get(k) || { id: k, title: title || 'Product', quantity: 0, amount: 0 }
-      cur.quantity += toNumber(line.quantity)
-      cur.amount   += toNumber(line.line_total)
-      prodMap.set(k, cur)
-    }))
-    const prodSales = [...prodMap.values()].sort((a, b) => b.amount - a.amount)
-
-    const finishedGoodsBySize = new Map()
-    data.products.forEach(product => {
-      const sizeName = String(product.name || '').trim()
-      const sizeKey = normalizeSizeKey(sizeName)
-      if (!sizeKey) return
-      const existing = finishedGoodsBySize.get(sizeKey) || {
-        id: sizeKey,
-        title: sizeName || 'Product',
-        left: 0,
-      }
-      existing.left += toNumber(product.stock_quantity)
-      finishedGoodsBySize.set(sizeKey, existing)
-    })
-    const finishedGoods = [...finishedGoodsBySize.values()]
-      .map(item => {
-        const sold = prodMap.get(item.id)
-        return { ...item, meta: `${fmtQ(sold?.quantity || 0)} sold` }
-      })
-      .sort((a, b) => b.left - a.left)
-
-    const monthlyTrend = Array.from({ length: 6 }, (_, index) => {
-      const monthDate = new Date()
-      monthDate.setDate(1)
-      monthDate.setMonth(monthDate.getMonth() - (5 - index))
-      const month = monthDate.getMonth()
-      const year = monthDate.getFullYear()
-
-      const monthSales = sumBy(dashboardInvoices.filter(inv => {
-        const invoiceDate = new Date(inv.invoice_date)
-        return !Number.isNaN(invoiceDate.getTime()) && invoiceDate.getMonth() === month && invoiceDate.getFullYear() === year
-      }), inv => inv.total_amount)
-
-      const monthReceipts = sumBy(dashboardPayments.filter(payment => {
-        const paymentDate = new Date(payment.payment_date)
-        return !Number.isNaN(paymentDate.getTime()) && paymentDate.getMonth() === month && paymentDate.getFullYear() === year
-      }), payment => payment.amount)
-
-      return {
-        label: monthDate.toLocaleString('en-US', { month: 'short' }),
-        sales: monthSales,
-        receipts: monthReceipts,
-      }
-    })
-
-    const invoiceStatusSegments = [
-      {
-        label: 'Collected',
-        value: sumBy(dashboardInvoices.filter(inv => getInvoiceOutstandingDue(inv) <= 0), inv => inv.total_amount),
-        meta: `${dashboardInvoices.filter(inv => getInvoiceOutstandingDue(inv) <= 0).length} invoices settled`,
-        color: '#2492da',
-      },
-      {
-        label: 'Partially Paid',
-        value: sumBy(dashboardInvoices.filter(inv => {
-          const paidAmount = getInvoicePaidAmount(inv)
-          return getInvoiceOutstandingDue(inv) > 0 && paidAmount > 0
-        }), inv => getInvoiceOutstandingDue(inv)),
-        meta: `${dashboardInvoices.filter(inv => {
-          const paidAmount = getInvoicePaidAmount(inv)
-          return getInvoiceOutstandingDue(inv) > 0 && paidAmount > 0
-        }).length} invoices still collecting`,
-        color: '#f2b13a',
-      },
-      {
-        label: 'Unpaid',
-        value: sumBy(dashboardInvoices.filter(inv => {
-          const paidAmount = getInvoicePaidAmount(inv)
-          return getInvoiceOutstandingDue(inv) > 0 && paidAmount <= 0
-        }), inv => getInvoiceOutstandingDue(inv)),
-        meta: `${dashboardInvoices.filter(inv => {
-          const paidAmount = getInvoicePaidAmount(inv)
-          return getInvoiceOutstandingDue(inv) > 0 && paidAmount <= 0
-        }).length} invoices untouched`,
-        color: '#ef4444',
-      },
-    ]
-
-    const paymentMethodSegments = Object.entries(
-      dashboardPayments.reduce((acc, payment) => {
-        const key = fmtStatus(payment.method || 'other')
-        acc[key] = (acc[key] || 0) + toNumber(payment.amount)
-        return acc
-      }, {})
-    )
-      .map(([label, value]) => ({
-        label,
-        value,
-        meta: `${fmt(value)} collected`,
-      }))
-      .sort((a, b) => b.value - a.value)
-      .map((segment, index) => ({
-        ...segment,
-        color: ['#2492da', '#f2b13a', '#14b8a6', '#7c3aed', '#ef4444'][index % 5],
-      }))
-
-    const dashboardSignals = [
-      {
-        label: 'Collection Rate',
-        value: `${collectionRate.toFixed(0)}%`,
-        meta: 'Receipts collected versus sales booked',
-        percent: collectionRate,
-        color: 'linear-gradient(90deg, #2492da, #48b1ec)',
-      },
-      {
-        label: 'Gross Margin',
-        value: `${grossMarginPct.toFixed(0)}%`,
-        meta: 'Sales left after production cost',
-        percent: grossMarginPct,
-        color: 'linear-gradient(90deg, #f2b13a, #c7851d)',
-      },
-      {
-        label: 'Average Invoice',
-        value: fmt(avgInvoiceValue),
-        meta: `${ytdInv.length} YTD invoices averaged`,
-        percent: ratioPct(avgInvoiceValue, Math.max(...ytdInv.map(inv => toNumber(inv.total_amount)), avgInvoiceValue, 1)),
-        color: 'linear-gradient(90deg, #14b8a6, #0f766e)',
-      },
-      {
-        label: 'Raw Material Risk',
-        value: `${lowStockCount} low stock`,
-        meta: 'Materials at or below reorder level',
-        percent: stockRiskPct,
-        color: 'linear-gradient(90deg, #ef4444, #b91c1c)',
-      },
-    ]
-
-    return {
-      metrics: [
-        { label: 'Total Sales (YTD)',         value: fmt(totalSales),    note: `${ytdInv.length} invoices this year` },
-        { label: 'Outstanding Receivables',   value: fmt(outstanding),   note: `${dashboardInvoices.filter(inv => getInvoiceOutstandingDue(inv) > 0).length} open invoices` },
-        { label: 'Production Batches (YTD)',  value: fmtQ(ytdBatch.length), note: 'Batches recorded this year' },
-        { label: 'Production Cost (YTD)',     value: fmt(totalCost),     note: 'Sum of batch costs' },
-        { label: 'Gross Profit (YTD)',        value: fmt(grossProfit),   note: 'Sales minus production cost' },
-        { label: 'Average Invoice (YTD)',     value: fmt(avgInvoiceValue), note: 'Average value per YTD invoice' },
-      ],
-      monthlyTrend,
-      invoiceStatusSegments,
-      paymentMethodSegments,
-      dashboardSignals,
-      topCustomers:   clampRows(custSales).map(c => ({ id: c.id,    title: c.title, meta: c.meta, value: fmt(c.salesValue) })),
-      topProducts:    clampRows(prodSales).map(p => ({ id: p.id,    title: p.title, meta: `${fmtQ(p.quantity)} sold`, value: fmt(p.amount) })),
-      rawMaterials:   clampRows(lowStockRows).map(m => ({ id: m.id, title: m.name,  meta: `Reorder at ${fmtQ(m.reorder_level)} ${m.unit || ''}`.trim(), value: fmtQ(m.available) })),
-      finishedGoods:  clampRows(finishedGoods).map(p => ({ id: p.id, title: p.title, meta: p.meta, value: fmtQ(p.left) })),
-      plStatement: [
-        { id: 'income', title: 'Income', meta: 'All income accounts in reporting', value: fmt(dashboardTotalIncome) },
-        { id: 'direct-cost', title: 'Direct Cost', meta: 'All direct cost accounts in reporting', value: fmt(dashboardTotalDirectCost) },
-        { id: 'gross', title: 'Gross Profit / Loss', meta: 'Income plus direct cost', value: fmt(dashboardGrossProfitOrLoss) },
-        { id: 'expenses', title: 'Expenses', meta: 'All expense accounts in reporting', value: fmt(dashboardTotalExpenses) },
-        { id: 'net', title: 'Net Profit / Loss', meta: 'Gross profit plus expenses', value: fmt(dashboardNetProfitOrLoss) },
-      ],
-      balanceSheet,
-      assetsSummary,
-      liabilitySummary,
-      equitySummary,
-      receivables:    clampRows(custSales.filter(c => c.outstanding > 0)).map(c => ({ id: c.id, title: c.title, meta: 'Amount outstanding', value: fmt(c.outstanding) })),
-      openInvoices:   clampRows(openInvoices).map(inv => ({ id: inv.id, title: fmtInv(inv.id), meta: inv.customer_name || 'Customer', value: fmt(getInvoiceOutstandingDue(inv)) })),
-    }
-  }, [dashboardAccounts, dashboardBatches, dashboardInvoices, dashboardPayments, data.customers, data.dashboardOverview, data.products, data.rawMaterials.length, data.trialBalanceReport?.rows, lowStockRows])
 
   // ── Modal helpers ─────────────────────────────────────────────────────────
 
   function setFB(key, val) { setFeedback(f => ({ ...f, [key]: val })) }
   function setSub(key, val) { setSubmitting(s => ({ ...s, [key]: val })) }
-  function setSearch(key, val) { setSearchTerms(t => ({ ...t, [key]: val })) }
   function addBatchUsageLine() {
     setBatchForm(current => ({ ...current, usages: [...current.usages, mkBatchUsage('')] }))
     smoothScrollIntoView(batchUsageTailRef.current)
@@ -3362,28 +2586,6 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
   function addPurchaseItemLine() {
     setPurchaseForm(current => ({ ...current, items: [...current.items, mkPurchaseItem()] }))
     smoothScrollIntoView(purchaseItemsTailRef.current)
-  }
-  function getScopedFilters(scope) {
-    return sectionFilters[scope] || {}
-  }
-  function setScopedFilter(scope, key, value) {
-    setSectionFilters(current => {
-      const existing = current[scope] || {}
-      const nextValues = { ...existing }
-      if (value) nextValues[key] = value
-      else delete nextValues[key]
-      const updated = { ...current }
-      if (Object.keys(nextValues).length) updated[scope] = nextValues
-      else delete updated[scope]
-      return updated
-    })
-  }
-  function clearScopedFilters(scope) {
-    setSectionFilters(current => {
-      const updated = { ...current }
-      delete updated[scope]
-      return updated
-    })
   }
   function openCategoryModal(target) {
     setCategoryModalTarget(target)
@@ -3425,10 +2627,6 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
     }
     closeCategoryModal()
   }
-  function openDateFilter() {
-    setDateFilterDraft(sectionDateFilters[activeSection] || EMPTY_DATE_RANGE)
-    setActiveModal('date_filter')
-  }
   function applyDateFilter(e) {
     e.preventDefault()
     const next = {
@@ -3459,12 +2657,6 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
       delete updated[sectionKey]
       return updated
     })
-    if (activeModal === 'date_filter') setActiveModal('')
-  }
-  function applyQuickDatePreset(sectionKey, presetKey) {
-    const next = buildDatePresetRange(presetKey)
-    setSectionDateFilters(current => ({ ...current, [sectionKey]: next }))
-    setSectionDatePresets(current => ({ ...current, [sectionKey]: presetKey }))
     if (activeModal === 'date_filter') setActiveModal('')
   }
 
@@ -3740,9 +2932,12 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
         return
       }
 
+      const outputs = Object.entries(batchForm.outputs || {})
+        .filter(([, qty]) => toNumber(qty) > 0)
+        .map(([size, qty]) => buildProductionOutputPayload({ product_size: size, quantity: qty }, productBySizeKey, resolveProductionPrice))
       await createProductionBatch({
         ...batchPayload,
-        outputs: [],
+        outputs,
         material_usages,
       })
       await refreshData(); setFB('batch', 'Batch saved.'); setActiveModal('')
@@ -4181,75 +3376,6 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
 
   // ── Row data ──────────────────────────────────────────────────────────────
 
-  const salesStatusCounts = SALES_STATUS_TABS.reduce((acc, tab) => {
-    acc[tab.key] = tab.key === 'all' ? filteredSalesInvoices.length : filteredSalesInvoices.filter(inv => getSalesStatusKey(inv) === tab.key).length
-    return acc
-  }, {})
-  const statusFilteredSalesInvoices = salesStatusTab === 'all'
-    ? filteredSalesInvoices
-    : filteredSalesInvoices.filter(inv => getSalesStatusKey(inv) === salesStatusTab)
-  const salesLineTotals = filteredSalesInvoices.filter(inv => !inv.is_sample_sale).reduce((acc, inv) => {
-    ;(inv.lines || []).forEach(line => {
-      acc.bottles += toNumber(line.quantity)
-      acc.litres += inferTotalLitres(line.product_size, line.quantity)
-    })
-    return acc
-  }, { bottles: 0, litres: 0 })
-  const sampleSalesInvoices = filteredSalesInvoices.filter(invoice => invoice.is_sample_sale)
-  const salesSummary      = [
-    { label: 'Total Billed', value: fmt(sumBy(filteredSalesInvoices, inv => inv.total_amount)), note: `${filteredSalesInvoices.length} invoices` },
-    { label: 'Total Paid', value: fmt(sumBy(filteredSalesPayments, p => p.amount)), note: `${filteredSalesPayments.length} receipts` },
-    { label: 'Outstanding', value: fmt(sumBy(filteredSalesInvoices, inv => getInvoiceOutstandingDue(inv))), note: `${filteredSalesInvoices.filter(i => getInvoiceOutstandingDue(i) > 0).length} unpaid` },
-    { label: 'Test Sample Value', value: fmt(sumBy(sampleSalesInvoices, inv => inv.subtotal)), note: `${sampleSalesInvoices.length} sample invoices` },
-    { label: 'Litres Sold', value: `${fmtQ(Math.round(salesLineTotals.litres * 10) / 10)} L`, note: 'Bottle size × quantity' },
-  ]
-  const productionSummary = [
-    { label: 'Batches', value: String(productionBatchesFiltered.length), note: 'Batches recorded' },
-    { label: 'RM Cost', value: fmt(sumBy(productionBatchesFiltered, b => b.total_raw_material_cost)), note: 'Material usage' },
-    { label: 'Production Cost', value: fmt(sumBy(productionBatchesFiltered, b => getBatchOutputValue(b))), note: 'Finished goods value produced' },
-    { label: 'Production Gain', value: fmt(sumBy(productionBatchesFiltered, b => getBatchProductionGain(b))), note: 'Output value less total cost' },
-    { label: 'Stock Units', value: fmtQ(sumBy(data.products, p => p.stock_quantity)), note: 'Finished goods on hand' },
-    { label: 'Finished Goods Balance', value: fmt(sumBy(inventoryLedger, item => item.stockBalance)), note: 'Current finished goods value' },
-  ]
-  const suppliesSummary   = [
-    { label: 'Suppliers', value: String(data.suppliers.length), note: 'Suppliers on file' },
-    { label: 'RM Balance Qty', value: fmtQ(sumBy(data.rawMaterials, material => material.stock_available)), note: 'Total raw material stock on hand' },
-    { label: 'RM Balance Value', value: fmt(sumBy(data.rawMaterials, material => toNumber(material.stock_available) * toNumber(material.unit_price))), note: 'Current stock value on hand' },
-    { label: 'Raw Materials', value: String(data.rawMaterials.length), note: 'Materials tracked' },
-    { label: 'Purchases', value: fmt(sumBy(purchasesFiltered, p => p.total_amount)), note: `${purchasesFiltered.length} records` },
-    { label: 'Supplier Due', value: fmt(sumBy(purchasesFiltered, p => getPurchaseOutstanding(p))), note: 'Open balances' },
-  ]
-  const customersSummary  = [
-    { label: 'Customers', value: String(data.customers.length), note: `${filteredCustomerLedger.filter(c => c.invoiceCount > 0).length} already billed` },
-    { label: 'Total Invoiced', value: fmt(sumBy(customerInvoicesFiltered, inv => inv.total_amount)), note: `${customerInvoicesFiltered.length} invoices billed` },
-    { label: 'Outstanding', value: fmt(sumBy(filteredCustomerLedger, c => c.outstanding)), note: 'Total receivables due' },
-    { label: 'Receipts', value: fmt(sumBy(customerPaymentsFiltered, p => p.amount)), note: 'Total collected' },
-    { label: 'Open Invoices', value: String(customerInvoicesFiltered.filter(inv => getInvoiceOutstandingDue(inv) > 0).length), note: 'Invoices with balance' },
-  ]
-  const suppliersSummary  = [{ label: 'Suppliers', value: String(data.suppliers.length), note: 'Vendor records' }, { label: 'Purchases', value: fmt(sumBy(supplierPurchasesFiltered, p => p.total_amount)), note: `${supplierPurchasesFiltered.length} purchase records` }, { label: 'Paid', value: fmt(sumBy(supplierPurchasesFiltered, p => p.total_paid)), note: 'Total paid to suppliers' }, { label: 'Due', value: fmt(sumBy(filteredSupplierLedger, s => s.outstanding)), note: 'Outstanding payables' }]
-  const accountsIncomeTotal = sumBy(accountInvoicesFiltered, invoice => invoice.total_amount) + sumBy(accountTransactionsFiltered.filter(e => e.entry_type === 'income'), e => e.amount)
-  const accountsSummary   = [{ label: 'Entries', value: String(accountTransactionsFiltered.length), note: 'Entries recorded' }, { label: 'Income', value: fmt(accountsIncomeTotal), note: `${accountInvoicesFiltered.length} sales + other income` }, { label: 'Expenses', value: fmt(sumBy(accountTransactionsFiltered.filter(e => e.entry_type === 'expense'), e => e.amount)), note: 'Expense entries' }, { label: 'Pricing Rules', value: String(filteredPricingRules.length), note: 'Price list entries' }]
-  const mobilePrimarySections = availableSections
-    .filter(section => ['dashboard', 'sales_hub', 'production_ops', 'customers'].includes(section.key))
-    .map(section => section.key)
-  const mobileExtraSections = availableSections.filter(section => !mobilePrimarySections.includes(section.key))
-  const mobileHeroStatsBySection = {
-    dashboard: dashboardContent.metrics.slice(0, 2),
-    sales_hub: salesSummary.slice(0, 2),
-    production_ops: productionSummary.slice(0, 2),
-    supplies_stock: suppliesSummary.slice(0, 2),
-    customers: customersSummary.slice(0, 2),
-    suppliers: suppliersSummary.slice(0, 2),
-    accounts_pricing: accountsSummary.slice(0, 2),
-    reporting: [],
-  }
-  const mobileHeroStats = mobileHeroStatsBySection[activeSection] || dashboardContent.metrics.slice(0, 2)
-  const avatarText = (user?.name || 'PT')
-    .split(' ')
-    .map((part) => part[0])
-    .join('')
-    .slice(0, 2)
-    .toUpperCase()
 
   async function handleMobileLogout() {
     await logout()
@@ -4261,183 +3387,6 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
     const key = String(p.invoice)
     paymentsByInvoice.set(key, [...(paymentsByInvoice.get(key) || []), p])
   })
-  const salesRows    = statusFilteredSalesInvoices.map(inv => {
-    const due = getInvoiceOutstandingDue(inv)
-    const balance = getInvoiceOutstanding(inv)
-    const receipts = paymentsByInvoice.get(String(inv.id)) || []
-    const customer = data.customers.find(c => String(c.id) === String(inv.customer))
-    return {
-      key: inv.id,
-      emphasisIndex: 3,
-      searchText: [fmtInv(inv.id), fmtD(inv.invoice_date), inv.invoice_date, inv.customer_name, fmt(inv.total_amount), fmt(getInvoicePaidAmount(inv)), fmt(balance)].join(' '),
-      cells: [
-        <strong key="inv" className="sales-inv-no">{fmtInv(inv.id)}</strong>,
-        fmtD(inv.invoice_date),
-        inv.customer_name || '—',
-        fmt(inv.total_amount),
-        <span key="paid" className="sales-paid">{fmt(getInvoicePaidAmount(inv))}</span>,
-        <span key="due" className={due > 0.005 ? 'sales-due' : 'sales-due-zero'}>{fmt(balance)}</span>,
-        <div key="actions" className="sales-row-actions">
-          <button type="button" className="workspace-action-btn" title={receipts.length ? `Invoice and ${receipts.length} receipt${receipts.length === 1 ? '' : 's'}` : 'View invoice'} onClick={event => { event.stopPropagation(); printSaleDocuments(inv, receipts, { customer }) }}>View</button>
-          {canManageSalesTransactions ? (
-            <button type="button" className="workspace-action-btn" onClick={event => { event.stopPropagation(); openModal('sale', inv) }}>Edit</button>
-          ) : null}
-          {canManageSalesTransactions && due > 0.005 ? (
-            <button type="button" className="workspace-action-btn sales-row-receipt" onClick={event => { event.stopPropagation(); openModal('receipt', { invoice: inv.id, amount: due.toFixed(2) }) }}>Receipt</button>
-          ) : null}
-        </div>,
-      ],
-    }
-  })
-  const batchRows    = productionBatchesFiltered.map(b => ({
-    key: b.id,
-    emphasisIndex: 5,
-    cells: [
-      fmtD(b.production_date),
-      b.batch_number || `#${b.id}`,
-      fmtD(b.expiry_date),
-      String(b.outputs?.length || 0),
-      fmt(getBatchOutputValue(b)),
-      fmt(b.total_cost),
-      fmt(getBatchProductionGain(b)),
-      ...(canManageProductionTransactions
-        ? [(
-            <div key="actions" style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
-              <button type="button" className="workspace-action-btn" onClick={event => { event.stopPropagation(); openModal('batch', b) }}>Edit</button>
-              <button
-                type="button"
-                className="workspace-action-btn"
-                onClick={event => {
-                  event.stopPropagation()
-                  handleDelete('batch', () => deleteProductionBatch(b.id))
-                }}
-              >
-                Delete
-              </button>
-            </div>
-          )]
-        : []),
-    ],
-  }))
-  const purchaseRows = purchasesFiltered.map(p => ({
-    key: p.id,
-    emphasisIndex: 6,
-    cells: [
-      fmtD(p.purchase_date),
-      `#${p.id}`,
-      p.supplier_name || 'Supplier',
-      fmtStatus(p.category || 'other'),
-      fmtStatus(p.status),
-      fmt(p.total_paid),
-      fmt(getPurchaseOutstanding(p)),
-      ...(canManageDataEntryEditDelete
-        ? [(
-            <div key="actions" style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
-              <button type="button" className="workspace-action-btn" onClick={event => { event.stopPropagation(); openModal('purchase', p) }}>Edit</button>
-              <button
-                type="button"
-                className="workspace-action-btn"
-                onClick={event => {
-                  event.stopPropagation()
-                  handleDelete('purchase', () => deletePurchase(p.id))
-                }}
-              >
-                Delete
-              </button>
-            </div>
-          )]
-        : []),
-    ],
-  }))
-  const inventoryRows = inventoryLedger.map(item => ({
-    key: item.size,
-    emphasisIndex: 6,
-    cells: [
-      item.id,
-      item.size,
-      item.unit,
-      fmtQ(item.opening),
-      fmtQ(item.stockIn),
-      fmtQ(item.stockOut),
-      fmtQ(item.available),
-      fmt(item.stockBalance),
-      fmtQ(item.productionLevel),
-      <span key="pr" style={{ color: item.prodRequired ? '#dc2626' : '#16a34a', fontWeight: 600 }}>{item.prodRequired ? 'Yes' : 'No'}</span>,
-      canManageProductionTransactions ? (
-        <button
-          key="edit"
-          type="button"
-          className="workspace-action-btn"
-          onClick={event => {
-            event.stopPropagation()
-            const matchingProduct = data.products.find(product => normalizeSizeKey(product.name) === normalizeSizeKey(item.size))
-            if (matchingProduct) {
-              openModal('product', matchingProduct)
-              return
-            }
-            setSelectedInventoryItem(item)
-          }}
-        >
-          Edit
-        </button>
-      ) : 'View',
-    ],
-  }))
-  const materialRows = lowStockRows.map(m => {
-    const isLow = toNumber(m.reorder_level) > 0 && m.available <= toNumber(m.reorder_level)
-    const isOut = m.available <= 0
-    const stockColor = isOut ? '#dc2626' : isLow ? '#d97706' : '#16a34a'
-    const balanceValue = toNumber(m.balance_value ?? (toNumber(m.available) * toNumber(m.unit_price)))
-    return {
-      key: m.id,
-      emphasisIndex: 6,
-      cells: [
-        m.name,
-        m.category || '—',
-        m.unit || '—',
-        fmtQ(m.opening_stock),
-        fmtQ(m.stock_in),
-        fmtQ(m.stock_out),
-        <span
-          key="avail"
-          style={{
-            color: stockColor,
-            fontWeight: 600,
-            display: 'block',
-            width: '100%',
-            textAlign: 'right',
-            fontVariantNumeric: 'tabular-nums',
-          }}
-        >
-          {fmtQ(m.available)}
-        </span>,
-        fmt(balanceValue),
-        fmtQ(m.reorder_level),
-        <span key="status" style={{ color: stockColor, fontSize: '0.78rem', fontWeight: 700 }}>{isOut ? 'Out' : isLow ? 'Low' : 'OK'}</span>,
-        ...(canManageDataEntryEditDelete
-          ? [<button key="edit" type="button" className="workspace-action-btn" onClick={e => { e.stopPropagation(); openModal('raw_mat', m) }}>Edit</button>]
-          : []),
-      ],
-    }
-  })
-  const customerRows = filteredCustomerLedger.map(c => ({ key: c.id, emphasisIndex: 3, searchText: [c.name, c.phone, c.invoiceCount, fmt(c.totalBilled), fmt(c.paid), fmt(c.outstanding)].join(' '), cells: [c.name, c.phone || '—', String(c.invoiceCount), fmt(c.totalBilled), <span key="paid" className="sales-paid">{fmt(c.paid)}</span>, <span key="due" className={toNumber(c.outstanding) > 0.005 ? 'sales-due' : 'sales-due-zero'}>{fmt(c.outstanding)}</span>, <button key="edit" type="button" className="workspace-action-btn" onClick={e => { e.stopPropagation(); openModal('customer', c) }}>Edit</button>] }))
-  const supplierRows = filteredSupplierLedger.map(s => ({ key: s.id, emphasisIndex: 5, cells: [s.name, resolveSupplierMaterials(s, data.rawMaterials), resolveSupplierItemCategory(s, data.purchases, data.rawMaterials), String(s.purchaseCount), fmt(s.paid), fmt(s.outstanding), ...(canManageDataEntryEditDelete ? [<button key="edit" type="button" className="workspace-action-btn" onClick={e => { e.stopPropagation(); openModal('supplier', s) }}>Edit</button>] : [])] }))
-  const accountRows  = accountTransactionsFiltered.map(e => ({
-    key: e.id,
-    emphasisIndex: 5,
-    cells: [
-      fmtD(e.transaction_date),
-      e.transaction_id || '—',
-      fmtStatus(e.entry_type),
-      e.category || '—',
-      e.description || '—',
-      fmt(e.amount),
-      e.payment_method ? fmtStatus(e.payment_method) : '—',
-      e.comments || '—',
-      ...(canManageDataEntryEditDelete ? [<button key="edit" type="button" className="workspace-action-btn" onClick={event => { event.stopPropagation(); openModal('account', e) }}>Edit</button>] : []),
-    ],
-  }))
-  const pricingRows  = filteredPricingRules.map(r => ({ key: r.id, emphasisIndex: 3, cells: [r.product_name || r.size || '—', r.size, r.pricing_category_name || '—', fmt(r.price), ...(canManageDataEntryEditDelete ? [<button key="edit" type="button" className="workspace-action-btn" onClick={e => { e.stopPropagation(); openModal('pricing', r) }}>Edit</button>] : [])] }))
   // Average production cost per bottle, by size, from every batch output.
   const unitCostBySize = new Map()
   data.productionBatches.forEach(b => (b.outputs || []).forEach(o => {
@@ -4449,39 +3398,7 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
     agg.amount += toNumber(o.amount) || qty * toNumber(o.unit_cost)
     unitCostBySize.set(key, agg)
   }))
-  const pricingMatrixRows = filteredPricingRules.map(r => {
-    const agg = unitCostBySize.get(normalizeSizeKey(r.size))
-    const unitCost = agg && agg.qty > 0 ? agg.amount / agg.qty : null
-    const price = toNumber(r.price)
-    const margin = unitCost !== null && price > 0 ? ((price - unitCost) / price) * 100 : null
-    return {
-      key: r.id,
-      emphasisIndex: 2,
-      cells: [
-        r.size || r.product_name || '—',
-        r.pricing_category_name || '—',
-        fmt(r.price),
-        unitCost === null ? '—' : fmt(unitCost),
-        margin === null ? '—' : <span key="margin" style={{ color: margin < 0 ? '#dc2626' : undefined }}>{margin.toFixed(1)}%</span>,
-        ...(canManageDataEntryEditDelete ? [<button key="edit" type="button" className="workspace-action-btn" onClick={e => { e.stopPropagation(); openModal('pricing', r) }}>Edit</button>] : []),
-      ],
-    }
-  })
   // Page-level export: Excel downloads one file per table; PDF prints all tables in one letterhead document.
-  const runPageExport = async (format, pageTitle, run) => {
-    if (format !== 'pdf') return run(exportTableDataset)
-    const tables = []
-    await run((name, columns, rows) => { tables.push({ name, columns, rows }) })
-    const pdfTables = tables.map(t => {
-      const keep = t.columns.map((c, i) => (String(c || '').trim() ? i : -1)).filter(i => i >= 0)
-      return {
-        heading: String(t.name).replace(/_/g, ' '),
-        columns: keep.map(i => t.columns[i]),
-        rows: (t.rows || []).map(row => keep.map(i => extractExportText(row?.cells?.[i]))),
-      }
-    })
-    printReport({ title: pageTitle, tables: pdfTables })
-  }
   const exportTableDataset = async (fileName, columns, rows, format = 'xlsx') => {
     if (format === 'pdf') {
       printTablePdf(fileName, columns, rows)
@@ -4498,39 +3415,7 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
   }
 
 
-  const pricingFilterOptions = useMemo(() => ([
-    {
-      key: 'price_type',
-      label: 'Price Type',
-      placeholder: 'All price types',
-      options: buildSelectOptions(data.pricingRules.map(rule => rule.pricing_category_name)),
-    },
-    {
-      key: 'size',
-      label: 'Size',
-      placeholder: 'All sizes',
-      options: buildSelectOptions(data.pricingRules.map(rule => rule.size)),
-    },
-    {
-      key: 'item',
-      label: 'Item',
-      placeholder: 'All items',
-      options: buildSelectOptions(data.pricingRules.map(rule => rule.product_name || rule.size)),
-    },
-    {
-      key: 'price_band',
-      label: 'Price Band',
-      placeholder: 'All bands',
-      options: [
-        { value: 'budget', label: 'Budget (< GHS 10)' },
-        { value: 'standard', label: 'Standard (GHS 10 - 29.99)' },
-        { value: 'premium', label: 'Premium (GHS 30+)' },
-      ],
-    },
-  ]), [data.pricingRules])
 
-  const acctByType = (type) => data.accountTransactions.filter(e => e.entry_type === type)
-  const acctSum = (type) => sumBy(acctByType(type), e => e.amount)
 
   const toTs = (v) => {
     if (!v) return NaN
@@ -4852,157 +3737,15 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
     dates: uniqueDatesSorted(trialBalanceSheetRows.flatMap(row => row.dates || [])),
   })
 
-  const trialBalanceActiveRows = trialBalanceSheetRows
-    .filter(row => Math.abs(toNumber(row.opening)) > 0.000001 || Math.abs(toNumber(row.movement)) > 0.000001)
-
-  const reportingBaseRows = data.trialBalanceReport?.rows?.length
-    ? data.trialBalanceReport.rows
-      .filter(row => (
-        Math.abs(toNumber(row.opening)) > 0.000001
-        || Math.abs(toNumber(row.acct_in)) > 0.000001
-        || Math.abs(toNumber(row.acct_out)) > 0.000001
-        || Math.abs(toNumber(row.available)) > 0.000001
-      ))
-      .map(row => ({
-        accountType: row.account_type,
-        accountClass: row.account_class,
-        description: row.description,
-        opening: toNumber(row.opening),
-        movement: toNumber(row.acct_in) - toNumber(row.acct_out),
-        available: toNumber(row.available),
-      }))
-    : trialBalanceActiveRows.map(row => ({
-      accountType: row.accountType,
-      accountClass: row.accountClass,
-      description: row.description,
-      opening: toNumber(row.opening),
-      movement: toNumber(row.movement),
-      available: toNumber(row.opening) + toNumber(row.movement),
-    }))
-
-  const reportingIncomeRows = reportingBaseRows.filter(row => row.accountType === 'Income Statement' && row.accountClass === 'Income')
-  const reportingCostRows = reportingBaseRows.filter(row => row.accountType === 'Income Statement' && row.accountClass === 'Direct Cost')
-  const reportingExpenseRows = reportingBaseRows.filter(row => row.accountType === 'Income Statement' && row.accountClass === 'Expenses')
-  const reportingAssetRows = reportingBaseRows.filter(row => row.accountType === 'Balance Sheet' && row.accountClass === 'Assets')
-  const reportingLiabilityRows = reportingBaseRows.filter(row => row.accountType === 'Balance Sheet' && row.accountClass === 'Liability')
-  const totalIncome = sumBy(reportingIncomeRows, row => row.movement)
-  const totalCostOfSales = sumBy(reportingCostRows, row => row.movement)
-  const totalExpenses = sumBy(reportingExpenseRows, row => row.movement)
-  const grossProfitOrLoss = totalIncome + totalCostOfSales
-  const netProfitOrLoss = grossProfitOrLoss + totalExpenses
-  const totalAssets = sumBy(reportingAssetRows, row => row.available)
-  const totalLiability = sumBy(reportingLiabilityRows, row => row.available)
-  const totalEquity = totalAssets + totalLiability
 
 
-  const trialBalanceRows = data.trialBalanceReport?.rows?.length
-    ? data.trialBalanceReport.rows
-      .filter(row => Math.abs(toNumber(row.opening)) > 0.000001 || Math.abs(toNumber(row.acct_in)) > 0.000001 || Math.abs(toNumber(row.acct_out)) > 0.000001)
-      .map(row => ({
-      key: row.account_id,
-      emphasisIndex: 8,
-      cells: [
-        row.account_id,
-        row.account_type,
-        row.account_class,
-        row.sub_accounts,
-        row.description,
-        fmt(row.opening),
-        fmt(row.acct_in),
-        fmt(row.acct_out),
-        fmt(row.available),
-      ],
-    }))
-    : trialBalanceActiveRows
-      .map(row => {
-        const opening = toNumber(row.opening)
-        const movement = toNumber(row.movement)
-        const acctIn = movement > 0 ? movement : 0
-        const acctOut = movement < 0 ? Math.abs(movement) : 0
-        const available = opening + acctIn - acctOut
-        return {
-          key: row.accountId,
-          emphasisIndex: 8,
-          cells: [
-            row.accountId,
-            row.accountType,
-            row.accountClass,
-            row.subAccounts,
-            row.description,
-            fmt(opening),
-            fmt(acctIn),
-            fmt(acctOut),
-            fmt(available),
-          ],
-        }
-      })
 
-  const compactTrialBalanceRows = data.trialBalanceReport?.rows?.length
-    ? data.trialBalanceReport.rows
-      .filter(row => Math.abs(toNumber(row.opening)) > 0.000001 || Math.abs(toNumber(row.acct_in)) > 0.000001 || Math.abs(toNumber(row.acct_out)) > 0.000001)
-      .map(row => ({
-        key: row.account_id,
-        emphasisIndex: 8,
-        cells: [
-          row.account_id,
-          row.account_type,
-          row.account_class,
-          row.sub_accounts,
-          row.description,
-          fmt(row.opening),
-          fmt(row.acct_in),
-          fmt(row.acct_out),
-          fmt(row.available),
-        ],
-      }))
-    : trialBalanceRows
 
-  async function openTrialBalanceDetail(accountId) {
-    const row = (data.trialBalanceReport?.rows || []).find(item => String(item.account_id) === String(accountId))
-    const description = row?.description || accountId
-    setTrialBalanceDetail({ accountId, description, rows: null, total_in: 0, total_out: 0 })
-    setTrialBalanceDetailLoading(true)
-    try {
-      const detail = await getTrialBalanceDetail({
-        account_id: accountId,
-        period_start: data.trialBalanceReport?.period_start || TRIAL_BALANCE_PERIOD_START,
-        expense_start: data.trialBalanceReport?.expense_start || TRIAL_BALANCE_EXPENSE_START,
-      })
-      setTrialBalanceDetail({
-        accountId,
-        description,
-        rows: Array.isArray(detail?.rows) ? detail.rows : [],
-        total_in: toNumber(detail?.total_in),
-        total_out: toNumber(detail?.total_out),
-      })
-    } catch {
-      setTrialBalanceDetail({
-        accountId,
-        description,
-        rows: [],
-        total_in: 0,
-        total_out: 0,
-      })
-    } finally {
-      setTrialBalanceDetailLoading(false)
-    }
-  }
+
+
 
   const activeContent = useMemo(() => availableSections.find(s => s.key === activeSection) || availableSections[0], [activeSection, availableSections])
-  const getSectionTab = (sectionKey) => sectionTabs[sectionKey] || SECTION_DEFAULT_TABS[sectionKey]
   const setSectionTab = (sectionKey, tabKey) => setSectionTabs(cur => ({ ...cur, [sectionKey]: tabKey }))
-  const activePricingFilterScope = `production_ops:${getSectionTab('production_ops')}`
-  const activePricingFilters = getScopedFilters(activePricingFilterScope)
-  const sectionsWithInlineHeader = new Set([
-    'dashboard',
-    'sales_hub',
-    'production_ops',
-    'supplies_stock',
-    'customers',
-    'suppliers',
-    'accounts_pricing',
-    'treasury',
-  ])
   // Prints a customer statement from a dashboard row (rows carry the customer name).
   const printStatementFor = item => {
     const customer = data.customers.find(c => c.name === item.title) || data.customers.find(c => String(c.id) === String(item.id))
@@ -5024,6 +3767,22 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
     setIsMobileNavOpen(false)
     if (tabKey) setSectionTab(sectionKey, tabKey)
   }
+  // Production planner → new batch form (overheads, notes and raw material quantities).
+  const loadPlanIntoBatch = ({ usages, overheads, note }) => {
+    openModal('batch')
+    const byName = new Map(Object.entries(usages).map(([name, qty]) => [name.trim().toLowerCase(), qty]))
+    setBatchForm(form => ({
+      ...form,
+      electricityCost: String(overheads.electricity),
+      gasCost: String(overheads.gas),
+      productionWages: String(overheads.wages),
+      notes: note,
+      usages: form.usages.map(u => {
+        const qty = byName.get(String(u.materialName || '').trim().toLowerCase())
+        return qty ? { ...u, quantityUsed: String(qty) } : u
+      }),
+    }))
+  }
   const editCashbookRow = row => {
     if (row.kind === 'receipt') return openModal('receipt', row.source)
     if (row.kind === 'supplier') {
@@ -5033,660 +3792,49 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
     }
     openModal('account', row.source)
   }
-  const handleSectionSelect = (sectionKey) => {
-    if (!canAccessSection(sectionKey)) return
-    setTreasuryFocusWallet('')
-    setActiveSection(sectionKey)
-    setIsMobileNavOpen(false)
-  }
 
   // Customer debts: shown under the customer list, or as its own page for roles without Customers.
   // Period filter: on Customers it is the page filter; on the standalone page its own.
-  const debtsSectionKey = activeSection === 'customers' ? 'customers' : 'receivables'
-  const debtsDateFilter = sectionDateFilters[debtsSectionKey] || EMPTY_DATE_RANGE
-  const debtsInvoices = filterByDateRange(data.invoices, inv => inv.invoice_date, debtsDateFilter)
-  const receivablesView = (
-    <ReceivablesInsights
-      invoices={debtsInvoices}
-      periodNote={hasDateRange(debtsDateFilter) ? `Invoices issued ${summarizeDateRange(debtsDateFilter)} · age as of today` : 'As of today'}
-      customers={data.customers}
-      accountTransactions={data.accountTransactions}
-      onOpenCustomer={id => {
-        const customer = data.customers.find(c => String(c.id) === String(id))
-        if (customer) setSelectedCustomer(customer)
-      }}
-      onStatement={row => printStatementFor({ title: row.name, id: row.id })}
-      onExport={exportTableDataset}
-    />
-  )
 
   // ── Section renderer ──────────────────────────────────────────────────────
 
-  function renderSection() {
-    if (isLoading) {
-      if (activeSection === 'dashboard') return <><SummaryGridSkeleton count={5} /><section className="dashboard-snippet-grid"><SnippetCardSkeleton title="Top Customers" /><SnippetCardSkeleton title="Top Products" /><SnippetCardSkeleton title="Raw Materials" /><SnippetCardSkeleton title="Finished Goods" /></section><section className="dashboard-snippet-grid sales-history-grid"><SnippetCardSkeleton title="P&L Statement" rows={6} /><SnippetCardSkeleton title="Assets" rows={5} /><SnippetCardSkeleton title="Liability" rows={2} /><SnippetCardSkeleton title="Equity" rows={2} /><SnippetCardSkeleton title="Balance Sheet" rows={3} /><SnippetCardSkeleton title="Receivables" /><SnippetCardSkeleton title="Open Invoices" /></section></>
-      if (activeSection === 'sales_hub') return (
-        <>
-          <SummaryGridSkeleton count={6} />
-          <WorkspaceToolbarSkeleton />
-          <section className="workspace-inline-tabs">
-          {SECTION_TABS.sales_hub.map(tab => <span key={tab.key} className={`workspace-inline-tab ${tab.key === getSectionTab('sales_hub') ? 'active' : ''}`}>{tab.label}</span>)}
-          </section>
-          {getSectionTab('sales_hub') === 'sales_list' && <TableCardSkeleton title="Sales List" columns={11} rows={6} />}
-          {getSectionTab('sales_hub') === 'recent_receipts' && <SnippetCardSkeleton title="Recent Receipts" rows={6} />}
-        </>
-      )
-      if (activeSection === 'production_ops') return (
-        <>
-          <SummaryGridSkeleton count={6} />
-          <WorkspaceToolbarSkeleton />
-          <section className="workspace-inline-tabs">
-            {SECTION_TABS.production_ops.map(tab => <span key={tab.key} className={`workspace-inline-tab ${tab.key === getSectionTab('production_ops') ? 'active' : ''}`}>{tab.label}</span>)}
-          </section>
-          {getSectionTab('production_ops') === 'batches' && <TableCardSkeleton title="Production Batches" columns={6} rows={5} />}
-          {getSectionTab('production_ops') === 'inventory' && <TableCardSkeleton title="Finished Inventory" columns={5} rows={5} />}
-        </>
-      )
-      if (activeSection === 'supplies_stock') return (
-        <>
-          <SummaryGridSkeleton count={5} />
-          <WorkspaceToolbarSkeleton />
-          <section className="workspace-inline-tabs">
-            {SECTION_TABS.supplies_stock.map(tab => <span key={tab.key} className={`workspace-inline-tab ${tab.key === getSectionTab('supplies_stock') ? 'active' : ''}`}>{tab.label}</span>)}
-          </section>
-          {getSectionTab('supplies_stock') === 'purchases' && <TableCardSkeleton title="Purchase Register" columns={8} rows={5} />}
-          {getSectionTab('supplies_stock') === 'materials' && <TableCardSkeleton title="Raw Materials" columns={9} rows={6} />}
-          {getSectionTab('supplies_stock') === 'balances' && <SnippetCardSkeleton title="Open Supplier Balances" rows={6} />}
-        </>
-      )
-      if (activeSection === 'customers') return (
-        <>
-          <SummaryGridSkeleton count={5} />
-          <WorkspaceToolbarSkeleton />
-          <section className="workspace-inline-tabs">
-          {SECTION_TABS.customers.map(tab => <span key={tab.key} className={`workspace-inline-tab ${tab.key === getSectionTab('customers') ? 'active' : ''}`}>{tab.label}</span>)}
-          </section>
-          {getSectionTab('customers') === 'customers' && <TableCardSkeleton title="Customers" columns={6} rows={6} />}
-        </>
-      )
-      if (activeSection === 'suppliers') return (
-        <>
-          <SummaryGridSkeleton />
-          <WorkspaceToolbarSkeleton />
-          <section className="workspace-inline-tabs">
-          {SECTION_TABS.suppliers.map(tab => <span key={tab.key} className={`workspace-inline-tab ${tab.key === getSectionTab('suppliers') ? 'active' : ''}`}>{tab.label}</span>)}
-          </section>
-          {getSectionTab('suppliers') === 'suppliers' && <TableCardSkeleton title="Suppliers" columns={6} rows={6} />}
-          {getSectionTab('suppliers') === 'balances' && <SnippetCardSkeleton title="Open Balances" rows={5} />}
-        </>
-      )
-      if (activeSection === 'user_mgmt') return (
-        <>
-          <WorkspaceToolbarSkeleton />
-          <TableCardSkeleton title="Staff Directory" columns={6} rows={5} />
-        </>
-      )
-      if (activeSection === 'reporting') return (
-        <>
-          <section className="ro-card ro-card-skeleton" aria-hidden="true">
-            <SkeletonLine className="dashboard-skeleton-title" />
-            <SkeletonLine className="dashboard-skeleton-value" />
-            <SkeletonLine className="dashboard-skeleton-value" />
-          </section>
-          <TableCardSkeleton title="Trial Balance" columns={10} rows={10} />
-        </>
-      )
-      return (
-        <>
-          <SummaryGridSkeleton />
-          <WorkspaceToolbarSkeleton />
-          <TableCardSkeleton title="Account Entries" columns={9} rows={6} />
-        </>
-      )
-    }
-
-    if (activeSection === 'dashboard') return (
-      <>
-        <SalesOverview
-          invoices={data.invoices}
-          payments={data.payments}
-          customers={data.customers}
-          productionBatches={data.productionBatches}
-          inventoryLedger={inventoryLedger}
-          rawMaterials={lowStockRows}
-          range={dashboardDateFilter}
-          activePreset={sectionDatePresets.dashboard || ''}
-          onPresetSelect={preset => (preset ? applyQuickDatePreset('dashboard', preset) : clearDateFilter('dashboard'))}
-          onCustomRange={openDateFilter}
-          onExport={exportTableDataset}
-          onNavigate={jumpToSection}
-          treasury={canAccessSection('treasury') ? treasuryToday : null}
-          position={positionStats}
-          onViewWallet={canAccessSection('treasury') ? key => { setTreasuryFocusWallet(key); jumpToSection('treasury') } : null}
-        />
-      </>
-    )
-
-    if (activeSection === 'sales_hub') return (
-      <>
-        <DateFilterControl range={salesDateFilter} onOpen={openDateFilter} onClear={() => clearDateFilter('sales_hub')} onPresetSelect={preset => applyQuickDatePreset('sales_hub', preset)} activePreset={sectionDatePresets.sales_hub || ''} inlineTitle="Sales Hub" hideInlineTitle={isStandaloneView} onExport={format => runPageExport(format, 'Sales Hub', async exportTableDataset => {
-          await exportTableDataset('Sales_List', ['Invoice #', 'Date', 'Customer', 'Total Billed', 'Paid', 'Balance Due'], salesRows)
-        })} />
-        <WorkspaceToolbar
-          className="workspace-toolbar-sales"
-          title=""
-          subtitle=""
-          actions={<>
-            <button type="button" className="account-alert-button account-alert-button-dark"  onClick={() => openModal('sale')}>Add Sale</button>
-            <button type="button" className="account-alert-button account-alert-button-light" onClick={() => openModal('receipt')}>Add Receipt</button>
-          </>}
-        />
-        <SummaryGrid items={salesSummary} primary={salesSummary.length} />
-        <section className="workspace-inline-tabs" role="tablist" aria-label="Sales page tabs">
-          {SECTION_TABS.sales_hub.map(tab => (
-            <button
-              key={tab.key}
-              type="button"
-              role="tab"
-              aria-selected={tab.key === getSectionTab('sales_hub')}
-              className={`workspace-inline-tab ${tab.key === getSectionTab('sales_hub') ? 'active' : ''}`}
-              onClick={() => setSectionTab('sales_hub', tab.key)}
-            >
-              {tab.label}
-            </button>
-          ))}
-        </section>
-        {getSectionTab('sales_hub') === 'sales_list' && (
-          <div className="sales-status-chips" role="group" aria-label="Filter sales by payment status">
-            {SALES_STATUS_TABS.map(tab => (
-              <button
-                key={tab.key}
-                type="button"
-                className={`sales-status-chip sales-status-chip-${tab.key}${salesStatusTab === tab.key ? ' active' : ''}`}
-                aria-pressed={salesStatusTab === tab.key}
-                onClick={() => setSalesStatusTab(tab.key)}
-              >
-                <span>{tab.label}</span>
-                <strong>{salesStatusCounts[tab.key] || 0}</strong>
-              </button>
-            ))}
-          </div>
-        )}
-        {getSectionTab('sales_hub') === 'sales_list' && (
-          <label className="sales-search">
-            <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6.5" /><path d="m20 20-4.2-4.2" /></svg>
-            <input
-              type="search"
-              placeholder="Search invoice #, customer, date or amount…"
-              aria-label="Search sales"
-              value={searchTerms.sales_hub || ''}
-              onChange={e => setSearch('sales_hub', e.target.value)}
-            />
-          </label>
-        )}
-        {getSectionTab('sales_hub') === 'sales_list' && (
-          <TableCard
-            title="Sales List"
-            subtitle="Mirrors Sales, Sales_Dtls, and Invoice workbook rows."
-            columns={['Invoice #', 'Date', 'Customer', 'Total Billed', 'Paid', 'Balance Due', 'Actions']}
-            colWidths={['minmax(96px, 0.8fr)', 'minmax(104px, 0.9fr)', 'minmax(140px, 1.5fr)', 'minmax(108px, 1fr)', 'minmax(108px, 1fr)', 'minmax(108px, 1fr)', 'minmax(200px, 1.3fr)']}
-            rows={salesRows}
-            mobileVariant="sales-list"
-            search={searchTerms.sales_hub}
-            onRowClick={id => setSelectedInvoice(data.invoices.find(inv => inv.id === id) || null)}
-          />
-        )}
-        {getSectionTab('sales_hub') === 'recent_receipts' && (
-          <SnippetCard
-            className="snippet-card-recent-receipts"
-            title="Recent Receipts"
-            rows={clampRows(filteredSalesPayments, 8).map(p => ({ id: p.id, title: p.customer_name || `Invoice ${fmtInv(p.invoice)}`, meta: `${fmtD(p.payment_date)} · ${fmtStatus(p.method)}`, value: fmt(p.amount) }))}
-            onItemClick={id => setSelectedReceipt(filteredSalesPayments.find(p => p.id === id) || null)}
-          />
-        )}
-      </>
-    )
-
-    if (activeSection === 'production_ops') return (
-      <>
-        <DateFilterControl range={productionDateFilter} onOpen={openDateFilter} onClear={() => clearDateFilter('production_ops')} onPresetSelect={preset => applyQuickDatePreset('production_ops', preset)} activePreset={sectionDatePresets.production_ops || ''} inlineTitle="Production Ops" hideInlineTitle={isStandaloneView} onExport={format => runPageExport(format, 'Production Ops', async exportTableDataset => {
-          const activeProductionTab = getSectionTab('production_ops')
-          const isInventoryTab = activeProductionTab === 'inventory'
-          const isPricingTab = activeProductionTab === 'pricing'
-          if (isInventoryTab) {
-            await exportTableDataset('Finished_Inventory', ['INV ID', 'Item', 'Unit', 'Opening', 'Stock In', 'Stock Out', 'Available', 'Stock Balance', 'Prod Level', 'Prod Required'], inventoryRows)
-            return
-          }
-          if (isPricingTab) {
-            await exportTableDataset('Pricing_Rules', ['Finished Good Size', 'Size', 'Pricing Category', 'Price'], pricingRows)
-            return
-          }
-          await exportTableDataset('Production_Batches', ['Date', 'Batch Number', 'Expiry Date', 'Outputs', 'Production Cost', 'Total Cost', 'Production Gain'], batchRows)
-        })} />
-        <WorkspaceToolbar
-          className="workspace-toolbar-production"
-          title=""
-          subtitle=""
-          actions={<>
-            <button type="button" className="account-alert-button account-alert-button-dark"  onClick={() => openModal('batch')}>Add Batch</button>
-            <button type="button" className="account-alert-button account-alert-button-light" onClick={() => openModal('finished_goods')}>Finished Goods Produced</button>
-            <button type="button" className="account-alert-button account-alert-button-light" onClick={() => openModal('pricing')}>Add Pricing Rule</button>
-          </>}
-        />
-        <div className="production-summary-offset">
-          <SummaryGrid items={productionSummary} />
-        </div>
-        <section className="workspace-inline-tabs" role="tablist" aria-label="Production page tabs">
-          {SECTION_TABS.production_ops.map(tab => (
-            <button
-              key={tab.key}
-              type="button"
-              role="tab"
-              aria-selected={tab.key === getSectionTab('production_ops')}
-              className={`workspace-inline-tab ${tab.key === getSectionTab('production_ops') ? 'active' : ''}`}
-              onClick={() => setSectionTab('production_ops', tab.key)}
-            >
-              {tab.label}
-            </button>
-          ))}
-        </section>
-        {getSectionTab('production_ops') === 'batches' && (
-          <TableCard
-            title="Production Batches"
-            subtitle="Track batch production and finished stock."
-            columns={canManageProductionTransactions ? ['Date', 'Batch Number', 'Expiry Date', 'Outputs', 'Production Cost', 'Total Cost', 'Production Gain', 'Actions'] : ['Date', 'Batch Number', 'Expiry Date', 'Outputs', 'Production Cost', 'Total Cost', 'Production Gain']}
-            rows={batchRows}
-            mobileVariant="production-batches"
-            search={searchTerms.production_ops}
-            onSearch={v => setSearch('production_ops', v)}
-            onRowClick={id => setSelectedBatch(data.productionBatches.find(b => b.id === id) || null)}
-          />
-        )}
-        {getSectionTab('production_ops') === 'inventory' && (
-          <TableCard
-            title="Finished Inventory"
-            subtitle="Stock by product size — matches the Inventory sheet. Click a row to see full history."
-            columns={['INV ID', 'Item', 'Unit', 'Opening', 'Stock In', 'Stock Out', 'Available', 'Stock Balance', 'Prod Level', 'Prod Required', '']}
-            colWidths={['140px', '150px', '90px', '110px', '110px', '110px', '120px', '160px', '110px', '130px', '88px']}
-            rows={inventoryRows}
-            mobileVariant="inventory-list"
-            onRowClick={size => setSelectedInventoryItem(inventoryLedger.find(i => i.size === size) || null)}
-            search={searchTerms.inventory}
-            onSearch={v => setSearch('inventory', v)}
-          />
-        )}
-        {getSectionTab('production_ops') === 'planner' && (
-          <ProductionPlanner
-            rawMaterials={lowStockRows}
-            pricingRules={data.pricingRules}
-            isProductionPrice={isProductionPricingCategory}
-            onLoadIntoBatch={({ usages, overheads, note }) => {
-              openModal('batch')
-              const byName = new Map(Object.entries(usages).map(([name, qty]) => [name.trim().toLowerCase(), qty]))
-              setBatchForm(form => ({
-                ...form,
-                electricityCost: String(overheads.electricity),
-                gasCost: String(overheads.gas),
-                productionWages: String(overheads.wages),
-                notes: note,
-                usages: form.usages.map(u => {
-                  const qty = byName.get(String(u.materialName || '').trim().toLowerCase())
-                  return qty ? { ...u, quantityUsed: String(qty) } : u
-                }),
-              }))
-            }}
-          />
-        )}
-        {getSectionTab('production_ops') === 'pricing' && (
-          <>
-            <FilterSelectRow
-              className="pricing-filter-row"
-              filters={pricingFilterOptions}
-              values={activePricingFilters}
-              onChange={(key, value) => setScopedFilter(activePricingFilterScope, key, value)}
-              onClear={() => clearScopedFilters(activePricingFilterScope)}
-            />
-            <TableCard
-              title="Pricing Rules"
-              subtitle="Pricing sheet maintained from backend pricing rules, with detailed live filters by price type, size, item, and price band."
-              columns={canManageDataEntryEditDelete ? ['Finished Good Size', 'Size', 'Pricing Category', 'Price', ''] : ['Finished Good Size', 'Size', 'Pricing Category', 'Price']}
-              colWidths={['420px', '220px', '420px', '180px', '100px']}
-              rows={pricingRows}
-              mobileVariant="pricing-list"
-              search={searchTerms.pricing}
-              onSearch={v => setSearch('pricing', v)}
-              defaultRowsPerPage={20}
-            />
-          </>
-        )}
-      </>
-    )
-
-    if (activeSection === 'supplies_stock') return (
-      <>
-        <DateFilterControl range={suppliesDateFilter} onOpen={openDateFilter} onClear={() => clearDateFilter('supplies_stock')} onPresetSelect={preset => applyQuickDatePreset('supplies_stock', preset)} activePreset={sectionDatePresets.supplies_stock || ''} inlineTitle="Supplies & Stock" hideInlineTitle={isStandaloneView} onExport={format => runPageExport(format, 'Supplies & Stock', async exportTableDataset => {
-          const tab = getSectionTab('supplies_stock')
-          if (tab === 'materials') {
-            await exportTableDataset('Raw_Materials', ['Material', 'Category', 'Unit', 'Opening', 'Stock In', 'Stock Out', 'Available', 'RM Balance Value', 'Reorder', 'Status'], materialRows)
-            return
-          }
-          await exportTableDataset('Purchase_Register', ['Date', '#', 'Supplier', 'Category', 'Status', 'Paid', 'Outstanding'], purchaseRows)
-        })} />
-        <SummaryGrid items={suppliesSummary} />
-        <WorkspaceToolbar
-          className="workspace-toolbar-supplies"
-          title=""
-          subtitle=""
-          actions={<>
-            <button type="button" className="account-alert-button account-alert-button-dark"  onClick={() => openModal('purchase')}>Add Purchase</button>
-            <button type="button" className="account-alert-button account-alert-button-light" onClick={() => openModal('pur_pay')}>Record Supplier Payment</button>
-            <button type="button" className="account-alert-button account-alert-button-light" onClick={() => openModal('raw_mat')}>Add Raw Material</button>
-          </>}
-        />
-        <ScrollableTabsControl
-          tabs={SECTION_TABS.supplies_stock}
-          activeKey={getSectionTab('supplies_stock')}
-          onSelect={tabKey => setSectionTab('supplies_stock', tabKey)}
-          ariaLabel="Supplies page tabs"
-        />
-        {getSectionTab('supplies_stock') === 'purchases' && (
-          <TableCard
-            className="supplies-purchases-card"
-            title="Purchase Register"
-            subtitle="Click a row to view full details and payments."
-            columns={canManageDataEntryEditDelete ? ['Date', '#', 'Supplier', 'Category', 'Status', 'Paid', 'Outstanding', 'Actions'] : ['Date', '#', 'Supplier', 'Category', 'Status', 'Paid', 'Outstanding']}
-            rows={purchaseRows}
-            mobileVariant="purchases-list"
-            search={searchTerms.supplies_purchases}
-            onSearch={v => setSearch('supplies_purchases', v)}
-            onRowClick={id => setSelectedPurchase(data.purchases.find(p => p.id === id) || null)}
-          />
-        )}
-        {getSectionTab('supplies_stock') === 'materials' && (
-          <TableCard
-            className="supplies-materials-card"
-            title="Raw Materials"
-            subtitle="Stock levels (RawMaterials sheet). Click a row for full details."
-            columns={canManageDataEntryEditDelete ? ['Material', 'Category', 'Unit', 'Opening', 'Stock In', 'Stock Out', 'Available', 'RM Balance Value', 'Reorder', 'Status', ''] : ['Material', 'Category', 'Unit', 'Opening', 'Stock In', 'Stock Out', 'Available', 'RM Balance Value', 'Reorder', 'Status']}
-            colWidths={canManageDataEntryEditDelete ? ['220px', '150px', '90px', '110px', '110px', '110px', '120px', '150px', '110px', '100px', '88px'] : ['220px', '150px', '90px', '110px', '110px', '110px', '120px', '150px', '110px', '100px']}
-            rows={materialRows}
-            mobileVariant="materials-list"
-            search={searchTerms.supplies_materials}
-            onSearch={v => setSearch('supplies_materials', v)}
-            onRowClick={id => setSelectedRawMaterial(data.rawMaterials.find(m => m.id === id) || null)}
-          />
-        )}
-        {getSectionTab('supplies_stock') === 'balances' && (
-          <SnippetCard
-            title="Open Supplier Balances"
-            rows={clampRows(filteredSupplierLedgerForSupplies).map(s => ({ id: s.id, title: s.name, meta: `${s.purchaseCount} purchases`, value: fmt(s.outstanding) }))}
-          />
-        )}
-      </>
-    )
-
-    if (activeSection === 'customers') return (
-      <>
-        {!isStandaloneView ? <header className="mc-head"><h1 className="mc-title">Customers</h1></header> : null}
-        <section className="workspace-inline-tabs" role="tablist" aria-label="Customers page tabs">
-          {SECTION_TABS.customers.map(tab => (
-            <button
-              key={tab.key}
-              type="button"
-              role="tab"
-              aria-selected={tab.key === getSectionTab('customers')}
-              className={`workspace-inline-tab ${tab.key === getSectionTab('customers') ? 'active' : ''}`}
-              onClick={() => setSectionTab('customers', tab.key)}
-            >
-              {tab.label}
-            </button>
-          ))}
-        </section>
-        {getSectionTab('customers') === 'debtors' ? (
-          <>
-            <DateFilterControl range={debtsDateFilter} onOpen={openDateFilter} onClear={() => clearDateFilter('customers')} onPresetSelect={preset => applyQuickDatePreset('customers', preset)} activePreset={sectionDatePresets.customers || ''} inlineTitle="Customers" hideInlineTitle />
-            {receivablesView}
-          </>
-        ) : (
-          <>
-          <DateFilterControl range={customersDateFilter} onOpen={openDateFilter} onClear={() => clearDateFilter('customers')} onPresetSelect={preset => applyQuickDatePreset('customers', preset)} activePreset={sectionDatePresets.customers || ''} inlineTitle="Customers" hideInlineTitle onExport={format => runPageExport(format, 'Customers', async exportTableDataset => {
-            await exportTableDataset('Customers', ['Customer', 'Phone', 'Invoices', 'Total Billed', 'Paid', 'Outstanding'], customerRows)
-          })} />
-            <SummaryGrid items={customersSummary} />
-            <WorkspaceToolbar
-              className="workspace-toolbar-customers"
-              title=""
-              subtitle=""
-              actions={<button type="button" className="account-alert-button account-alert-button-dark" onClick={() => openModal('customer')}>Add Customer</button>}
-            />
-            <TableCard
-              title="Customers"
-              subtitle="Click a row to view full history. Click Edit to update."
-              columns={['Customer', 'Phone', 'Invoices', 'Total Billed', 'Paid', 'Outstanding', '']}
-              colWidths={['minmax(160px, 1.6fr)', 'minmax(110px, 1fr)', 'minmax(80px, 0.6fr)', 'minmax(120px, 1fr)', 'minmax(120px, 1fr)', 'minmax(120px, 1fr)', 'minmax(72px, 0.5fr)']}
-              rows={customerRows}
-              mobileVariant="customers-list"
-              search={searchTerms.customers}
-              onSearch={v => setSearch('customers', v)}
-              onRowClick={id => setSelectedCustomer(customerLedger.find(c => c.id === id) || null)}
-            />
-          </>
-        )}
-      </>
-    )
-
-    if (activeSection === 'suppliers') return (
-      <>
-        <DateFilterControl range={suppliersDateFilter} onOpen={openDateFilter} onClear={() => clearDateFilter('suppliers')} onPresetSelect={preset => applyQuickDatePreset('suppliers', preset)} activePreset={sectionDatePresets.suppliers || ''} inlineTitle="Suppliers" hideInlineTitle={isStandaloneView} onExport={format => runPageExport(format, 'Suppliers', async exportTableDataset => {
-          await exportTableDataset('Suppliers', ['Supplier', 'Material', 'Item Category', 'Purchases', 'Paid', 'Outstanding'], supplierRows)
-        })} />
-        <SummaryGrid items={suppliersSummary} />
-        <WorkspaceToolbar
-          className="workspace-toolbar-suppliers"
-          title=""
-          subtitle=""
-          actions={<button type="button" className="account-alert-button account-alert-button-dark" onClick={() => openModal('supplier')}>Add Supplier</button>}
-        />
-        <section className="workspace-inline-tabs" role="tablist" aria-label="Suppliers page tabs">
-          {SECTION_TABS.suppliers.map(tab => (
-            <button
-              key={tab.key}
-              type="button"
-              role="tab"
-              aria-selected={tab.key === getSectionTab('suppliers')}
-              className={`workspace-inline-tab ${tab.key === getSectionTab('suppliers') ? 'active' : ''}`}
-              onClick={() => setSectionTab('suppliers', tab.key)}
-            >
-              {tab.label}
-            </button>
-          ))}
-        </section>
-        {getSectionTab('suppliers') === 'suppliers' && (
-          <TableCard
-            className="suppliers-table-card"
-            title="Suppliers"
-            subtitle="Balances and purchase history. Click Edit to update."
-            columns={canManageDataEntryEditDelete ? ['Supplier', 'Material', 'Item Category', 'Purchases', 'Paid', 'Outstanding', ''] : ['Supplier', 'Material', 'Item Category', 'Purchases', 'Paid', 'Outstanding']}
-            colWidths={canManageDataEntryEditDelete ? ['180px', '320px', '180px', '110px', '150px', '170px', '88px'] : ['180px', '320px', '180px', '110px', '150px', '170px']}
-            rows={supplierRows}
-            mobileVariant="suppliers-list"
-            onRowClick={id => {
-              const supplier = supplierLedger.find(s => s.id === id)
-              setSelectedSupplier(supplier ? { ...supplier, item_category: resolveSupplierItemCategory(supplier, data.purchases, data.rawMaterials) } : null)
-            }}
-            search={searchTerms.suppliers}
-            onSearch={v => setSearch('suppliers', v)}
-          />
-        )}
-        {getSectionTab('suppliers') === 'balances' && (
-          <SnippetCard
-            title="Open Supplier Balances"
-            rows={clampRows(filteredSupplierLedger.filter(s => s.outstanding > 0)).map(s => ({ id: s.id, title: s.name, meta: `${s.purchaseCount} purchases`, value: fmt(s.outstanding) }))}
-            onItemClick={id => {
-              const supplier = supplierLedger.find(s => s.id === id)
-              if (supplier) openModal('supplier', supplier)
-            }}
-          />
-        )}
-      </>
-    )
-
-    if (activeSection === 'user_mgmt') return (
-      <UserManagement
-        staffProfiles={data.staffProfiles}
-        onSaved={async (id, payload) => {
-          if (id) await updateStaffProfile(id, payload)
-          else await createStaffProfile(payload)
-          await refreshData()
-        }}
-      />
-    )
-
-    if (activeSection === 'receivables') return (
-      <>
-        <DateFilterControl range={debtsDateFilter} onOpen={openDateFilter} onClear={() => clearDateFilter('receivables')} onPresetSelect={preset => applyQuickDatePreset('receivables', preset)} activePreset={sectionDatePresets.receivables || ''} inlineTitle="Customer Debtors (AR)" hideInlineTitle />
-        {receivablesView}
-      </>
-    )
-
-    if (activeSection === 'treasury') return (
-      <>
-        <DateFilterControl range={treasuryDateFilter} onOpen={openDateFilter} onClear={() => clearDateFilter('treasury')} onPresetSelect={preset => applyQuickDatePreset('treasury', preset)} activePreset={sectionDatePresets.treasury || ''} inlineTitle="Cashbook & Treasury" hideInlineTitle={isStandaloneView} />
-        <TreasuryPanel
-          key={treasuryFocusWallet || 'treasury'}
-          initialWallet={treasuryFocusWallet}
-          treasury={treasuryToday}
-          rows={cashbookRows}
-          onTransfer={() => openTransferModal()}
-          onAddEntry={() => openModal('account')}
-          onEdit={canManageDataEntryEditDelete ? editCashbookRow : null}
-          onExport={(format, visibleRows) => runPageExport(format, 'Cashbook & Treasury', async exportTableDataset => {
-            await exportTableDataset('Wallet_Balances', ['Wallet', 'Balance today'], treasuryToday.wallets.map(w => ({ id: w.key, cells: [w.label, fmt(w.balance)] })))
-            await exportTableDataset('Cashbook', ['Date', 'Reference', 'Type', 'Counterparty', 'Category', 'Wallet / Account', 'Inflow', 'Outflow', 'Net Flow', 'Description'], visibleRows.map(r => ({ id: r.id, cells: [fmtD(r.date), r.reference, r.type, r.counterparty, r.category, r.wallet, fmt(r.inflow), fmt(r.outflow), fmt(r.net), r.description] })))
-          })}
-        />
-      </>
-    )
-
-    if (activeSection === 'reconciliation') return (
-      <StockCount
-        treasury={treasuryToday}
-        invoices={data.invoices}
-        otherReceivablesBalance={buildAccountLedger('Other Receivables', data.accountTransactions).balance}
-        inventoryLedger={inventoryLedger}
-        rawMaterials={lowStockRows}
-        productionBatches={data.productionBatches}
-        onExport={exportTableDataset}
-        defaultAuditor={user?.name || ''}
-      />
-    )
-
-    if (activeSection === 'reports') return (
-      <ReportsCenter context={{ ...reportsContext, inventoryLedger }} onExport={exportTableDataset} />
-    )
-
-    if (activeSection === 'ai_copilot') return (
-      <AiCopilot
-        invoices={data.invoices}
-        customers={data.customers}
-        treasury={canAccessSection('treasury') ? treasuryToday : null}
-        inventoryLedger={inventoryLedger}
-        rawMaterials={lowStockRows}
-        productionBatches={data.productionBatches}
-        trialBalanceRows={data.trialBalanceReport?.rows || []}
-      />
-    )
-
-    if (activeSection === 'settings') return (
-      <>
-        <WorkspaceToolbar
-          className="workspace-toolbar-settings"
-          title=""
-          subtitle=""
-          actions={<button type="button" className="account-alert-button account-alert-button-dark" onClick={() => openModal('pricing')}>Add Pricing Rule</button>}
-        />
-        <TableCard
-          title="Pricing Rules"
-          subtitle="Selling price per bottle size and pricing category, against the average production cost per bottle."
-          columns={canManageDataEntryEditDelete ? ['Size', 'Pricing Category', 'Selling Price', 'Unit Production Cost', 'Gross Margin', ''] : ['Size', 'Pricing Category', 'Selling Price', 'Unit Production Cost', 'Gross Margin']}
-          colWidths={['130px', '220px', '140px', '180px', '130px', '90px']}
-          rows={pricingMatrixRows}
-          search={searchTerms.pricing}
-          onSearch={v => setSearch('pricing', v)}
-          defaultRowsPerPage={20}
-        />
-        <DocumentSettings />
-      </>
-    )
-
-    if (activeSection === 'reporting') return (
-      <>
-        <ReportingOverview
-          pl={{ income: totalIncome, directCost: totalCostOfSales, gross: grossProfitOrLoss, expenses: totalExpenses, net: netProfitOrLoss }}
-          position={{ assets: totalAssets, liabilities: totalLiability, equity: totalEquity }}
-          periodNote={`Trial balance period from ${data.trialBalanceReport?.period_start || TRIAL_BALANCE_PERIOD_START} · operating expenses since ${data.trialBalanceReport?.expense_start || TRIAL_BALANCE_EXPENSE_START}`}
-          tabs={[]}
-          activeTab={getSectionTab('reporting')}
-          onTab={key => setSectionTab('reporting', key)}
-          actions={(
-            <button
-              type="button"
-              className="ro-btn"
-              onClick={() => exportTableDataset('Trial_Balance', ['Account ID', 'Account Type', 'Account Class', 'Sub-Accounts', 'Account Description', 'Opening Bal', 'Acct In', 'Acct Out', 'Available'], compactTrialBalanceRows)}
-            >
-              <FiDownload aria-hidden="true" /> Export XLSX
-            </button>
-          )}
-        />
-        {<TableCard
-          title="Trial Balance"
-          subtitle={`Workbook column structure reproduced with period logic from ${TRIAL_BALANCE_PERIOD_START} (expenses baseline ${TRIAL_BALANCE_EXPENSE_START}). Click a row to view transaction detail.`}
-          columns={['Account ID', 'Account Type', 'Account Class', 'Sub-Accounts', 'Account Description', 'Opening Bal', 'Acct In', 'Acct Out', 'Available']}
-          colWidths={['140px', '170px', '150px', '170px', '280px', '140px', '140px', '140px', '140px']}
-          rows={compactTrialBalanceRows}
-          mobileVariant="trial-balance-list"
-          search={searchTerms.trial_balance}
-          onSearch={v => setSearch('trial_balance', v)}
-          onRowClick={openTrialBalanceDetail}
-          defaultRowsPerPage={20}
-        />}
-      </>
-    )
-
-    return (
-      <>
-        <DateFilterControl range={accountsDateFilter} onOpen={openDateFilter} onClear={() => clearDateFilter('accounts_pricing')} onPresetSelect={preset => applyQuickDatePreset('accounts_pricing', preset)} activePreset={sectionDatePresets.accounts_pricing || ''} inlineTitle="Accounts" hideInlineTitle={isStandaloneView} onExport={format => runPageExport(format, 'Accounts', async exportTableDataset => {
-          await exportTableDataset('Account_Entries', ['Date', 'Transaction ID', 'Type', 'Category', 'Description', 'Amount', 'Payment Account', 'Comments'], accountRows)
-        })} />
-        <SummaryGrid items={accountsSummary} />
-        <WorkspaceToolbar
-          className="workspace-toolbar-accounts"
-          title=""
-          subtitle=""
-          actions={<>
-            <button type="button" className="account-alert-button account-alert-button-light" onClick={() => openTransferModal()}>Transfer Money</button>
-            <button type="button" className="account-alert-button account-alert-button-dark"  onClick={() => openModal('account')}>Add Account Entry</button>
-          </>}
-        />
-        <TableCard
-          className="account-entries-table-card"
-          title="Account Entries"
-          subtitle="Detailed transaction register with payment account and comments. Click a row to view the full entry."
-          columns={canManageDataEntryEditDelete ? ['Date', 'Transaction ID', 'Type', 'Category', 'Description', 'Amount', 'Payment Account', 'Comments', ''] : ['Date', 'Transaction ID', 'Type', 'Category', 'Description', 'Amount', 'Payment Account', 'Comments']}
-          colWidths={['130px', '190px', '110px', '150px', '220px', '120px', '170px', '180px', '88px']}
-          rows={accountRows}
-          mobileVariant="accounts-list"
-          search={searchTerms.accounts}
-          onSearch={v => setSearch('accounts', v)}
-          onRowClick={key => { const e = data.accountTransactions.find(t => String(t.id) === String(key)); if (e) setSelectedAccountEntry(e) }}
-          defaultRowsPerPage={20}
-        />
-
-      </>
-    )
-  }
-
   // ─── Render ───────────────────────────────────────────────────────────────
+
+  const classicFormActive = CLASSIC_FORM_TYPES.includes(activeModal)
+  const classicSalesperson = data.staffProfiles.find(sp => String(sp.id) === String(loggedInStaffId || saleForm.staff))
+  const classicFormKit = classicFormActive ? {
+    activeModal,
+    close: () => setActiveModal(''),
+    feedback,
+    submitting,
+    handleDelete,
+    invNo: fmtInv,
+    canManageSales: canManageSalesTransactions,
+    canManageProduction: canManageProductionTransactions,
+    customers: [...data.customers].sort((a, b) => String(a.name).localeCompare(String(b.name))),
+    invoices: data.invoices,
+    pricingCategories: data.pricingCategories,
+    pricingRules: data.pricingRules,
+    customerOwing: id => sumBy(data.invoices.filter(inv => String(inv.customer) === String(id)), getInvoiceOutstandingDue),
+    salespersonName: (classicSalesperson ? `${classicSalesperson.user?.first_name || ''} ${classicSalesperson.user?.last_name || ''}`.trim() || classicSalesperson.user?.username : '') || user?.username || user?.email || 'Current User',
+    stockOf: size => (size ? (finishedGoodsAvailableBySizeKey.get(normalizeSizeKey(size)) ?? null) : null),
+    saleForm, setSaleForm, handleSaleSubmit, changeSaleCustomer, updateSaleLineSize, updateSaleLine, updateSalePayment, mkSaleLine, mkSalePayment, deleteInvoice,
+    receiptForm, setReceiptForm, handleReceiptSubmit, invoiceSelectOptions, updateReceiptPayment, deletePayment,
+    receiptDue: inv => Math.max(0, toNumber(inv.previous_balance) + toNumber(inv.total_amount) - sumBy((inv.payments || []).filter(pm => String(pm.id) !== String(receiptForm._editId)), pm => pm.amount)),
+    batchForm, setBatchForm, handleBatchSubmit, updateBatchUsage, addBatchUsageLine, productionBatchTypeOptions, rawMaterialSelectOptions, deleteProductionBatch,
+    rawMaterials: lowStockRows,
+    sizes: inventoryLedger.map(item => item.size).sort((a, b) => inferTotalLitres(a, 1) - inferTotalLitres(b, 1)),
+    productionPrice: size => toNumber(resolveProductionPrice(size, productBySizeKey.get(normalizeSizeKey(size)))),
+    batchNumberOf: id => data.productionBatches.find(b => String(b.id) === String(id))?.batch_number || `#${id}`,
+    purchaseForm, setPurchaseForm, handlePurchaseSubmit, handlePurchaseSupplierChange, supplierSelectOptions, addPurchaseItemLine, purchaseRawMaterialSelectOptions, selectPurchaseRawMaterial, updatePurchaseItem, handlePurchaseItemDelete, deletePurchase,
+    customerForm, setCustomerForm, handleCustomerSubmit, customerCategoryOptions, pricingCategoryOptions, deleteCustomer,
+    supplierForm, setSupplierForm, handleSupplierSubmit, supplierItemCategoryOptions, openCategoryModal, deleteSupplier,
+    rawMatForm, setRawMatForm, handleRawMatSubmit, updateRawMatName, normalizeCategoryValue, itemCategoryOptions, deleteRawMaterial,
+    accountForm, setAccountForm, handleAccountSubmit, ACCOUNT_SUB_ACCOUNTS_BY_TYPE, accountTypeOptions, accountPaymentOptions, accountSubAccountSelectOptions, deleteAccountTransaction,
+    goSales: () => { setActiveModal(''); jumpToSection('sales_hub') },
+    transferForm, setTransferForm, handleTransferSubmit, treasury: treasuryToday,
+    pricingForm, setPricingForm, handlePricingSubmit, productMap, productSelectOptions, deletePricingRule,
+  } : null
 
   return (
     <main className="account-page-shell">
@@ -5701,189 +3849,50 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
         {rawMaterialTemplateNames.map(name => <option key={name} value={name} />)}
       </datalist>
 
-      <section className="mobile-app-shell">
-        <div className="mobile-app-topbar">
-          <div className="mobile-app-brand">
-            <img src={plusLogo} alt="Plus Treat logo" className="mobile-app-brand-logo" />
-          </div>
-          <div className="mobile-app-profile">
-            <div className="mobile-app-profile-copy">
-              <small>Welcome back</small>
-              <strong>{user?.name || 'Plus Treat Team'}</strong>
-            </div>
-          </div>
-          <div className="mobile-app-user" ref={mobileMenuRef}>
-            <button
-              type="button"
-              className={`app-layout-menu-trigger mobile-app-menu-trigger${isMobileProfileOpen ? ' is-open' : ''}`}
-              onClick={() => setIsMobileProfileOpen((open) => !open)}
-              aria-haspopup="menu"
-              aria-expanded={isMobileProfileOpen}
-            >
-              <span className="app-layout-avatar" aria-hidden="true">{avatarText}</span>
-              <span className="app-layout-caret" aria-hidden="true">▾</span>
-              <span className="app-layout-sr-only">Open profile menu</span>
-            </button>
-
-            {isMobileProfileOpen ? (
-              <div className="app-layout-menu mobile-app-profile-menu" role="menu" aria-label="Mobile account menu">
-                <button
-                  type="button"
-                  className="app-layout-menu-item"
-                  onClick={() => setIsMobileProfileOpen(false)}
-                >
-                  <span>Profile</span>
-                </button>
-
-                <div className="app-layout-profile-card">
-                  <strong>{user?.name || 'Staff'}</strong>
-                  <span>{fmtRole(user?.role || 'Staff')}</span>
-                  <span>{user?.email || user?.username || 'No contact info'}</span>
-                  {user?.phone ? <span>{user.phone}</span> : null}
-                </div>
-
-                <button
-                  type="button"
-                  className="app-layout-menu-item app-layout-menu-item-danger"
-                  onClick={handleMobileLogout}
-                >
-                  Log out
-                </button>
-              </div>
-            ) : null}
-          </div>
-        </div>
-
-        {activeSection !== 'sales_hub' && activeSection !== 'production_ops' && activeSection !== 'dashboard' && activeSection !== 'customers' && activeSection !== 'supplies_stock' && activeSection !== 'suppliers' && activeSection !== 'accounts_pricing' && activeSection !== 'reporting' ? (
-          <article className="mobile-section-hero-card">
-            <div className="mobile-section-hero-copy">
-              <span className="mobile-section-hero-kicker">{activeContent.label}</span>
-              <h2>{activeContent.subtitle}</h2>
-            </div>
-          </article>
-        ) : null}
-      </section>
-
-      <section className={`account-page-layout${isStandaloneView ? ' account-page-layout-standalone' : ''}${isNavCollapsed ? ' is-nav-collapsed' : ''}`}>
-        {!isStandaloneView ? (
-          <aside className="account-side-nav">
-            <div className="account-nav-top">
-              <button
-                type="button"
-                className="account-nav-toggle"
-                onClick={toggleNavCollapsed}
-                aria-expanded={!isNavCollapsed}
-                aria-label={isNavCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-                title={isNavCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-              >
-                <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="4.5" width="17" height="15" rx="3" /><path d="M9.5 4.5v15" /></svg>
-              </button>
-            </div>
-            <nav className="account-nav-list" aria-label="Workbook sections">
-              {sidebarSections.map((s, i) => (
-                <div key={s.key} className="account-nav-entry">
-                  {s.group && s.group !== sidebarSections[i - 1]?.group ? <span className="account-nav-group">{s.group}</span> : null}
-                  <button type="button" className={`account-nav-item ${s.key === activeSection ? 'active' : ''}`} aria-current={s.key === activeSection ? 'page' : undefined} aria-label={isNavCollapsed ? s.label : undefined} title={isNavCollapsed ? s.label : undefined} onClick={() => handleSectionSelect(s.key)}>
-                    <span className="account-nav-icon"><NavIcon type={s.icon} /></span>
-                    <span className="account-nav-label">{s.label}</span>
-                  </button>
-                </div>
-              ))}
-            </nav>
-          </aside>
-        ) : null}
-        {headerNavSlot && topNavSections.length && !isStandaloneView ? createPortal(
-          <nav className="top-nav" aria-label="Tools">
-            {topNavSections.map(s => (
-              <button
-                key={s.key}
-                type="button"
-                className={`top-nav-item top-nav-item-${s.key}${s.key === activeSection ? ' is-active' : ''}`}
-                aria-current={s.key === activeSection ? 'page' : undefined}
-                onClick={() => handleSectionSelect(s.key)}
-                title={s.label}
-              >
-                <span className="top-nav-icon"><NavIcon type={s.icon} /></span>
-                <span className="top-nav-label">{s.navLabel || s.label}</span>
-              </button>
-            ))}
-          </nav>,
-          headerNavSlot
-        ) : null}
-        <section ref={accountContentRef} className={`account-content${isStandaloneView ? ' account-content-standalone' : ''}`}>
-          {(isStandaloneView || !sectionsWithInlineHeader.has(activeSection)) ? (
-            <header className={`account-content-header section-${activeSection}${isStandaloneView ? ' account-content-header-standalone' : ''}`}>
-              <h1>{activeContent.label}</h1>
-              <p>{activeContent.subtitle}</p>
-            </header>
-          ) : null}
-          {loadError ? <div className="workspace-error-banner">{loadError}</div> : null}
-          {renderSection()}
-        </section>
-      </section>
-
-      {/* ── SALE MODAL ── */}
-      {!isStandaloneView ? <nav className="mobile-bottom-dock" aria-label="Mobile primary navigation">
-        {mobilePrimarySections.map((sectionKey) => {
-          const section = availableSections.find((entry) => entry.key === sectionKey)
-          if (!section) return null
-          return (
-            <button
-              key={section.key}
-              type="button"
-              className={`mobile-bottom-dock-item ${activeSection === section.key ? 'active' : ''}`}
-              onClick={() => handleSectionSelect(section.key)}
-            >
-              <span className="mobile-bottom-dock-icon"><NavIcon type={section.icon} /></span>
-              <span>{section.label.replace(' Ops', '').replace(' Hub', '')}</span>
-            </button>
-          )
-        })}
-        <button
-          type="button"
-          className="mobile-bottom-dock-item mobile-bottom-dock-item-accent"
-          onClick={() => setIsMobileNavOpen(true)}
-          aria-label="Open all sections"
-        >
-          <span className="mobile-bottom-dock-icon"><NavIcon type="menu" /></span>
-          <span>More</span>
-        </button>
-      </nav> : null}
-
-      {!isStandaloneView && isMobileNavOpen ? (
-        <div className="mobile-section-sheet-backdrop" role="presentation" onClick={() => setIsMobileNavOpen(false)}>
-          <section
-            className="mobile-section-sheet"
-            role="dialog"
-            aria-modal="true"
-            aria-label="Section navigation"
-            onClick={e => e.stopPropagation()}
-          >
-            <div className="mobile-section-sheet-handle" aria-hidden="true" />
-            <div className="mobile-section-sheet-header">
-              <div>
-                <span className="sales-form-eyebrow">More</span>
-                <h3>Other sections</h3>
-              </div>
-            </div>
-            <nav className="mobile-section-sheet-list" aria-label="Mobile workbook sections">
-                {mobileExtraSections.map(s => (
-                  <button
-                    key={s.key}
-                    type="button"
-                  className={`mobile-section-sheet-item ${s.key === activeSection ? 'active' : ''}`}
-                  onClick={() => handleSectionSelect(s.key)}
-                >
-                  <span className="mobile-section-sheet-icon"><NavIcon type={s.icon} /></span>
-                  <span className="mobile-section-sheet-copy">
-                    <strong>{s.label}</strong>
-                  </span>
-                </button>
-              ))}
-            </nav>
-          </section>
-        </div>
-      ) : null}
+        <ClassicApp
+          user={user}
+          canAccess={canAccessSection}
+          activeSection={activeSection}
+          onNavigate={key => jumpToSection(key)}
+          onLogout={handleMobileLogout}
+          lastSyncedAt={lastSyncedAt}
+          onProfile={openProfile}
+          ctx={{
+            data,
+            treasury: treasuryToday,
+            inventoryLedger,
+            outstandingOf: getInvoiceOutstandingDue,
+            loadError,
+            openModal,
+            onStatement: printStatementFor,
+            viewWallet: key => { setTreasuryFocusWallet(key); jumpToSection('treasury') },
+            rawMaterials: lowStockRows,
+            cashbook: cashbookAll,
+            otherReceivables: buildAccountLedger('Other Receivables', data.accountTransactions),
+            paidOf: getInvoicePaidAmount,
+            purchaseOutstandingOf: getPurchaseOutstanding,
+            invNo: fmtInv,
+            isProductionPrice: isProductionPricingCategory,
+            loadPlanIntoBatch,
+            openTransferModal,
+            editCashbookRow,
+            canEdit: canManageDataEntryEditDelete,
+            canManageSales: canManageSalesTransactions,
+            canManageProduction: canManageProductionTransactions,
+            deleteBatch: b => handleDelete('batch', () => deleteProductionBatch(b.id)),
+            deletePurchase: p => handleDelete('purchase', () => deletePurchase(p.id)),
+            viewInvoice: inv => printSaleDocuments(inv, data.payments.filter(p => String(p.invoice) === String(inv.id)), { customer: data.customers.find(c => String(c.id) === String(inv.customer)) }),
+            printStatement: customer => {
+              const invoices = data.invoices.filter(inv => String(inv.customer) === String(customer.id))
+              const ids = new Set(invoices.map(inv => String(inv.id)))
+              printCustomerStatement(customer, invoices, data.payments.filter(p => ids.has(String(p.invoice))))
+            },
+            exportTable: exportTableDataset,
+            savePrice: async (rule, price) => { await updatePricingRule(rule.id, { price: String(price) }); await refreshData() },
+            saveStaff: async (id, payload) => { if (id) await updateStaffProfile(id, payload); else await createStaffProfile(payload); await refreshData() },
+            reportsContext: { ...reportsContext, inventoryLedger },
+          }}
+        />
 
       {activeModal === 'date_filter' && (
         <ModalShell
@@ -5923,6 +3932,8 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
         </ModalShell>
       )}
 
+      {classicFormActive ? <ClassicForms kit={classicFormKit} /> : null}
+      {!classicFormActive && (<>
       {activeModal === 'sale' && (() => {
         const isEditingSale = Boolean(saleForm._editId)
         const selectedCust      = data.customers.find(c => String(c.id) === String(saleForm.customer))
@@ -6976,6 +4987,7 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
           </form>
         </ModalShell>
       )}
+      </>)}
 
       {/* ── RECEIPT DETAIL MODAL ── */}
       {selectedReceipt && (() => {

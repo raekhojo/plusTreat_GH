@@ -9612,3 +9612,20 @@
 /* Receipt Entry: invoice and date share one line */
 .receipt-head-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(160px, 220px); gap: 14px; align-items: end; grid-column: 1 / -1; }
 @media (max-width: 640px) { .receipt-head-row { grid-template-columns: minmax(0, 1fr); } }
+
+/* Production batches log */
+.account-content .batch-no { color: #b0173f; font-weight: 700; }
+.account-content .batch-litres { font-weight: 700; color: #10243a; font-variant-numeric: tabular-nums; }
+.account-content .batch-surplus {
+  display: inline-block;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: #e3f6ec;
+  color: #0a7a40;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.account-content .batch-surplus.is-negative { background: #fbe7e7; color: #b23131; }
+.account-content .batch-delete-btn { color: #c23b3b; }
+.account-content .batch-delete-btn:hover { border-color: rgba(194, 59, 59, 0.4); background: #fdf1f1; }

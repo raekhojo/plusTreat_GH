@@ -1,6 +1,5 @@
-import { useEffect, useRef, useState } from 'react'
-import { Outlet, useNavigate } from 'react-router-dom'
-import plusLogo from '../assets/plusLogo.png'
+import { useEffect, useState } from 'react'
+import { Outlet } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { updateMyProfile } from '../lib/api'
 
@@ -12,57 +11,32 @@ const mkProfileForm = (user) => ({
   password: '',
 })
 
+// The ERP shell (sidebar + top bar) is drawn by the page itself; the layout only
+// provides the Edit Profile dialog, opened from the sidebar's user badge.
 function AppLayout() {
-  const navigate = useNavigate()
-  const { user, logout, updateSession } = useAuth()
-  const [isMenuOpen, setIsMenuOpen] = useState(false)
+  const { user, updateSession } = useAuth()
   const [isProfileOpen, setIsProfileOpen] = useState(false)
   const [profileForm, setProfileForm] = useState(() => mkProfileForm(user))
   const [isSavingProfile, setIsSavingProfile] = useState(false)
   const [profileError, setProfileError] = useState('')
   const [profileSuccess, setProfileSuccess] = useState(false)
-  const [headerNavSlot, setHeaderNavSlot] = useState(null)
-  const menuRef = useRef(null)
 
   useEffect(() => {
-    function handlePointerDown(event) {
-      if (menuRef.current && !menuRef.current.contains(event.target)) {
-        setIsMenuOpen(false)
-        setIsProfileOpen(false)
-      }
-    }
-
-    function handleKeyDown(event) {
-      if (event.key === 'Escape') {
-        setIsMenuOpen(false)
-        setIsProfileOpen(false)
-      }
-    }
-
-    document.addEventListener('mousedown', handlePointerDown)
-    document.addEventListener('keydown', handleKeyDown)
-
-    return () => {
-      document.removeEventListener('mousedown', handlePointerDown)
-      document.removeEventListener('keydown', handleKeyDown)
-    }
+    document.body.classList.add('ui-classic')
+    return () => document.body.classList.remove('ui-classic')
   }, [])
 
-  async function handleLogout() {
-    await logout()
-    navigate('/login', { replace: true })
-  }
-
-  function handleToggleMenu() {
-    setIsMenuOpen((open) => !open)
-    setIsProfileOpen(false)
-  }
+  useEffect(() => {
+    if (!isProfileOpen) return undefined
+    const onKey = event => { if (event.key === 'Escape') setIsProfileOpen(false) }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [isProfileOpen])
 
   function handleOpenProfile() {
     setProfileForm(mkProfileForm(user))
     setProfileError('')
     setProfileSuccess(false)
-    setIsMenuOpen(false)
     setIsProfileOpen(true)
   }
 
@@ -77,7 +51,6 @@ function AppLayout() {
     setIsSavingProfile(true)
     setProfileError('')
     setProfileSuccess(false)
-
     try {
       const payload = {
         first_name: profileForm.first_name.trim(),
@@ -97,115 +70,42 @@ function AppLayout() {
     }
   }
 
-  const avatarText = (user?.name || 'PT')
-    .split(' ')
-    .map((part) => part[0])
-    .join('')
-    .slice(0, 2)
-    .toUpperCase()
+  const set = (key, value) => setProfileForm(current => ({ ...current, [key]: value }))
 
   return (
     <div className="app-layout">
-      <header className="app-layout-header">
-        <div className="app-layout-brand">
-          <img src={plusLogo} alt="Plus Treat logo" className="app-layout-logo" />
-        </div>
-
-        <div className="app-layout-header-nav" ref={setHeaderNavSlot} />
-
-        <div className="app-layout-user" ref={menuRef}>
-          <button
-            type="button"
-            className={`app-layout-menu-trigger${isMenuOpen ? ' is-open' : ''}`}
-            onClick={handleToggleMenu}
-            aria-haspopup="menu"
-            aria-expanded={isMenuOpen}
-          >
-            <span className="app-layout-avatar" aria-hidden="true">
-              {avatarText}
-            </span>
-            <span className="app-layout-caret" aria-hidden="true">
-              ▾
-            </span>
-            <span className="app-layout-sr-only">Open account menu</span>
-          </button>
-
-          {isMenuOpen ? (
-            <div className="app-layout-menu" role="menu" aria-label="Account menu">
-              <button
-                type="button"
-                className="app-layout-menu-item"
-                onClick={handleOpenProfile}
-              >
-                <span>Edit Profile</span>
-              </button>
-
-              <button
-                type="button"
-                className="app-layout-menu-item app-layout-menu-item-danger"
-                onClick={handleLogout}
-              >
-                Sign out
-              </button>
-            </div>
-          ) : null}
-        </div>
-      </header>
-
       {isProfileOpen ? (
-        <div
-          style={{ position: 'fixed', inset: 0, zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px', background: 'rgba(15, 23, 42, 0.4)' }}
-          onClick={handleCloseProfile}
-        >
-          <form
-            onSubmit={handleProfileSave}
-            onClick={(event) => event.stopPropagation()}
-            style={{ width: '100%', maxWidth: '460px', padding: '28px', borderRadius: '24px', background: '#ffffff', boxShadow: '0 24px 60px rgba(15, 23, 42, 0.18)' }}
-          >
-            <div style={{ marginBottom: '18px' }}>
-              <h2 style={{ margin: 0, color: '#173450' }}>Edit Profile</h2>
-              <p style={{ margin: '8px 0 0', color: '#64748b' }}>Update your account details and optional password.</p>
-            </div>
-
-            <div className="sales-form-grid-two">
-              <label className="sales-field">
-                <span>First Name</span>
-                <input value={profileForm.first_name} onChange={(event) => setProfileForm((current) => ({ ...current, first_name: event.target.value }))} />
-              </label>
-              <label className="sales-field">
-                <span>Last Name</span>
-                <input value={profileForm.last_name} onChange={(event) => setProfileForm((current) => ({ ...current, last_name: event.target.value }))} />
-              </label>
-              <label className="sales-field" style={{ gridColumn: '1 / -1' }}>
-                <span>Email</span>
-                <input type="email" value={profileForm.email} onChange={(event) => setProfileForm((current) => ({ ...current, email: event.target.value }))} />
-              </label>
-              <label className="sales-field" style={{ gridColumn: '1 / -1' }}>
-                <span>Phone</span>
-                <input value={profileForm.phone} onChange={(event) => setProfileForm((current) => ({ ...current, phone: event.target.value }))} />
-              </label>
-              <label className="sales-field" style={{ gridColumn: '1 / -1' }}>
-                <span>New Password</span>
-                <input type="password" value={profileForm.password} onChange={(event) => setProfileForm((current) => ({ ...current, password: event.target.value }))} placeholder="Leave blank to keep current password" />
-              </label>
-            </div>
-
-            {profileError ? <p className="login-error" style={{ marginTop: '14px' }}>{profileError}</p> : null}
-            {profileSuccess ? <p style={{ margin: '14px 0 0', color: '#15803d', fontWeight: 700 }}>Profile saved successfully.</p> : null}
-
-            <div style={{ display: 'flex', gap: '12px', marginTop: '20px' }}>
-              <button type="submit" className="account-alert-button account-alert-button-dark" disabled={isSavingProfile}>
-                {isSavingProfile ? 'Saving...' : 'Save'}
-              </button>
-              <button type="button" className="account-alert-button account-alert-button-light" onClick={handleCloseProfile}>
-                Cancel
-              </button>
-            </div>
-          </form>
+        <div className="classic-ui classic-portal">
+          <div className="modal-overlay open" onMouseDown={e => { if (e.target === e.currentTarget) handleCloseProfile() }}>
+            <form className="modal-container" style={{ maxWidth: '520px' }} onSubmit={handleProfileSave}>
+              <div className="modal-header">
+                <div>
+                  <h3 className="modal-title">👤 Edit My Profile</h3>
+                  <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '2px' }}>Update your account details and optional password</div>
+                </div>
+                <button type="button" className="modal-close" onClick={handleCloseProfile}>✕</button>
+              </div>
+              <div className="modal-body">
+                <div className="form-row">
+                  <div className="form-group"><label className="form-label">First Name</label><input className="form-control" value={profileForm.first_name} onChange={e => set('first_name', e.target.value)} /></div>
+                  <div className="form-group"><label className="form-label">Last Name</label><input className="form-control" value={profileForm.last_name} onChange={e => set('last_name', e.target.value)} /></div>
+                </div>
+                <div className="form-group"><label className="form-label">Email</label><input type="email" className="form-control" value={profileForm.email} onChange={e => set('email', e.target.value)} /></div>
+                <div className="form-group"><label className="form-label">Phone</label><input className="form-control" value={profileForm.phone} onChange={e => set('phone', e.target.value)} /></div>
+                <div className="form-group"><label className="form-label">New Password</label><input type="password" className="form-control" value={profileForm.password} onChange={e => set('password', e.target.value)} placeholder="Leave blank to keep current password" /></div>
+                {profileError ? <div className="alert alert-danger"><span>{profileError}</span></div> : null}
+                {profileSuccess ? <div className="alert alert-success"><span>Profile saved successfully.</span></div> : null}
+              </div>
+              <div className="modal-footer">
+                <button type="button" className="btn btn-secondary" onClick={handleCloseProfile}>Cancel</button>
+                <button type="submit" className="btn btn-primary" disabled={isSavingProfile}>{isSavingProfile ? 'Saving...' : '💾 Save Profile'}</button>
+              </div>
+            </form>
+          </div>
         </div>
       ) : null}
 
-      <Outlet context={{ headerNavSlot }} />
+      <Outlet context={{ headerNavSlot: null, openProfile: handleOpenProfile }} />
     </div>
   )
 }
