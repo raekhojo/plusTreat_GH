@@ -209,9 +209,3 @@ body.ui-classic .account-page-shell { height: auto; overflow: visible; }
 .classic-ui .modal-container .form-control:disabled, .classic-ui .modal-container .form-control[readonly] { background: #f8fafc; color: #475569; }
 @keyframes classicLivePulse { 0%, 100% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.55); } 50% { box-shadow: 0 0 0 5px rgba(16, 185, 129, 0); } }
 .classic-ui .classic-live-dot { animation: classicLivePulse 2s ease-in-out infinite; }
-
-/* Sidebar line icons */
-.classic-ui .nav-link .nav-icon { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; flex: none; }
-.classic-ui .nav-link .nav-icon svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
-.classic-ui .nav-link { color: #cbd5e1; }
-.classic-ui .nav-link:hover .nav-icon svg, .classic-ui .nav-link.active .nav-icon svg { stroke: #ffffff; }

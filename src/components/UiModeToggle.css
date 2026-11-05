@@ -1,0 +1,44 @@
+.ui-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  height: 36px;
+  padding: 0 6px 0 14px;
+  border: 1px solid rgba(16, 36, 58, 0.12);
+  border-radius: 999px;
+  background: #ffffff;
+  color: #10243a;
+  font: inherit;
+  font-size: 0.86rem;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.ui-toggle:hover { border-color: rgba(16, 36, 58, 0.25); }
+.ui-toggle:focus-visible { outline: 2px solid #31b1e4; outline-offset: 2px; }
+.ui-toggle-track {
+  position: relative;
+  width: 40px;
+  height: 24px;
+  border-radius: 999px;
+  background: #cbd5e1;
+  transition: background 160ms ease;
+}
+.ui-toggle-knob {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #ffffff;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.3);
+  transition: transform 160ms ease;
+}
+.ui-toggle.is-on .ui-toggle-track { background: #2c86b8; }
+.ui-toggle.is-on .ui-toggle-knob { transform: translateX(16px); }
+.ui-toggle-dark { background: rgba(255, 255, 255, 0.06); border-color: rgba(255, 255, 255, 0.14); color: #e2e8f0; }
+.ui-toggle-dark:hover { border-color: rgba(255, 255, 255, 0.3); }
+
+/* Classic mode: the modern app header is not used */
+body.ui-classic .app-layout-header { display: none; }

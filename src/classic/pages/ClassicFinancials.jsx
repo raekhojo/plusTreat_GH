@@ -94,11 +94,9 @@ function ClassicFinancials({ ctx, period, initialTab = 'opex', user }) {
   const flags = useMemo(() => {
     const list = []
     treasury.wallets.filter(w => w.balance < 0).forEach(w => list.push({ id: `wallet-${w.key}`, severity: 'danger', title: `${w.label} wallet balance is negative`, ref: w.label, description: `The book balance is ${currency(w.balance)}: more money has been recorded out of this wallet than in.`, action: 'Check the cashbook for a missing receipt, a transfer recorded the wrong way, or an expense against the wrong wallet.' }))
-    const losses = f.batches.filter(b => b.surplus < 0)
-    if (losses.length) list.push({ id: `batch-loss-${losses.map(b => b.b.id).join('-')}`, severity: 'warning', title: `${losses.length} production batch${losses.length === 1 ? '' : 'es'} recorded at a loss`, ref: losses.map(b => b.b.batch_number || `#${b.b.id}`).join(', '), description: `Total cost exceeds output value by ${currency(Math.abs(losses.reduce((t, b) => t + b.surplus, 0)))} in total. Batches with no output value usually have their finished goods not yet recorded.`, action: 'Record the finished goods produced, or verify the raw material quantities and overheads entered.' })
+    f.batches.filter(b => b.surplus < 0).forEach(b => list.push({ id: `batch-${b.b.id}`, severity: 'warning', title: 'Production batch recorded at a loss', ref: b.b.batch_number || `#${b.b.id}`, description: `Total cost ${currency(b.b.total_cost)} exceeds output value ${currency(b.value)}.`, action: 'Verify the raw material quantities and overheads entered for this batch.' }))
     inventoryLedger.filter(i => num(i.available) <= num(i.productionLevel) && num(i.productionLevel) > 0).forEach(i => list.push({ id: `fg-${i.size}`, severity: 'warning', title: `${i.size} finished goods at reorder level`, ref: i.size, description: `Only ${qty(i.available)} bottles in stock (minimum ${qty(i.productionLevel)}).`, action: 'Schedule a production batch for this size.' }))
-    const lowRm = rawMaterials.filter(m => num(m.available) <= num(m.reorder_level))
-    if (lowRm.length) list.push({ id: `rm-low-${lowRm.map(m => m.id).join('-')}`, severity: 'info', title: `${lowRm.length} raw material${lowRm.length === 1 ? '' : 's'} at or below reorder level`, ref: 'Stock & Materials', description: lowRm.slice(0, 8).map(m => `${m.name} (${qty(m.available)} ${m.unit || ''})`).join(', ') + (lowRm.length > 8 ? `, and ${lowRm.length - 8} more` : '') + '.', action: 'Raise purchases with the suppliers for these items.' })
+    rawMaterials.filter(m => num(m.available) <= num(m.reorder_level)).forEach(m => list.push({ id: `rm-${m.id}`, severity: 'info', title: `${m.name} below reorder level`, ref: m.name, description: `${qty(m.available)} ${m.unit || ''} available, reorder level ${qty(m.reorder_level)}.`, action: 'Raise a purchase with the supplier.' }))
     return list
   }, [treasury.wallets, f.batches, inventoryLedger, rawMaterials])
   const acknowledge = id => { const next = [...new Set([...ack, id])]; setAck(next); localStorage.setItem(ACK_KEY, JSON.stringify(next)) }
@@ -268,14 +266,14 @@ function ClassicFinancials({ ctx, period, initialTab = 'opex', user }) {
         <div className="card-body" style={{ padding: '16px' }}>
           {tab === 'opex' ? (
             <div>
-              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', marginBottom: '14px', gap: '10px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px', flexWrap: 'wrap', gap: '10px' }}>
                 <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
                   <button type="button" className={`btn btn-sm ${opexCat === 'all' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setOpexCat('all')} style={{ fontSize: '11px', padding: '3px 8px' }}>All ({f.opex.length})</button>
                   {f.opexItems.map(op => (
                     <button key={op.category} type="button" className={`btn btn-sm ${opexCat === op.category ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setOpexCat(op.category)} style={{ fontSize: '11px', padding: '3px 8px', ...(opexCat === op.category ? null : { background: '#fff' }) }}>{op.category} ({currency(op.total)})</button>
                   ))}
                 </div>
-                <div style={{ width: '180px' }}>
+                <div style={{ minWidth: '180px' }}>
                   <input type="text" className="form-control" placeholder="🔍 Search description, ref..." value={opexSearch} onChange={e => setOpexSearch(e.target.value)} style={{ fontSize: '12px', padding: '4px 8px', height: '30px' }} />
                 </div>
               </div>

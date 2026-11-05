@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import NavIcon from './NavIcon'
+import UiModeToggle from '../components/UiModeToggle'
 import ClassicCashbook from './pages/ClassicCashbook'
 import ClassicDashboard from './pages/ClassicDashboard'
 import ClassicFinancials from './pages/ClassicFinancials'
@@ -17,18 +17,18 @@ import './classic-extra.css'
 
 // The Plus Yoghurt ERP sidebar (templates/base.html), mapped onto this app's sections.
 const NAV = [
-  { key: 'dashboard', icon: 'home', label: 'Dashboard', title: 'Executive Control Center (Live ERP)' },
-  { key: 'sales_hub', icon: 'sales', label: 'Sales & Invoices', title: 'Sales, Invoicing & Orders Log' },
-  { key: 'production_ops', icon: 'production', label: 'Production & Batches', title: 'Production Batches & Recipe Management' },
-  { key: 'supplies_stock', icon: 'inventory', label: 'Stock & Materials', title: 'Finished Goods & Raw Materials Inventory' },
-  { key: 'treasury', icon: 'treasury', label: 'Cashbook & Treasury', title: 'Unified Cashbook & Treasury' },
-  { key: 'receivables', icon: 'debtors', label: 'Customer Debtors (AR)', title: 'Receivables & Debtors Ledger', also: ['customers'] },
-  { key: 'suppliers', icon: 'suppliers', label: 'Suppliers & AP', title: 'Suppliers & Accounts Payable (AP)' },
-  { key: 'reporting', icon: 'reporting', label: 'Financials & Audit', title: 'Financial Statements, Unit Economics & Audit Center' },
-  { key: 'reconciliation', icon: 'reconcile', label: 'Asset Reconciliation', title: 'Financial Statements, Unit Economics & Audit Center', badge: { text: 'AUDITED', style: { background: '#ecfdf5', color: '#059669' } } },
-  { key: 'reports', icon: 'reports', label: 'Reports & Exports', title: 'Reports & Analytics Center', badge: { text: 'XLS/PDF', style: { background: '#e0f2fe', color: '#0284c7' } } },
-  { key: 'settings', icon: 'settings', label: 'Settings & Pricing', title: 'ERP Configuration & Master Pricing Matrix' },
-  { key: 'user_mgmt', icon: 'users', label: 'User Management', title: 'User Management' },
+  { key: 'dashboard', icon: '📊', label: 'Dashboard', title: 'Executive Control Center (Live ERP)' },
+  { key: 'sales_hub', icon: '🛍️', label: 'Sales & Invoices', title: 'Sales, Invoicing & Orders Log' },
+  { key: 'production_ops', icon: '🏭', label: 'Production & Batches', title: 'Production Batches & Recipe Management' },
+  { key: 'supplies_stock', icon: '📦', label: 'Stock & Materials', title: 'Finished Goods & Raw Materials Inventory' },
+  { key: 'treasury', icon: '💰', label: 'Cashbook & Treasury', title: 'Unified Cashbook & Treasury' },
+  { key: 'receivables', icon: '👥', label: 'Customer Debtors (AR)', title: 'Receivables & Debtors Ledger', also: ['customers'] },
+  { key: 'suppliers', icon: '🚚', label: 'Suppliers & AP', title: 'Suppliers & Accounts Payable (AP)' },
+  { key: 'reporting', icon: '📈', label: 'Financials & Audit', title: 'Financial Statements, Unit Economics & Audit Center' },
+  { key: 'reconciliation', icon: '⚖️', label: 'Asset Reconciliation', title: 'Financial Statements, Unit Economics & Audit Center', badge: { text: 'AUDITED', style: { background: '#ecfdf5', color: '#059669' } } },
+  { key: 'reports', icon: '📑', label: 'Reports & Exports', title: 'Reports & Analytics Center', badge: { text: 'XLS/PDF', style: { background: '#e0f2fe', color: '#0284c7' } } },
+  { key: 'settings', icon: '⚙️', label: 'Settings & Pricing', title: 'ERP Configuration & Master Pricing Matrix' },
+  { key: 'user_mgmt', icon: '👤', label: 'User Management', title: 'User Management' },
 ]
 
 const BADGE_BASE = { marginLeft: 'auto', fontSize: '9px', fontWeight: 800, padding: '2px 6px', borderRadius: '8px' }
@@ -66,7 +66,7 @@ function resolvePeriod(p) {
   return { key: 'all', start: '', end: '', label: 'All Time (Lifetime Dump)' }
 }
 
-function ClassicApp({ user, canAccess, activeSection, onNavigate, onLogout, onProfile, lastSyncedAt, ctx }) {
+function ClassicApp({ user, canAccess, activeSection, onNavigate, onLogout, lastSyncedAt, uiMode, onUiMode, ctx }) {
   const [periodChoice, setPeriodChoice] = useState(loadPeriod)
   const [customOpen, setCustomOpen] = useState(false)
   const [draft, setDraft] = useState({ start: '', end: '' })
@@ -130,7 +130,7 @@ function ClassicApp({ user, canAccess, activeSection, onNavigate, onLogout, onPr
       case 'reports': return <ClassicReports ctx={pageCtx} />
       case 'settings': return <ClassicSettings ctx={pageCtx} lastSyncedAt={lastSyncedAt} />
       case 'user_mgmt': return <ClassicUsers ctx={pageCtx} editing={staffEditing} setEditing={setStaffEditing} />
-      default: return <ClassicComingSoon title={current?.title} />
+      default: return <ClassicComingSoon title={current?.title} onUseNew={() => onUiMode('modern')} />
     }
   }
 
@@ -153,7 +153,7 @@ function ClassicApp({ user, canAccess, activeSection, onNavigate, onLogout, onPr
                 className={`nav-link${current?.key === n.key ? ' active' : ''}`}
                 onClick={e => { e.preventDefault(); go(n.key) }}
               >
-                <span className="nav-icon"><NavIcon type={n.icon} /></span>
+                <span className="nav-icon">{n.icon}</span>
                 <span>{n.label}</span>
                 {n.badge ? <span style={{ ...BADGE_BASE, ...n.badge.style }}>{n.badge.text}</span> : null}
               </a>
@@ -162,11 +162,11 @@ function ClassicApp({ user, canAccess, activeSection, onNavigate, onLogout, onPr
         </ul>
 
         <div className="user-badge">
-          <div className="user-info" role="button" tabIndex={0} title="Edit my profile" style={{ cursor: onProfile ? 'pointer' : 'default' }} onClick={() => onProfile?.()} onKeyDown={e => { if (e.key === 'Enter') onProfile?.() }}>
+          <div className="user-info">
             <span className="user-name">{user?.name || 'User'}</span>
             <span className="user-role">{user?.role || 'Staff'} (Online)</span>
           </div>
-          <a href="#logout" title="Logout" style={{ color: '#cbd5e1', textDecoration: 'none', fontSize: '16px' }} onClick={e => { e.preventDefault(); onLogout() }} aria-label="Log out"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M15.75 9V5.25A2.25 2.25 0 0 0 13.5 3h-6a2.25 2.25 0 0 0-2.25 2.25v13.5A2.25 2.25 0 0 0 7.5 21h6a2.25 2.25 0 0 0 2.25-2.25V15" /><path d="M12 9l-3 3m0 0 3 3m-3-3h12.75" /></svg></a>
+          <a href="#logout" title="Logout" style={{ color: '#cbd5e1', textDecoration: 'none', fontSize: '16px' }} onClick={e => { e.preventDefault(); onLogout() }}>🚪</a>
         </div>
       </aside>
 
@@ -208,6 +208,7 @@ function ClassicApp({ user, canAccess, activeSection, onNavigate, onLogout, onPr
               <span>{ctx.loadError ? 'Connection problem' : 'Live'}{lastSyncedAt ? ` · updated ${lastSyncedAt.toLocaleTimeString('en-GB')}` : ''}</span>
             </span>
             {actions}
+            <UiModeToggle mode={uiMode} onChange={onUiMode} />
           </div>
         </header>
 
@@ -280,14 +281,17 @@ function ClassicApp({ user, canAccess, activeSection, onNavigate, onLogout, onPr
   )
 }
 
-function ClassicComingSoon({ title }) {
+function ClassicComingSoon({ title, onUseNew }) {
   return (
     <div className="card">
       <div className="card-header">
         <h2 className="card-title">🛠️ {title}</h2>
       </div>
       <div className="card-body">
-        <p style={{ fontSize: '14px', color: 'var(--text-muted)' }}>This page is not available.</p>
+        <p style={{ fontSize: '14px', color: 'var(--text-muted)', marginBottom: '16px' }}>
+          This page is being rebuilt in the classic view. Until then you can use it in the new interface.
+        </p>
+        <button type="button" className="btn btn-primary" onClick={onUseNew}>Open in the new interface</button>
       </div>
     </div>
   )
