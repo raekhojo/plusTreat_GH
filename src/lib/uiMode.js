@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 
 // Which interface the user works in: the current one ("modern") or the
 // Plus Yoghurt ERP look ("classic"). Remembered on this device.
-const KEY = 'plusTreatUiMode'
+const KEY = 'plusTreatUiView'
 const EVENT = 'plustreat-ui-mode'
 
 export function getUiMode() {
