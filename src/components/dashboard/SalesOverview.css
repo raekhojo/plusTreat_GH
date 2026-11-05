@@ -521,3 +521,12 @@
   .so-stats-position { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .so-stats-position .so-stat:nth-child(3) { border-left: 0; }
 }
+
+/* Loading state: same layout, shimmer in place of figures. */
+.so-skel { display: block; border-radius: 8px; background: linear-gradient(90deg, #eef3f8 0%, #f8fbfd 50%, #eef3f8 100%); background-size: 220% 100%; animation: so-skel-shimmer 1.5s ease-in-out infinite; }
+.so-stat .so-skel + .so-skel { margin-top: 10px; }
+.ps-wallet-copy .so-skel + .so-skel { margin-top: 8px; }
+.so-skel-lines { display: flex; flex-direction: column; gap: 14px; }
+.so-skel-row { display: flex; justify-content: space-between; gap: 16px; }
+@keyframes so-skel-shimmer { 0% { background-position: 100% 0; } 100% { background-position: -100% 0; } }
+@media (prefers-reduced-motion: reduce) { .so-skel { animation: none; } }

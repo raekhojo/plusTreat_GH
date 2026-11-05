@@ -6,29 +6,24 @@ function ProductionPlanner({ rawMaterials = [], pricingRules = [], isProductionP
   const { bottleShort, bottledLitres, bottleneck, bottles, factor, ingredientCost, ingredientShort, ingredients, litres, loadIntoBatch, margin, maxBatches, missing, mix, outputValue, overheads, packagingCost, plannedMix, safeLitres, setCustom, setCustomQty, setLitres, setMix, setVolume, surplus, totalBottles, totalCost, volumeGap } = usePlanner({ rawMaterials, pricingRules, isProductionPrice, onLoadIntoBatch })
   return (
     <section className="pp-wrap" aria-label="Production planner">
-      <header className="pp-head">
-        <div>
-          <h2>Production planner</h2>
-          <p>Scale the standard recipe (109.2 L benchmark) to any volume, check it against live stock, and forecast cost and margin before you produce.</p>
+      <div className="pp-bar">
+        <div className={`pp-banner ${bottleShort || ingredientShort ? 'is-bad' : 'is-good'}`} role="status">
+          <span aria-hidden="true">{bottleShort || ingredientShort ? '!' : '✓'}</span>
+          {bottleShort
+            ? <>Bottle stock is short — bottleneck: <strong>{bottleShort.size} bottles</strong> ({bottleShort.short.toLocaleString()} short)</>
+            : ingredientShort
+              ? <>Raw material shortage — stock covers <strong>{maxBatches.toFixed(1)} batches ({(maxBatches * STANDARD_VOLUME).toFixed(1)} L)</strong>, bottleneck: <strong>{bottleneck?.name}</strong></>
+              : <>Stock is sufficient · max feasible <strong>{maxBatches.toFixed(1)} batches ({(maxBatches * STANDARD_VOLUME).toFixed(1)} L)</strong></>}
         </div>
         {onLoadIntoBatch ? <button type="button" className="account-alert-button account-alert-button-dark" onClick={loadIntoBatch}>Load into new batch</button> : null}
-      </header>
-
-      <div className={`pp-banner ${bottleShort || ingredientShort ? 'is-bad' : 'is-good'}`} role="status">
-        <span aria-hidden="true">{bottleShort || ingredientShort ? '!' : '✓'}</span>
-        {bottleShort
-          ? <>Bottle stock is short for this plan — bottleneck: <strong>{bottleShort.size} bottles</strong> ({bottleShort.short.toLocaleString()} short).</>
-          : ingredientShort
-            ? <>Raw material shortage: stock covers at most <strong>{maxBatches.toFixed(1)} batches ({(maxBatches * STANDARD_VOLUME).toFixed(1)} L)</strong> — bottleneck: <strong>{bottleneck?.name}</strong>.</>
-            : <>Stock is sufficient for this run. Maximum feasible: <strong>{maxBatches.toFixed(1)} batches ({(maxBatches * STANDARD_VOLUME).toFixed(1)} L)</strong>.</>}
       </div>
 
       <div className="pp-grid">
         <article className="pp-card">
-          <h3>Volume</h3>
+          <h3>Target volume</h3>
           <div className="pp-volume">
             <label className="pp-field">
-              <span>Target volume (litres)</span>
+              <span>Litres</span>
               <input type="number" min="1" step="0.5" value={litres} onChange={e => setLitres(e.target.value)} />
             </label>
             <span className="pp-factor">{factor.toFixed(2)} standard batch{factor === 1 ? '' : 'es'}</span>

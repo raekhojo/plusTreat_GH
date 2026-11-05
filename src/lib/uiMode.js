@@ -5,8 +5,11 @@ import { useEffect, useState } from 'react'
 const KEY = 'plusTreatUiView'
 const EVENT = 'plustreat-ui-mode'
 
+// The classic view is hidden for now (its toggle is removed), so everyone gets the
+// current interface. Restore the line below to bring the classic view back.
 export function getUiMode() {
-  try { return localStorage.getItem(KEY) === 'classic' ? 'classic' : 'modern' } catch { return 'modern' }
+  return 'modern'
+  // try { return localStorage.getItem(KEY) === 'classic' ? 'classic' : 'modern' } catch { return 'modern' }
 }
 
 export function setUiMode(mode) {

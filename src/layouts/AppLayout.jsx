@@ -3,8 +3,6 @@ import { Outlet, useNavigate } from 'react-router-dom'
 import plusLogo from '../assets/plusLogo.png'
 import { useAuth } from '../context/AuthContext'
 import { updateMyProfile } from '../lib/api'
-import { useUiMode } from '../lib/uiMode'
-import UiModeToggle from '../components/UiModeToggle'
 
 const mkProfileForm = (user) => ({
   first_name: user?.name?.split(' ')[0] || '',
@@ -24,7 +22,6 @@ function AppLayout() {
   const [profileError, setProfileError] = useState('')
   const [profileSuccess, setProfileSuccess] = useState(false)
   const [headerNavSlot, setHeaderNavSlot] = useState(null)
-  const [uiMode, setUiMode] = useUiMode()
   const menuRef = useRef(null)
 
   useEffect(() => {
@@ -115,8 +112,6 @@ function AppLayout() {
         </div>
 
         <div className="app-layout-header-nav" ref={setHeaderNavSlot} />
-
-        <UiModeToggle mode={uiMode} onChange={setUiMode} />
 
         <div className="app-layout-user" ref={menuRef}>
           <button

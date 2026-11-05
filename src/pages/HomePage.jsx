@@ -14,7 +14,9 @@ import SalesOverview from '../components/dashboard/SalesOverview'
 import TreasuryPanel from '../components/treasury/TreasuryPanel'
 import { WALLETS, buildAccountLedger, buildCashbook, buildTreasury, walletLabel } from '../lib/treasury'
 import ReportsCenter from '../components/reports/ReportsCenter'
-import ReportingOverview from '../components/reports/ReportingOverview'
+import FinancialStatements from '../components/reports/FinancialStatements'
+import LedgerExplorer from '../components/reports/LedgerExplorer'
+import AuditMonitor from '../components/reports/AuditMonitor'
 import AiCopilot from '../components/ai/AiCopilot'
 import DocumentSettings from '../components/settings/DocumentSettings'
 import StockCount from '../components/reports/StockCount'
@@ -56,7 +58,8 @@ const SECTIONS = [
   // Replaced by the Cashbook (account entries are added and edited there).
   { key: 'accounts_pricing',label: 'Accounts',           icon: 'accounts',   roles: ['admin', 'accounts'],          subtitle: 'Accounts entries and configuration.',                                                                       sheets: ['Accounts_Entry', 'Accounts_Dtls'], group: 'Finance', hidden: true },
   { key: 'reporting',       label: 'Reporting',          icon: 'reporting', roles: ['admin', 'accounts'],          subtitle: 'Financial reporting and workbook-style summaries.',                                                        sheets: ['Trial Balance'], group: 'Finance' },
-  { key: 'reconciliation',  label: 'Asset Reconciliation', icon: 'reconcile', roles: ['admin', 'accounts'],         subtitle: 'Physical count of cash, receivables and stock against the books.', sheets: [], group: 'Finance' },
+  { key: 'financials',      label: 'Financials & Audit', icon: 'accounts',  roles: ['admin', 'accounts'],          subtitle: 'Income statement, balance sheet, audit findings and the ledgers behind them.', sheets: [], group: 'Finance' },
+  { key: 'reconciliation',  label: 'Asset Reconciliation', icon: 'reconcile', roles: ['admin', 'accounts'],         subtitle: '', sheets: [], group: 'Finance' },
   { key: 'reports',         label: 'Reports & Exports',  icon: 'reports',   roles: ['admin', 'accounts'],          subtitle: 'Preview any report and download it as Excel or PDF.', sheets: [], group: 'Finance', placement: 'top', navLabel: 'Reports' },
   { key: 'ai_copilot',      label: 'AI Copilot',         icon: 'ai',        roles: ['admin', 'sales', 'accounts'], subtitle: 'Ask questions about sales, cash, debtors, stock and production.', sheets: [], group: 'Tools', hidden: true },
   { key: 'settings',        label: 'Settings & Pricing', icon: 'settings',  roles: ['admin'],                      subtitle: 'Pricing rules and the details printed on invoices and receipts.', sheets: [], group: 'Tools', placement: 'top', navLabel: 'Settings' },
@@ -792,15 +795,14 @@ const SECTION_TABS = {
     { key: 'recent_receipts', label: 'Recent Receipts' },
   ],
   production_ops: [
-    { key: 'batches', label: 'Production Batches' },
-    { key: 'inventory', label: 'Finished Inventory' },
-    { key: 'pricing', label: 'Pricing Rules' },
     { key: 'planner', label: 'Production Planner' },
+    { key: 'batches', label: 'Production Batches' },
+    { key: 'pricing', label: 'Pricing Rules' },
   ],
   supplies_stock: [
-    { key: 'purchases', label: 'Purchase Register' },
     { key: 'materials', label: 'Raw Materials' },
-    { key: 'balances', label: 'Supplier Balances' },
+    { key: 'finished', label: 'Finished Goods' },
+    { key: 'purchases', label: 'Purchase Register' },
   ],
   customers: [
     { key: 'customers', label: 'Customers' },
@@ -811,19 +813,19 @@ const SECTION_TABS = {
     { key: 'balances', label: 'Open Balances' },
   ],
   reporting: [
+    { key: 'income', label: 'Income Statement' },
+    { key: 'balance', label: 'Balance Sheet' },
     { key: 'trial_balance', label: 'Trial Balance' },
-    { key: 'reports', label: 'Reports Center' },
-    { key: 'stock_count', label: 'Stock Count' },
   ],
 }
 
 const SECTION_DEFAULT_TABS = {
   sales_hub: 'sales_list',
-  production_ops: 'batches',
-  supplies_stock: 'purchases',
+  production_ops: 'planner',
+  supplies_stock: 'materials',
   customers: 'customers',
   suppliers: 'suppliers',
-  reporting: 'trial_balance',
+  reporting: 'income',
 }
 
 const EMPTY_DATE_RANGE = { start: '', end: '' }
@@ -2263,6 +2265,8 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
   const [isLoading,        setIsLoading]        = useState(true)
   const [loadError,        setLoadError]        = useState('')
   const [uiMode, setUiMode] = useUiMode()
+  // Which ledger the Financials & Audit explorer shows (statement lines drill into it).
+  const [auditView, setAuditView] = useState({ tab: 'opex', cat: 'all' })
   const [lastSyncedAt, setLastSyncedAt] = useState(null)
 
   const [saleForm,         setSaleForm]         = useState(() => mkSaleForm(loggedInStaffId))
@@ -2313,7 +2317,7 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
     const visible = SECTIONS
       .filter(section => !section.hidden)
       .filter(section => !section.roles || section.roles.includes(normalizedRole))
-      .filter(section => !allowedSections || allowedSections.includes(section.key) || (section.key === 'treasury' && allowedSections.includes('accounts_pricing')))
+      .filter(section => !allowedSections || allowedSections.includes(section.key) || (section.key === 'treasury' && allowedSections.includes('accounts_pricing')) || (section.key === 'financials' && allowedSections.includes('reporting')))
     return visible.length ? visible : [SECTIONS[0]]
   }, [allowedSections, normalizedRole])
   const isStandaloneView = standaloneMode || availableSections.length === 1
@@ -2829,7 +2833,6 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
   }, [data.pricingRules, pricingFilterScope, sectionFilters])
 
   const filteredCustomerLedger = useMemo(() => buildCustomerLedger(data.customers, customerInvoicesFiltered), [data.customers, customerInvoicesFiltered])
-  const filteredSupplierLedgerForSupplies = useMemo(() => buildSupplierLedger(data.suppliers, purchasesFiltered), [data.suppliers, purchasesFiltered])
   const filteredSupplierLedger = useMemo(() => buildSupplierLedger(data.suppliers, supplierPurchasesFiltered), [data.suppliers, supplierPurchasesFiltered])
 
   function handlePurchaseSupplierChange(value) {
@@ -4356,40 +4359,6 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
         : []),
     ],
   }))
-  const inventoryRows = inventoryLedger.map(item => ({
-    key: item.size,
-    emphasisIndex: 6,
-    cells: [
-      item.id,
-      item.size,
-      item.unit,
-      fmtQ(item.opening),
-      fmtQ(item.stockIn),
-      fmtQ(item.stockOut),
-      fmtQ(item.available),
-      fmt(item.stockBalance),
-      fmtQ(item.productionLevel),
-      <span key="pr" style={{ color: item.prodRequired ? '#dc2626' : '#16a34a', fontWeight: 600 }}>{item.prodRequired ? 'Yes' : 'No'}</span>,
-      canManageProductionTransactions ? (
-        <button
-          key="edit"
-          type="button"
-          className="workspace-action-btn"
-          onClick={event => {
-            event.stopPropagation()
-            const matchingProduct = data.products.find(product => normalizeSizeKey(product.name) === normalizeSizeKey(item.size))
-            if (matchingProduct) {
-              openModal('product', matchingProduct)
-              return
-            }
-            setSelectedInventoryItem(item)
-          }}
-        >
-          Edit
-        </button>
-      ) : 'View',
-    ],
-  }))
   const materialRows = lowStockRows.map(m => {
     const isLow = toNumber(m.reorder_level) > 0 && m.available <= toNumber(m.reorder_level)
     const isOut = m.available <= 0
@@ -4456,6 +4425,31 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
     agg.amount += toNumber(o.amount) || qty * toNumber(o.unit_cost)
     unitCostBySize.set(key, agg)
   }))
+  const finishedGoods = inventoryLedger.map(item => {
+    const agg = unitCostBySize.get(normalizeSizeKey(item.size))
+    const unitCost = agg && agg.qty > 0 ? agg.amount / agg.qty : 0
+    const available = toNumber(item.available)
+    const minLevel = toNumber(item.productionLevel)
+    return { item, unitCost, available, minLevel, value: Math.max(0, available) * unitCost, produceNow: available <= minLevel }
+  })
+  const finishedTotals = finishedGoods.reduce((t, r) => ({ units: t.units + Math.max(0, r.available), value: t.value + r.value }), { units: 0, value: 0 })
+  const inventoryRows = finishedGoods
+    .map(r => ({
+      key: r.item.size,
+      searchText: `${r.item.size} ${r.produceNow ? 'PRODUCE NOW' : 'STOCK OK'}`,
+      emphasisIndex: 3,
+      cells: [
+        <span key="size" style={{ fontWeight: 800, color: '#0284c7', borderBottom: '1.5px dotted #0284c7' }}>{r.item.size}</span>,
+        <span key="in" style={{ color: '#059669', fontWeight: 600 }}>+{fmtQ(r.item.stockIn)}</span>,
+        <span key="out" style={{ color: '#dc2626', fontWeight: 600 }}>-{fmtQ(r.item.stockOut)}</span>,
+        `${fmtQ(r.available)} pcs`,
+        fmt(r.unitCost),
+        fmt(r.value),
+        `${fmtQ(r.minLevel)} pcs`,
+        <span key="status" style={{ display: 'inline-block', padding: '3px 10px', borderRadius: '999px', fontSize: '11px', fontWeight: 700, letterSpacing: '0.02em', color: r.produceNow ? '#b91c1c' : '#047857', background: r.produceNow ? '#fee2e2' : '#d1fae5' }}>{r.produceNow ? 'PRODUCE NOW' : 'STOCK OK'}</span>,
+        <button key="details" type="button" className="workspace-action-btn" onClick={event => { event.stopPropagation(); setSelectedInventoryItem(r.item) }}>Stock Details</button>,
+      ],
+    }))
   const pricingMatrixRows = filteredPricingRules.map(r => {
     const agg = unitCostBySize.get(normalizeSizeKey(r.size))
     const unitCost = agg && agg.qty > 0 ? agg.amount / agg.qty : null
@@ -4862,44 +4856,7 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
   const trialBalanceActiveRows = trialBalanceSheetRows
     .filter(row => Math.abs(toNumber(row.opening)) > 0.000001 || Math.abs(toNumber(row.movement)) > 0.000001)
 
-  const reportingBaseRows = data.trialBalanceReport?.rows?.length
-    ? data.trialBalanceReport.rows
-      .filter(row => (
-        Math.abs(toNumber(row.opening)) > 0.000001
-        || Math.abs(toNumber(row.acct_in)) > 0.000001
-        || Math.abs(toNumber(row.acct_out)) > 0.000001
-        || Math.abs(toNumber(row.available)) > 0.000001
-      ))
-      .map(row => ({
-        accountType: row.account_type,
-        accountClass: row.account_class,
-        description: row.description,
-        opening: toNumber(row.opening),
-        movement: toNumber(row.acct_in) - toNumber(row.acct_out),
-        available: toNumber(row.available),
-      }))
-    : trialBalanceActiveRows.map(row => ({
-      accountType: row.accountType,
-      accountClass: row.accountClass,
-      description: row.description,
-      opening: toNumber(row.opening),
-      movement: toNumber(row.movement),
-      available: toNumber(row.opening) + toNumber(row.movement),
-    }))
 
-  const reportingIncomeRows = reportingBaseRows.filter(row => row.accountType === 'Income Statement' && row.accountClass === 'Income')
-  const reportingCostRows = reportingBaseRows.filter(row => row.accountType === 'Income Statement' && row.accountClass === 'Direct Cost')
-  const reportingExpenseRows = reportingBaseRows.filter(row => row.accountType === 'Income Statement' && row.accountClass === 'Expenses')
-  const reportingAssetRows = reportingBaseRows.filter(row => row.accountType === 'Balance Sheet' && row.accountClass === 'Assets')
-  const reportingLiabilityRows = reportingBaseRows.filter(row => row.accountType === 'Balance Sheet' && row.accountClass === 'Liability')
-  const totalIncome = sumBy(reportingIncomeRows, row => row.movement)
-  const totalCostOfSales = sumBy(reportingCostRows, row => row.movement)
-  const totalExpenses = sumBy(reportingExpenseRows, row => row.movement)
-  const grossProfitOrLoss = totalIncome + totalCostOfSales
-  const netProfitOrLoss = grossProfitOrLoss + totalExpenses
-  const totalAssets = sumBy(reportingAssetRows, row => row.available)
-  const totalLiability = sumBy(reportingLiabilityRows, row => row.available)
-  const totalEquity = totalAssets + totalLiability
 
 
   const trialBalanceRows = data.trialBalanceReport?.rows?.length
@@ -5087,7 +5044,15 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
 
   function renderSection() {
     if (isLoading) {
-      if (activeSection === 'dashboard') return <><SummaryGridSkeleton count={5} /><section className="dashboard-snippet-grid"><SnippetCardSkeleton title="Top Customers" /><SnippetCardSkeleton title="Top Products" /><SnippetCardSkeleton title="Raw Materials" /><SnippetCardSkeleton title="Finished Goods" /></section><section className="dashboard-snippet-grid sales-history-grid"><SnippetCardSkeleton title="P&L Statement" rows={6} /><SnippetCardSkeleton title="Assets" rows={5} /><SnippetCardSkeleton title="Liability" rows={2} /><SnippetCardSkeleton title="Equity" rows={2} /><SnippetCardSkeleton title="Balance Sheet" rows={3} /><SnippetCardSkeleton title="Receivables" /><SnippetCardSkeleton title="Open Invoices" /></section></>
+      if (activeSection === 'dashboard') return (
+        <SalesOverview
+          loading
+          range={dashboardDateFilter}
+          activePreset={sectionDatePresets.dashboard || ''}
+          onPresetSelect={preset => (preset ? applyQuickDatePreset('dashboard', preset) : clearDateFilter('dashboard'))}
+          onCustomRange={openDateFilter}
+        />
+      )
       if (activeSection === 'sales_hub') return (
         <>
           <SummaryGridSkeleton count={6} />
@@ -5107,7 +5072,6 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
             {SECTION_TABS.production_ops.map(tab => <span key={tab.key} className={`workspace-inline-tab ${tab.key === getSectionTab('production_ops') ? 'active' : ''}`}>{tab.label}</span>)}
           </section>
           {getSectionTab('production_ops') === 'batches' && <TableCardSkeleton title="Production Batches" columns={6} rows={5} />}
-          {getSectionTab('production_ops') === 'inventory' && <TableCardSkeleton title="Finished Inventory" columns={5} rows={5} />}
         </>
       )
       if (activeSection === 'supplies_stock') return (
@@ -5119,7 +5083,6 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
           </section>
           {getSectionTab('supplies_stock') === 'purchases' && <TableCardSkeleton title="Purchase Register" columns={8} rows={5} />}
           {getSectionTab('supplies_stock') === 'materials' && <TableCardSkeleton title="Raw Materials" columns={9} rows={6} />}
-          {getSectionTab('supplies_stock') === 'balances' && <SnippetCardSkeleton title="Open Supplier Balances" rows={6} />}
         </>
       )
       if (activeSection === 'customers') return (
@@ -5151,12 +5114,10 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
       )
       if (activeSection === 'reporting') return (
         <>
-          <section className="ro-card ro-card-skeleton" aria-hidden="true">
-            <SkeletonLine className="dashboard-skeleton-title" />
-            <SkeletonLine className="dashboard-skeleton-value" />
-            <SkeletonLine className="dashboard-skeleton-value" />
+          <section className="workspace-inline-tabs">
+            {SECTION_TABS.reporting.map(tab => <span key={tab.key} className={`workspace-inline-tab ${tab.key === getSectionTab('reporting') ? 'active' : ''}`}>{tab.label}</span>)}
           </section>
-          <TableCardSkeleton title="Trial Balance" columns={10} rows={10} />
+          <TableCardSkeleton title={SECTION_TABS.reporting.find(t => t.key === getSectionTab('reporting'))?.label || 'Trial Balance'} columns={getSectionTab('reporting') === 'trial_balance' ? 9 : 2} rows={10} />
         </>
       )
       return (
@@ -5274,12 +5235,7 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
       <>
         <DateFilterControl range={productionDateFilter} onOpen={openDateFilter} onClear={() => clearDateFilter('production_ops')} onPresetSelect={preset => applyQuickDatePreset('production_ops', preset)} activePreset={sectionDatePresets.production_ops || ''} inlineTitle="Production Ops" hideInlineTitle={isStandaloneView} onExport={format => runPageExport(format, 'Production Ops', async exportTableDataset => {
           const activeProductionTab = getSectionTab('production_ops')
-          const isInventoryTab = activeProductionTab === 'inventory'
           const isPricingTab = activeProductionTab === 'pricing'
-          if (isInventoryTab) {
-            await exportTableDataset('Finished_Inventory', ['INV ID', 'Item', 'Unit', 'Opening', 'Stock In', 'Stock Out', 'Available', 'Stock Balance', 'Prod Level', 'Prod Required'], inventoryRows)
-            return
-          }
           if (isPricingTab) {
             await exportTableDataset('Pricing_Rules', ['Finished Good Size', 'Size', 'Pricing Category', 'Price'], pricingRows)
             return
@@ -5327,19 +5283,6 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
             onRowClick={id => setSelectedBatch(data.productionBatches.find(b => b.id === id) || null)}
           />
         )}
-        {getSectionTab('production_ops') === 'inventory' && (
-          <TableCard
-            title="Finished Inventory"
-            subtitle="Stock by product size — matches the Inventory sheet. Click a row to see full history."
-            columns={['INV ID', 'Item', 'Unit', 'Opening', 'Stock In', 'Stock Out', 'Available', 'Stock Balance', 'Prod Level', 'Prod Required', '']}
-            colWidths={['140px', '150px', '90px', '110px', '110px', '110px', '120px', '160px', '110px', '130px', '88px']}
-            rows={inventoryRows}
-            mobileVariant="inventory-list"
-            onRowClick={size => setSelectedInventoryItem(inventoryLedger.find(i => i.size === size) || null)}
-            search={searchTerms.inventory}
-            onSearch={v => setSearch('inventory', v)}
-          />
-        )}
         {getSectionTab('production_ops') === 'planner' && (
           <ProductionPlanner
             rawMaterials={lowStockRows}
@@ -5377,6 +5320,10 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
       <>
         <DateFilterControl range={suppliesDateFilter} onOpen={openDateFilter} onClear={() => clearDateFilter('supplies_stock')} onPresetSelect={preset => applyQuickDatePreset('supplies_stock', preset)} activePreset={sectionDatePresets.supplies_stock || ''} inlineTitle="Supplies & Stock" hideInlineTitle={isStandaloneView} onExport={format => runPageExport(format, 'Supplies & Stock', async exportTableDataset => {
           const tab = getSectionTab('supplies_stock')
+          if (tab === 'finished') {
+            await exportTableDataset('Finished_Inventory', ['Size', 'Total Produced (Lifetime)', 'Total Sold (Lifetime)', 'Live Stock', 'Unit Prod. Price', 'Total Value', 'Min Level', 'Status'], inventoryRows.map(r => ({ ...r, cells: r.cells.slice(0, 8) })))
+            return
+          }
           if (tab === 'materials') {
             await exportTableDataset('Raw_Materials', ['Material', 'Category', 'Unit', 'Opening', 'Stock In', 'Stock Out', 'Available', 'RM Balance Value', 'Reorder', 'Status'], materialRows)
             return
@@ -5413,6 +5360,19 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
             onRowClick={id => setSelectedPurchase(data.purchases.find(p => p.id === id) || null)}
           />
         )}
+        {getSectionTab('supplies_stock') === 'finished' && (
+          <TableCard
+            title="Finished Goods Inventory"
+            subtitle={<>Total Stock: <strong>{fmtQ(finishedTotals.units)} Units</strong> ({fmt(finishedTotals.value)}) · Click a row for Stock In &amp; Stock Out records.</>}
+            columns={['Size', 'Total Produced (Lifetime)', 'Total Sold (Lifetime)', 'Live Stock', 'Unit Prod. Price', 'Total Value', 'Min Level', 'Status', 'Stock Movements']}
+            colWidths={['120px', '170px', '160px', '120px', '140px', '140px', '110px', '130px', '140px']}
+            rows={inventoryRows}
+            mobileVariant="inventory-list"
+            onRowClick={size => setSelectedInventoryItem(inventoryLedger.find(i => i.size === size) || null)}
+            search={searchTerms.inventory}
+            onSearch={v => setSearch('inventory', v)}
+          />
+        )}
         {getSectionTab('supplies_stock') === 'materials' && (
           <TableCard
             className="supplies-materials-card"
@@ -5425,12 +5385,6 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
             search={searchTerms.supplies_materials}
             onSearch={v => setSearch('supplies_materials', v)}
             onRowClick={id => setSelectedRawMaterial(data.rawMaterials.find(m => m.id === id) || null)}
-          />
-        )}
-        {getSectionTab('supplies_stock') === 'balances' && (
-          <SnippetCard
-            title="Open Supplier Balances"
-            rows={clampRows(filteredSupplierLedgerForSupplies).map(s => ({ id: s.id, title: s.name, meta: `${s.purchaseCount} purchases`, value: fmt(s.outstanding) }))}
           />
         )}
       </>
@@ -5573,7 +5527,7 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
           onEdit={canManageDataEntryEditDelete ? editCashbookRow : null}
           onExport={(format, visibleRows) => runPageExport(format, 'Cashbook & Treasury', async exportTableDataset => {
             await exportTableDataset('Wallet_Balances', ['Wallet', 'Balance today'], treasuryToday.wallets.map(w => ({ id: w.key, cells: [w.label, fmt(w.balance)] })))
-            await exportTableDataset('Cashbook', ['Date', 'Reference', 'Type', 'Counterparty', 'Category', 'Wallet / Account', 'Inflow', 'Outflow', 'Net Flow', 'Description'], visibleRows.map(r => ({ id: r.id, cells: [fmtD(r.date), r.reference, r.type, r.counterparty, r.category, r.wallet, fmt(r.inflow), fmt(r.outflow), fmt(r.net), r.description] })))
+            await exportTableDataset('Cashbook', ['Date', 'Reference', 'Type', 'Counterparty', 'Category', 'Wallet / Account', 'Net Flow', 'Running Balance', 'Description'], visibleRows.map(r => ({ id: r.id, cells: [fmtD(r.date), r.reference, r.type, r.counterparty, r.category, r.wallet, fmt(r.net), fmt(r.balance), r.description] })))
           })}
         />
       </>
@@ -5630,26 +5584,83 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
       </>
     )
 
+    if (activeSection === 'financials') return (
+      <>
+          <div id="ledgerExplorer" style={{ scrollMarginTop: '16px' }}>
+          <LedgerExplorer
+            data={data}
+            treasury={treasuryToday}
+            otherReceivables={buildAccountLedger('Other Receivables', data.accountTransactions)}
+            rawMaterials={lowStockRows}
+            outstandingOf={getInvoiceOutstandingDue}
+            paidOf={getInvoicePaidAmount}
+            invNo={fmtInv}
+            view={auditView}
+            onView={setAuditView}
+            onViewInvoice={inv => printSaleDocuments(inv, data.payments.filter(p => String(p.invoice) === String(inv.id)), { customer: data.customers.find(c => String(c.id) === String(inv.customer)) })}
+            onGoTo={(section, wallet) => {
+              if (wallet) setTreasuryFocusWallet(wallet)
+              jumpToSection(section)
+            }}
+          />
+          </div>
+        <AuditMonitor treasury={treasuryToday} batches={data.productionBatches} inventoryLedger={inventoryLedger} rawMaterials={lowStockRows} />
+        <FinancialStatements
+          data={data}
+          treasuryTotal={treasuryToday.total}
+          otherReceivablesBalance={buildAccountLedger('Other Receivables', data.accountTransactions).balance}
+          inventoryLedger={inventoryLedger}
+          rawMaterials={lowStockRows}
+          outstandingOf={getInvoiceOutstandingDue}
+          purchaseOutstandingOf={getPurchaseOutstanding}
+          onDrill={target => {
+            // Statement lines open the matching ledger in Financial Audit, as the ERP does.
+            if (target === 'finished') { jumpToSection('supplies_stock', 'finished'); return }
+            if (target === 'reconciliation') { jumpToSection('reconciliation'); return }
+            const [tab, cat] = target.split(':')
+            setAuditView({ tab, cat: cat || 'all' })
+            accountContentRef.current?.scrollIntoView?.({ behavior: 'smooth', block: 'start' })
+          }}
+        />
+      </>
+    )
+
     if (activeSection === 'reporting') return (
       <>
-        <ReportingOverview
-          pl={{ income: totalIncome, directCost: totalCostOfSales, gross: grossProfitOrLoss, expenses: totalExpenses, net: netProfitOrLoss }}
-          position={{ assets: totalAssets, liabilities: totalLiability, equity: totalEquity }}
-          periodNote={`Trial balance period from ${data.trialBalanceReport?.period_start || TRIAL_BALANCE_PERIOD_START} · operating expenses since ${data.trialBalanceReport?.expense_start || TRIAL_BALANCE_EXPENSE_START}`}
-          tabs={[]}
-          activeTab={getSectionTab('reporting')}
-          onTab={key => setSectionTab('reporting', key)}
-          actions={(
+        <section className="workspace-inline-tabs" role="tablist" aria-label="Reporting tabs">
+          {SECTION_TABS.reporting.map(tab => (
             <button
+              key={tab.key}
               type="button"
-              className="ro-btn"
-              onClick={() => exportTableDataset('Trial_Balance', ['Account ID', 'Account Type', 'Account Class', 'Sub-Accounts', 'Account Description', 'Opening Bal', 'Acct In', 'Acct Out', 'Available'], compactTrialBalanceRows)}
+              role="tab"
+              aria-selected={tab.key === getSectionTab('reporting')}
+              className={`workspace-inline-tab ${tab.key === getSectionTab('reporting') ? 'active' : ''}`}
+              onClick={() => setSectionTab('reporting', tab.key)}
             >
-              <FiDownload aria-hidden="true" /> Export XLSX
+              {tab.label}
             </button>
-          )}
-        />
-        {<TableCard
+          ))}
+        </section>
+        {getSectionTab('reporting') === 'income' || getSectionTab('reporting') === 'balance' ? <FinancialStatements
+          view={getSectionTab('reporting') === 'balance' ? 'balance' : 'income'}
+          data={data}
+          treasuryTotal={treasuryToday.total}
+          otherReceivablesBalance={buildAccountLedger('Other Receivables', data.accountTransactions).balance}
+          inventoryLedger={inventoryLedger}
+          rawMaterials={lowStockRows}
+          outstandingOf={getInvoiceOutstandingDue}
+          purchaseOutstandingOf={getPurchaseOutstanding}
+          onDrill={target => {
+            // Statement lines open the matching ledger in Financial Audit, as the ERP does.
+            if (target === 'finished') { jumpToSection('supplies_stock', 'finished'); return }
+            if (target === 'reconciliation') { jumpToSection('reconciliation'); return }
+            const [tab, cat] = target.split(':')
+            setAuditView({ tab, cat: cat || 'all' })
+            jumpToSection('financials')
+            requestAnimationFrame(() => document.getElementById('ledgerExplorer')?.scrollIntoView({ block: 'start' }))
+          }}
+        /> : null}
+        {getSectionTab('reporting') === 'trial_balance' && <TableCard
           title="Trial Balance"
           subtitle={`Workbook column structure reproduced with period logic from ${TRIAL_BALANCE_PERIOD_START} (expenses baseline ${TRIAL_BALANCE_EXPENSE_START}). Click a row to view transaction detail.`}
           columns={['Account ID', 'Account Type', 'Account Class', 'Sub-Accounts', 'Account Description', 'Opening Bal', 'Acct In', 'Acct Out', 'Available']}
@@ -5908,7 +5919,7 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
           {(isStandaloneView || !sectionsWithInlineHeader.has(activeSection)) ? (
             <header className={`account-content-header section-${activeSection}${isStandaloneView ? ' account-content-header-standalone' : ''}`}>
               <h1>{activeContent.label}</h1>
-              <p>{activeContent.subtitle}</p>
+              {activeContent.subtitle ? <p>{activeContent.subtitle}</p> : null}
             </header>
           ) : null}
           {loadError ? <div className="workspace-error-banner">{loadError}</div> : null}

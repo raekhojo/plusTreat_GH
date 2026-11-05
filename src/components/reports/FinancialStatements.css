@@ -1,0 +1,38 @@
+/* Income Statement + Balance Sheet in the app's card and type language. */
+.fs-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; margin-bottom: 18px; align-items: start; font-family: var(--font-body); color: var(--brand-ink, #15344d); }
+.fs-grid.is-single { grid-template-columns: minmax(0, 980px); }
+.fs-card { background: #ffffff; border-radius: 16px; min-width: 0; overflow: hidden; }
+.fs-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; padding: 18px 22px 14px; border-bottom: 1px solid #eef2f6; }
+.fs-head h2 { margin: 0; font-family: var(--font-body); font-size: 1.1rem; font-weight: 700; letter-spacing: normal; color: var(--brand-ink, #15344d); }
+.fs-tag { font-size: 0.72rem; font-weight: 700; color: var(--brand-blue, #2c86b8); background: var(--brand-sky-soft, #e8f6fd); padding: 3px 10px; border-radius: 999px; }
+.fs-link { border: 0; background: var(--brand-sky-soft, #e8f6fd); color: var(--brand-blue, #2c86b8); font: inherit; font-size: 0.78rem; font-weight: 700; padding: 6px 12px; border-radius: 10px; cursor: pointer; }
+.fs-link:hover { background: #d6effb; }
+
+.fs-body { display: flex; flex-direction: column; padding: 6px 0 0; }
+.fs-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 11px 22px; border-bottom: 1px solid #eef2f6; font-size: 0.88rem; }
+.fs-row.is-indent .fs-label { color: #3d566b; }
+.fs-label { display: inline-flex; align-items: center; gap: 8px; min-width: 0; }
+.fs-label strong { font-weight: 700; color: var(--brand-ink, #15344d); }
+.fs-value { font-weight: 600; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.fs-value.is-good { color: #15803d; }
+.fs-value.is-bad { color: #dc2626; }
+.fs-value.is-blue { color: var(--brand-blue, #2c86b8); font-weight: 700; }
+.fs-value.is-orange { color: var(--brand-orange-deep, #e8961a); font-weight: 700; }
+
+.fs-row.is-subtotal { background: #f8fafc; font-weight: 700; }
+.fs-row.is-total { background: var(--brand-sky-soft, #e8f6fd); font-weight: 800; font-size: 0.9rem; text-transform: uppercase; letter-spacing: 0.02em; border-bottom: 0; }
+.fs-row.is-total .fs-label, .fs-row.is-total .fs-value { color: var(--brand-ink, #15344d); }
+.fs-row.is-total.is-profit { background: #f0fdf4; }
+.fs-row.is-total.is-profit .fs-label, .fs-row.is-total.is-profit .fs-value { color: #15803d; }
+.fs-row.is-total.is-loss { background: #fdf0f0; }
+.fs-row.is-total.is-loss .fs-label, .fs-row.is-total.is-loss .fs-value { color: #dc2626; }
+
+.fs-section { display: flex; align-items: center; gap: 8px; padding: 14px 22px 8px; font-size: 0.7rem; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: #8a9bab; border-bottom: 1px solid #eef2f6; }
+
+.fs-drill { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; padding: 0; border: 0; border-radius: 6px; background: #f1f4f8; color: #5f7b91; cursor: pointer; flex-shrink: 0; }
+.fs-drill svg { width: 12px; height: 12px; }
+.fs-drill:hover { background: var(--brand-sky-soft, #e8f6fd); color: var(--brand-blue, #2c86b8); }
+
+@media (max-width: 1100px) {
+  .fs-grid { grid-template-columns: minmax(0, 1fr); }
+}

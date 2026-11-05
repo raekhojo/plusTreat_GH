@@ -38,9 +38,10 @@ function TreasuryPanel({ treasury, rows = [], onEdit = null, onTransfer, onAddEn
   const [limit, setLimit] = useState(PAGE_SIZE)
 
   // Rows seen through the chosen wallet: a transfer only counts its own side.
+  // Each row also carries the running balance after it: of the chosen wallet,
+  // or of all wallets together (rows are newest first, so add up from the end).
   const walletRows = useMemo(() => {
-    if (!wallet) return rows
-    return rows
+    const list = !wallet ? rows : rows
       .filter(r => r.walletKey === wallet || r.walletToKey === wallet)
       .map(r => {
         if (r.kind !== 'transfer') return r
@@ -48,6 +49,14 @@ function TreasuryPanel({ treasury, rows = [], onEdit = null, onTransfer, onAddEn
         const outflow = r.walletKey === wallet ? r.outflow || r.inflow : 0
         return { ...r, inflow, outflow, net: inflow - outflow }
       })
+    const out = new Array(list.length)
+    let running = 0
+    for (let i = list.length - 1; i >= 0; i -= 1) {
+      const r = list[i]
+      if (r.walletKey || r.walletToKey) running += (Number(r.inflow) || 0) - (Number(r.outflow) || 0)
+      out[i] = { ...r, balance: running }
+    }
+    return out
   }, [rows, wallet])
 
   const typeCounts = useMemo(() => {
@@ -148,7 +157,7 @@ function TreasuryPanel({ treasury, rows = [], onEdit = null, onTransfer, onAddEn
               <thead>
                 <tr>
                   <th>Date</th><th>Reference</th><th>Type</th><th>Counterparty</th><th>Category</th><th>Wallet / Account</th>
-                  <th className="num">Inflow (+)</th><th className="num">Outflow (−)</th><th className="num">Net flow</th><th>Description</th>
+                  <th className="num">Net flow</th><th className="num">Running balance</th><th>Description</th>
                   {onEdit ? <th className="tr-actions-head">Actions</th> : null}
                 </tr>
               </thead>
@@ -161,9 +170,8 @@ function TreasuryPanel({ treasury, rows = [], onEdit = null, onTransfer, onAddEn
                     <td className="tr-strong">{r.counterparty}</td>
                     <td className="tr-muted">{r.category}</td>
                     <td className="nowrap">{r.wallet}</td>
-                    <td className="num tr-in">{r.inflow ? `+${money(r.inflow)}` : <span className="tr-faint">—</span>}</td>
-                    <td className="num tr-out">{r.outflow ? `−${money(r.outflow)}` : <span className="tr-faint">—</span>}</td>
                     <td className={`num tr-net ${r.net < -0.005 ? 'tr-out' : r.net > 0.005 ? 'tr-in' : 'tr-faint'}`}>{signed(r.net)}</td>
+                    <td className={`num tr-balance${r.balance < -0.005 ? ' tr-out' : ''}`}>{money(r.balance)}</td>
                     <td className="tr-muted tr-desc">{r.description || '—'}</td>
                     {onEdit ? (
                       <td className="tr-actions">

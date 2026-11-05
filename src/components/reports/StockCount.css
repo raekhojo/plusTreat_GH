@@ -45,3 +45,11 @@
 .sc-shortage { background: #fbe3e3; }
 
 @media (max-width: 900px) { .sc-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+
+.sc-head { justify-content: flex-end; }
+.sc-tabs { margin: 4px 0 10px; }
+.sc-tabs .workspace-inline-tab { display: inline-flex; align-items: center; gap: 6px; }
+.sc-tab-count { font-size: 0.7rem; font-weight: 700; padding: 1px 7px; border-radius: 999px; background: #eef2f6; color: #5f7b91; }
+.sc-tab-count.is-done { background: #dcfce7; color: #15803d; }
+.sc-tab-count.is-diff { background: #fee2e2; color: #b91c1c; }
+.sc-tabs .workspace-inline-tab.active .sc-tab-count { background: rgba(255, 255, 255, 0.22); color: #ffffff; }

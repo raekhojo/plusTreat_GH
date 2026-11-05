@@ -751,6 +751,7 @@ export default function SalesOverview({
   onCustomRange,
   onExport,
   onNavigate,
+  loading = false,
 }) {
   const tooltip = useTooltip()
   const [showTable, setShowTable] = useState(false)
@@ -1100,6 +1101,58 @@ export default function SalesOverview({
     onExport(`Dashboard_${rangeLabel.replaceAll(' ', '_')}`, ['Section', 'Item', 'Value'], rows, format)
   } : null
 
+  // While the records load, draw the same layout with shimmer in place of the figures.
+  if (loading) {
+    const Skel = ({ w = '100%', h = 12 }) => <span className="so-skel" style={{ width: w, height: h }} aria-hidden="true" />
+    const Lines = ({ n = 5 }) => (
+      <div className="so-skel-lines">
+        {Array.from({ length: n }, (_, i) => <div key={i} className="so-skel-row"><Skel w={`${58 - (i % 3) * 12}%`} /><Skel w="18%" /></div>)}
+      </div>
+    )
+    const Chart = ({ h = 220 }) => <Skel h={h} />
+    return (
+      <div className="so-root" aria-busy="true">
+        <PeriodBar presets={presets} activePreset={shownPreset} onSelect={onPresetSelect} onCustom={onCustomRange} rangeLabel={rangeLabel} onExport={null} />
+        <section className="so-card so-stats so-stats-position" aria-label="Position today">
+          {[0, 1, 2, 3].map(i => (
+            <div key={i} className="so-stat">
+              <Skel w="55%" h={11} />
+              <Skel w="70%" h={28} />
+              <Skel w="80%" h={11} />
+              <Skel h={28} />
+            </div>
+          ))}
+        </section>
+        <div className="ps-wallets" aria-hidden="true">
+          {[0, 1, 2, 3].map(i => (
+            <div key={i} className="ps-wallet">
+              <span className="ps-wallet-copy"><Skel w={90} h={11} /><Skel w={120} h={18} /></span>
+            </div>
+          ))}
+        </div>
+        <section className="so-segments"><Skel h={14} /></section>
+        <Card title="Stock watch" subtitle="Live stock today: what to produce and what to reorder."><Lines n={4} /></Card>
+        <div className="so-grid">
+          <Card title="Biggest customers" subtitle="Revenue in the selected period."><Lines n={5} /></Card>
+          <Card title="Customers to call" subtitle={`Bought in the 6 months before, then no order for ${QUIET_DAYS} days or more.`}><Lines n={5} /></Card>
+        </div>
+        <div className="so-grid so-grid-3">
+          <Card title="Collections" subtitle="Cash collected in the period, and open invoices by age today."><Chart h={160} /></Card>
+          <Card title="Cash in by method" subtitle="Customer payments received in the period."><Chart h={160} /></Card>
+          <Card title="Production" subtitle="Batches made in the period (development batches counted separately)."><Chart h={160} /></Card>
+        </div>
+        <div className="so-grid so-grid-wide">
+          <Card title="Revenue over time" subtitle="Revenue in GHS, stacked by customer category."><Chart h={240} /></Card>
+          <Card title="Where it sells" subtitle="Share of line revenue by pricing tier. Each square is 1%."><Chart h={240} /></Card>
+        </div>
+        <div className="so-grid">
+          <Card title="What sells" subtitle="Bottle sizes ranked by revenue, with gross margin after production cost."><Lines n={5} /></Card>
+          <Card title="Sales rhythm" subtitle="Revenue per day. Darker means a bigger day."><Chart h={180} /></Card>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="so-root">
       <PeriodBar presets={presets} activePreset={shownPreset} onSelect={onPresetSelect} onCustom={onCustomRange} rangeLabel={rangeLabel} onExport={handleExport} />
@@ -1176,7 +1229,7 @@ export default function SalesOverview({
       </div>
 
       <div className="so-grid">
-        <Card title="What sells" subtitle="Bottle sizes ranked by revenue, with gross margin after production cost." actions={<button type="button" className="so-link-btn" onClick={() => onNavigate?.('production_ops', 'inventory')}>Open inventory</button>}>
+        <Card title="What sells" subtitle="Bottle sizes ranked by revenue, with gross margin after production cost." actions={<button type="button" className="so-link-btn" onClick={() => onNavigate?.('supplies_stock', 'finished')}>Open inventory</button>}>
           <ProductRanking rows={view.products} tooltip={tooltip} />
         </Card>
         <Card title="Sales rhythm" subtitle="Revenue per day. Darker means a bigger day.">

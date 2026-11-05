@@ -18,6 +18,15 @@ function mlOf(text) {
   const l = t.match(/(\d+(?:\.\d+)?)\s*l\b/)
   return l ? num(l[1]) * 1000 : 0
 }
+// Raw materials are counted in four broad groups, as on the ERP's stock page.
+const RM_GROUPS = ['Ingredients', 'Flavours', 'Bottles', 'Labels']
+function rmGroup(m) {
+  const text = `${m.category || ''} ${m.name || ''}`
+  if (/bottle/i.test(text)) return 'Bottles'
+  if (/label/i.test(text)) return 'Labels'
+  if (/flavou?r|colou?r/i.test(text)) return 'Flavours'
+  return 'Ingredients'
+}
 function readDraft() {
   try { return JSON.parse(localStorage.getItem(DRAFT_KEY) || 'null') || null } catch { return null }
 }
@@ -29,6 +38,7 @@ function StockCount({ treasury, invoices = [], otherReceivablesBalance = 0, inve
   const [meta, setMeta] = useState(() => draft?.meta || { auditor: defaultAuditor, date: new Date().toISOString().slice(0, 10), remarks: '' })
   const [message, setMessage] = useState('')
   const [onlyVariances, setOnlyVariances] = useState(false)
+  const [tab, setTab] = useState('Cash & bank')
   const fileRef = useRef(null)
 
   const items = useMemo(() => {
@@ -44,9 +54,9 @@ function StockCount({ treasury, invoices = [], otherReceivablesBalance = 0, inve
     list.push({ key: 'AR-TRADE', group: 'Receivables', label: 'Customer trade receivables', unit: 'GHS', book: invoices.reduce((t, i) => t + Math.max(0, num(i.outstanding_balance)), 0), unitCost: 1 })
     list.push({ key: 'AR-OTHER', group: 'Receivables', label: 'Other receivables (staff & home advances)', unit: 'GHS', book: otherReceivablesBalance, unitCost: 1 })
     ;[...inventoryLedger].sort((a, b) => mlOf(a.size) - mlOf(b.size)).forEach(f => list.push({ key: `FG-${f.size}`, group: 'Finished goods', label: `Plus Yoghurt ${f.size}`, unit: 'Bottles', book: num(f.available), unitCost: fgCost(mlOf(f.size)) }))
-    ;[...rawMaterials].sort((a, b) => String(a.category || '').localeCompare(String(b.category || '')) || String(a.name).localeCompare(String(b.name))).forEach(m => list.push({
+    ;[...rawMaterials].sort((a, b) => RM_GROUPS.indexOf(rmGroup(a)) - RM_GROUPS.indexOf(rmGroup(b)) || mlOf(a.name) - mlOf(b.name) || String(a.name).localeCompare(String(b.name))).forEach(m => list.push({
       key: `RM-${m.id}`,
-      group: `Raw materials${m.category ? ` · ${m.category}` : ''}`,
+      group: `Raw materials · ${rmGroup(m)}`,
       label: m.name,
       unit: m.unit || '',
       book: num(m.available ?? (num(m.opening_stock) + num(m.stock_in) - num(m.stock_out))),
@@ -69,7 +79,11 @@ function StockCount({ treasury, invoices = [], otherReceivablesBalance = 0, inve
   const physicalValue = countedRows.reduce((t, r) => t + r.physical * r.unitCost, 0) + rows.filter(r => !r.counted).reduce((t, r) => t + r.book * r.unitCost, 0)
   const netVariance = countedRows.reduce((t, r) => t + r.varValue, 0)
   const varianceRows = countedRows.filter(r => r.status !== 'Balanced')
-  const shown = onlyVariances ? varianceRows : rows
+  // Each group is a tab; "All items" shows everything with group headings.
+  const groupTabs = [...new Set(rows.map(r => r.group))]
+  const activeTab = tab === 'all' || groupTabs.includes(tab) ? tab : groupTabs[0] || 'all'
+  const tabLabel = g => g.replace('Raw materials · ', '')
+  const shown = (onlyVariances ? varianceRows : rows).filter(r => activeTab === 'all' || r.group === activeTab)
   const groups = [...new Set(shown.map(r => r.group))]
 
   const persist = (nextCounts = counts, nextNotes = notes, nextMeta = meta) => {
@@ -153,10 +167,6 @@ function StockCount({ treasury, invoices = [], otherReceivablesBalance = 0, inve
   return (
     <section className="sc-wrap" aria-label="Stock count">
       <header className="sc-head">
-        <div>
-          <h2>Stock count &amp; asset reconciliation</h2>
-          <p>Count cash, receivables, finished goods and raw materials, and compare with the books. Your count is saved as a draft in this browser — export it to keep a record.</p>
-        </div>
         <div className="sc-actions">
           <button type="button" className="rc-btn" onClick={downloadTemplate}>Download count sheet</button>
           <button type="button" className="rc-btn" onClick={() => fileRef.current?.click()}>Upload filled sheet</button>
@@ -184,6 +194,20 @@ function StockCount({ treasury, invoices = [], otherReceivablesBalance = 0, inve
         <div className={Math.abs(netVariance) < 0.005 ? 'is-good' : 'is-bad'}><span>Net variance</span><strong>GHS {money(netVariance)}</strong><em>{varianceRows.length} item{varianceRows.length === 1 ? '' : 's'} differ</em></div>
       </div>
 
+      <section className="workspace-inline-tabs sc-tabs" role="tablist" aria-label="Count groups">
+        {[...groupTabs, 'all'].map(g => {
+          const groupRows = g === 'all' ? rows : rows.filter(r => r.group === g)
+          const done = groupRows.filter(r => r.counted).length
+          const differs = groupRows.some(r => r.counted && r.status !== 'Balanced')
+          return (
+            <button key={g} type="button" role="tab" aria-selected={activeTab === g} className={`workspace-inline-tab ${activeTab === g ? 'active' : ''}`} onClick={() => setTab(g)}>
+              {g === 'all' ? 'All items' : tabLabel(g)}
+              <span className={`sc-tab-count${differs ? ' is-diff' : done === groupRows.length && done ? ' is-done' : ''}`}>{done}/{groupRows.length}</span>
+            </button>
+          )
+        })}
+      </section>
+
       <label className="sc-toggle"><input type="checkbox" checked={onlyVariances} onChange={e => setOnlyVariances(e.target.checked)} /> Show only items that differ</label>
 
       <div className="sc-table-scroll">
@@ -191,7 +215,7 @@ function StockCount({ treasury, invoices = [], otherReceivablesBalance = 0, inve
           <thead><tr><th>Item</th><th>Unit</th><th className="num">Book qty</th><th className="num">Physical count</th><th className="num">Variance</th><th className="num">Variance (GHS)</th><th>Status</th><th>Notes</th></tr></thead>
           <tbody>
             {groups.map(g => [
-              <tr key={`g-${g}`} className="sc-group"><td colSpan={8}>{g}</td></tr>,
+              activeTab === 'all' ? <tr key={`g-${g}`} className="sc-group"><td colSpan={8}>{g}</td></tr> : null,
               ...shown.filter(r => r.group === g).map(r => (
                 <tr key={r.key}>
                   <td>{r.label}</td>

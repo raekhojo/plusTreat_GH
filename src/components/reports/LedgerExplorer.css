@@ -1,0 +1,49 @@
+/* Ledger explorer in the app's card, tab and table language. */
+.le-card { background: #ffffff; border-radius: 16px; overflow: hidden; margin-bottom: 16px; font-family: var(--font-body); color: var(--brand-ink, #15344d); }
+.le-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; padding: 18px 22px 12px; }
+.le-head h2 { margin: 0; font-family: var(--font-body); font-size: 1.1rem; font-weight: 700; letter-spacing: normal; color: var(--brand-ink, #15344d); }
+.le-search { font: inherit; font-size: 0.86rem; width: 210px; padding: 8px 12px; border: 1px solid #dbe3ec; border-radius: 10px; color: inherit; outline: none; }
+.le-search:focus { border-color: var(--brand-blue, #2c86b8); box-shadow: 0 0 0 3px var(--brand-sky-soft, #e8f6fd); }
+
+.le-tabs { margin-top: 0; }
+.le-tabs .workspace-inline-tab { display: inline-flex; align-items: center; gap: 6px; }
+.le-count { font-size: 0.7rem; font-weight: 700; padding: 1px 7px; border-radius: 999px; background: #eef2f6; color: #5f7b91; }
+.le-tabs .workspace-inline-tab.active .le-count { background: rgba(255, 255, 255, 0.22); color: #ffffff; }
+.le-tabs .le-tab-link { color: var(--brand-blue, #2c86b8); }
+
+.le-body { padding: 4px 0 0; }
+.le-note { margin: 0 22px 12px; font-size: 0.84rem; color: #5f7b91; }
+.le-link { border: 0; background: none; padding: 0; font: inherit; font-weight: 700; color: var(--brand-blue, #2c86b8); cursor: pointer; }
+
+.le-chips { display: flex; flex-wrap: wrap; gap: 6px; padding: 0 22px 12px; }
+.le-chip { border: 0; background: #f1f4f8; color: var(--brand-ink, #15344d); font: inherit; font-size: 0.76rem; font-weight: 600; padding: 5px 10px; border-radius: 10px; cursor: pointer; }
+.le-chip span { color: #8a9bab; font-weight: 600; margin-left: 2px; }
+.le-chip:hover { background: #e6ebf2; }
+.le-chip.is-active { background: var(--brand-ink, #15344d); color: #ffffff; }
+.le-chip.is-active span { color: rgba(255, 255, 255, 0.7); }
+
+.le-table-wrap { max-height: 520px; overflow: auto; }
+.le-table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+.le-table th { position: sticky; top: 0; z-index: 1; text-align: left; background: #f8fafc; color: #8a9bab; font-size: 0.7rem; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; padding: 11px 12px; border-bottom: 1px solid #eef2f6; white-space: nowrap; }
+.le-table td { padding: 12px; border-bottom: 1px solid #eef2f6; vertical-align: middle; }
+.le-table th:first-child, .le-table td:first-child { padding-left: 22px; }
+.le-table th:last-child, .le-table td:last-child { padding-right: 22px; }
+.le-table .num { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.le-table tbody tr:hover td { background: #fbfcfe; }
+.le-empty { text-align: center; color: #8a9bab; padding: 28px 12px !important; }
+.le-foot { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; padding: 12px 22px; background: #f8fafc; font-size: 0.84rem; font-weight: 700; }
+
+.le-mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.78rem; color: #5f7b91; }
+.le-muted { color: #5f7b91; font-size: 0.8rem; }
+.le-pill { display: inline-block; font-size: 0.72rem; font-weight: 600; padding: 2px 9px; border-radius: 999px; background: #f1f4f8; color: #3d566b; white-space: nowrap; }
+.le-badge { display: inline-block; font-size: 0.72rem; font-weight: 700; padding: 2px 9px; border-radius: 999px; white-space: nowrap; }
+.le-badge.is-good { background: #dcfce7; color: #15803d; }
+.le-badge.is-bad { background: #fee2e2; color: #b91c1c; }
+.le-badge.is-warn { background: var(--brand-orange-soft, #fff4e0); color: #b45309; }
+.le-btn { border: 1px solid #dbe3ec; background: #ffffff; color: var(--brand-blue, #2c86b8); font: inherit; font-size: 0.76rem; font-weight: 700; padding: 4px 10px; border-radius: 8px; cursor: pointer; }
+.le-btn:hover { background: var(--brand-sky-soft, #e8f6fd); }
+
+.le-card .is-good:not(.le-badge) { color: #15803d; }
+.le-card .is-bad:not(.le-badge) { color: #dc2626; }
+.le-card .is-blue { color: var(--brand-blue, #2c86b8); }
+.le-card .is-orange { color: var(--brand-orange-deep, #e8961a); }

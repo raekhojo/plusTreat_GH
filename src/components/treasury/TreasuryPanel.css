@@ -247,6 +247,7 @@
 .tr-strong { font-weight: 600; }
 .tr-desc { min-width: 180px; font-size: 0.82rem; }
 .tr-net { font-weight: 700; }
+.tr-balance { font-weight: 800; color: var(--brand-ink, #15344d); white-space: nowrap; }
 .tr-faint { color: #c3ccd5; }
 .tr-in, .tr-out { font-variant-numeric: tabular-nums; }
 .tr-type {

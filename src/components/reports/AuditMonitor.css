@@ -1,0 +1,22 @@
+/* Audit findings card in the app's card language. */
+.fa-card { background: #ffffff; border-radius: 16px; overflow: hidden; margin-bottom: 16px; font-family: var(--font-body); color: var(--brand-ink, #15344d); }
+.fa-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; padding: 18px 22px 14px; border-bottom: 1px solid #eef2f6; }
+.fa-head h2 { margin: 0; font-family: var(--font-body); font-size: 1.1rem; font-weight: 700; letter-spacing: normal; color: var(--brand-ink, #15344d); }
+.fa-status { font-size: 0.74rem; font-weight: 700; padding: 3px 10px; border-radius: 999px; }
+.fa-status.is-open { background: #fee2e2; color: #b91c1c; }
+.fa-status.is-clear { background: #dcfce7; color: #15803d; }
+.fa-list { display: flex; flex-direction: column; }
+.fa-flag { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 14px 22px; border-bottom: 1px solid #eef2f6; }
+.fa-flag:last-child { border-bottom: 0; }
+.fa-flag-main { min-width: 0; }
+.fa-flag-title { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 4px; font-size: 0.9rem; }
+.fa-flag p { margin: 2px 0 0; font-size: 0.82rem; color: #3d566b; }
+.fa-flag p.fa-action { color: var(--brand-blue, #2c86b8); font-weight: 600; }
+.fa-ref { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.72rem; color: #8a9bab; }
+.fa-badge { font-size: 0.68rem; font-weight: 800; letter-spacing: 0.04em; text-transform: uppercase; padding: 2px 8px; border-radius: 999px; }
+.fa-badge.is-bad { background: #fee2e2; color: #b91c1c; }
+.fa-badge.is-warn { background: var(--brand-orange-soft, #fff4e0); color: #b45309; }
+.fa-badge.is-info { background: var(--brand-sky-soft, #e8f6fd); color: var(--brand-blue, #2c86b8); }
+.fa-ack { flex-shrink: 0; border: 1px solid #dbe3ec; background: #ffffff; color: var(--brand-ink, #15344d); font: inherit; font-size: 0.78rem; font-weight: 700; padding: 6px 12px; border-radius: 10px; cursor: pointer; }
+.fa-ack:hover { background: #f1f4f8; }
+.fa-empty { margin: 0; padding: 16px 22px; font-size: 0.86rem; color: #15803d; font-weight: 600; }
