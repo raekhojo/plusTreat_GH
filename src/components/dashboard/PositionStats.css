@@ -13,7 +13,7 @@
 .ps-wallet-copy { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
 .ps-wallet-name { display: inline-flex; align-items: center; gap: 6px; font-size: 0.8rem; color: #6b7d8e; white-space: nowrap; }
 .ps-wallet-name svg { flex: none; width: 15px; height: 15px; fill: none; stroke: var(--brand-blue, #2c86b8); stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
-.ps-wallet-amount { font-size: 1.05rem; font-weight: 700; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.ps-wallet-amount { font-size: clamp(0.9rem, 1.15vw, 1.05rem); font-weight: 700; white-space: nowrap; font-variant-numeric: tabular-nums; }
 .ps-wallet.is-negative .ps-wallet-amount { color: #c23b3b; }
 .ps-view {
   flex: none;

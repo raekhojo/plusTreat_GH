@@ -9752,3 +9752,17 @@
     scroll-snap-align: start;
   }
 }
+
+/* Tables fit their card: cells wrap instead of cutting off or scrolling sideways. */
+.workspace-table .sales-list-head span,
+.workspace-table .sales-list-row > span {
+  white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
+  overflow-wrap: break-word;
+}
+.workspace-table .sales-list-row > span.workspace-table-number { overflow-wrap: normal; }
+.workspace-table .sales-list-head,
+.workspace-table .sales-list-row { column-gap: 10px; }
+.workspace-table .sales-list-head span { overflow-wrap: normal; letter-spacing: 0.03em; font-size: 0.7rem; }
+.workspace-table-pagination { padding: 8px 20px 10px; }

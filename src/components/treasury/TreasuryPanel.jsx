@@ -11,6 +11,15 @@ function signed(v) {
   if (Math.abs(n) < 0.005) return money(0)
   return `${n > 0 ? '+' : '−'}${money(Math.abs(n))}`
 }
+// Table figures: currency is in the column heading, so cells show the number only.
+function amount(v) {
+  return new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(Number(v) || 0)
+}
+function signedAmount(v) {
+  const n = Number(v) || 0
+  if (Math.abs(n) < 0.005) return amount(0)
+  return `${n > 0 ? '+' : '−'}${amount(Math.abs(n))}`
+}
 function fmtDate(raw) {
   const m = String(raw || '').match(/^(\d{4})-(\d{2})-(\d{2})/)
   if (!m) return raw || '—'
@@ -156,8 +165,8 @@ function TreasuryPanel({ treasury, rows = [], onEdit = null, onTransfer, onAddEn
             <table className="tr-table tr-cashbook-table">
               <thead>
                 <tr>
-                  <th>Date</th><th>Reference</th><th>Type</th><th>Counterparty</th><th>Category</th><th>Wallet / Account</th>
-                  <th className="num">Net flow</th><th className="num">Running balance</th><th>Description</th>
+                  <th>Date</th><th>Reference</th><th>Description</th><th>Counter&shy;party</th><th>Category</th><th>Wallet / Account</th>
+                  <th className="num">Net flow (GHS)</th><th className="num">Balance (GHS)</th>
                   {onEdit ? <th className="tr-actions-head">Actions</th> : null}
                 </tr>
               </thead>
@@ -166,13 +175,12 @@ function TreasuryPanel({ treasury, rows = [], onEdit = null, onTransfer, onAddEn
                   <tr key={r.id}>
                     <td className="nowrap">{fmtDate(r.date)}</td>
                     <td className="nowrap tr-reference">{r.reference}</td>
-                    <td><span className={`tr-type tr-type-${r.kind}`}>{r.type}</span></td>
-                    <td className="tr-strong">{r.counterparty}</td>
+                    <td className="tr-muted tr-desc">{r.description || '—'}</td>
+                    <td className="tr-strong tr-party">{r.counterparty}</td>
                     <td className="tr-muted">{r.category}</td>
                     <td className="nowrap">{r.wallet}</td>
-                    <td className={`num tr-net ${r.net < -0.005 ? 'tr-out' : r.net > 0.005 ? 'tr-in' : 'tr-faint'}`}>{signed(r.net)}</td>
-                    <td className={`num tr-balance${r.balance < -0.005 ? ' tr-out' : ''}`}>{money(r.balance)}</td>
-                    <td className="tr-muted tr-desc">{r.description || '—'}</td>
+                    <td className={`num tr-net ${r.net < -0.005 ? 'tr-out' : r.net > 0.005 ? 'tr-in' : 'tr-faint'}`}>{signedAmount(r.net)}</td>
+                    <td className={`num tr-balance${r.balance < -0.005 ? ' tr-out' : ''}`}>{amount(r.balance)}</td>
                     {onEdit ? (
                       <td className="tr-actions">
                         <button type="button" className="workspace-action-btn" onClick={() => onEdit(r)}>Edit</button>

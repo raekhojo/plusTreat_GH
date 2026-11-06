@@ -285,3 +285,18 @@
 }
 .tr-cashbook-table .tr-actions-head { background: #f8fafc; }
 .tr-cashbook-table tbody tr:hover td.tr-actions { background: #fbfcfd; }
+
+/* Cashbook fits its card: text columns wrap, dates and figures stay on one line. */
+.tr-cashbook-table th { white-space: normal; }
+.tr-cashbook-table td, .tr-cashbook-table td.nowrap { white-space: normal; overflow-wrap: break-word; }
+.tr-cashbook-table td.nowrap:first-child, .tr-cashbook-table td.num { white-space: nowrap; }
+.tr-cashbook-table td.tr-desc { min-width: 120px; max-width: none; }
+.tr-table-scroll:has(.tr-cashbook-table) { overflow-x: auto; }
+.tr-cashbook-table { font-size: 0.8rem; }
+.tr-cashbook-table th, .tr-cashbook-table td { padding-left: 7px; padding-right: 7px; }
+.tr-cashbook-table th:first-child, .tr-cashbook-table td:first-child { padding-left: 16px; }
+.tr-cashbook-table th:last-child, .tr-cashbook-table td:last-child { padding-right: 14px; }
+.tr-cashbook-table .tr-actions .workspace-action-btn { padding: 4px 9px; }
+.tr-cashbook-table th, .tr-cashbook-table th.num { white-space: normal; }
+.tr-cashbook-table td.tr-desc { min-width: 96px; }
+.tr-cashbook-table td.tr-party { overflow-wrap: anywhere; min-width: 80px; }

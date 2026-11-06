@@ -238,6 +238,21 @@ function getInvoiceCollectionState(invoice) {
   if (outstanding > 0 && paidAmount > 0) return 'partial'
   return 'unpaid'
 }
+// Raw materials in the ERP's four broad groups (used for the Raw Materials filter).
+const RM_GROUP_TABS = [
+  { key: 'all', label: 'All' },
+  { key: 'Ingredients', label: 'Ingredients' },
+  { key: 'Bottles', label: 'Bottles' },
+  { key: 'Labels', label: 'Labels' },
+  { key: 'Flavours', label: 'Flavours' },
+]
+function rawMaterialGroup(m) {
+  const text = `${m?.category || ''} ${m?.name || ''}`
+  if (/bottle/i.test(text)) return 'Bottles'
+  if (/label/i.test(text)) return 'Labels'
+  if (/flavou?r|colou?r/i.test(text)) return 'Flavours'
+  return 'Ingredients'
+}
 const SALES_STATUS_TABS = [
   { key: 'all', label: 'All' },
   { key: 'paid', label: 'Fully Paid' },
@@ -1454,18 +1469,22 @@ function TableCard({
     if (page > totalPages) setPage(totalPages)
   }, [page, totalPages])
 
+  // Fixed pixel widths are treated as proportions so every table fits its card
+  // (no sideways scrolling); text wraps inside the narrower columns instead.
   const normalizeColWidth = (width) => {
     const raw = String(width || '').trim()
-    if (!raw) return '160px'
-    if (raw.includes('minmax(') || raw.includes('clamp(')) return raw
-    if (raw.includes('fr')) return `minmax(0, ${raw})`
+    // A column never gets narrower than its longest word, so words are not split.
+    if (!raw) return 'minmax(min-content, 1.6fr)'
+    if (raw.includes('minmax(') || raw.includes('clamp(')) return raw.replace(/minmax\(\s*[\d.]+px\s*,/, 'minmax(min-content,')
+    if (raw.includes('fr')) return `minmax(min-content, ${raw})`
+    const px = raw.match(/^([\d.]+)px$/)
+    if (px) return `minmax(min-content, ${(Number(px[1]) / 100).toFixed(2)}fr)`
     return raw
   }
 
-  const hasCustomWidths = Array.isArray(colWidths) && colWidths.length > 0
   const colTemplate = colWidths
     ? colWidths.map(normalizeColWidth).join(' ')
-    : columns.map(col => col === '' ? '72px' : '160px').join(' ')
+    : columns.map(col => (col === '' ? 'minmax(min-content, 0.72fr)' : 'minmax(min-content, 1.6fr)')).join(' ')
   const mobileColumns = columns.map((col, index) => ({
     key: `${col || 'action'}-${index}`,
     label: col || 'Action',
@@ -1530,9 +1549,7 @@ function TableCard({
           className="sales-list-table workspace-table"
           style={{
             '--table-cols': colTemplate,
-            // Flexible (fr) column widths fill the card; fixed widths size to content and scroll.
-            width: hasCustomWidths && !colWidths.some(w => /fr/.test(String(w))) ? 'max-content' : '100%',
-            minWidth: '100%',
+            width: '100%',
           }}
         >
           <div className="sales-list-head workspace-table-head">
@@ -1567,7 +1584,7 @@ function TableCard({
         {visibleRows.length
           ? visibleRows.map(row => {
               if (mobileVariant === 'sales-list') {
-                const [invoice, date, customer, total, paid, outstanding, actions] = row.cells
+                const [date, invoice, customer, total, paid, outstanding, actions] = row.cells
                 return (
                   <article
                     key={`mobile-${row.key}`}
@@ -1595,7 +1612,7 @@ function TableCard({
               }
 
               if (mobileVariant === 'production-batches') {
-                const [batchNumber, date, litres, outputValue, , , totalCost, surplus] = row.cells
+                const [date, batchNumber, litres, outputValue, , , totalCost, surplus] = row.cells
                 return (
                   <article
                     key={`mobile-${row.key}`}
@@ -1743,7 +1760,7 @@ function TableCard({
               }
 
               if (mobileVariant === 'materials-list') {
-                const [material, category, unit, opening, stockIn, stockOut, available, balanceValue, reorder, status] = row.cells
+                const [category, material, unit, opening, stockIn, stockOut, available, balanceValue, reorder, status] = row.cells
                 return (
                   <article
                     key={`mobile-${row.key}`}
@@ -2289,6 +2306,7 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
   const [uiMode, setUiMode] = useUiMode()
   // Which ledger the Financials & Audit explorer shows (statement lines drill into it).
   const [auditView, setAuditView] = useState({ tab: 'opex', cat: 'all' })
+  const [rmGroupFilter, setRmGroupFilter] = useState('all')
   const [lastSyncedAt, setLastSyncedAt] = useState(null)
 
   const [saleForm,         setSaleForm]         = useState(() => mkSaleForm(loggedInStaffId))
@@ -4236,10 +4254,11 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
     { label: 'Supplier Due', value: fmt(sumBy(purchasesFiltered, p => getPurchaseOutstanding(p))), note: 'Open balances' },
   ]
   const customersSummary  = [
-    { label: 'Customers', value: String(data.customers.length), note: `${filteredCustomerLedger.filter(c => c.invoiceCount > 0).length} already billed` },
-    { label: 'Total Invoiced', value: fmt(sumBy(customerInvoicesFiltered, inv => inv.total_amount)), note: `${customerInvoicesFiltered.length} invoices billed` },
-    { label: 'Outstanding', value: fmt(sumBy(filteredCustomerLedger, c => c.outstanding)), note: 'Total receivables due' },
+    { label: 'Total Invoiced', value: fmt(sumBy(customerInvoicesFiltered, inv => inv.total_amount)), note: 'Billed in the period' },
     { label: 'Receipts', value: fmt(sumBy(customerPaymentsFiltered, p => p.amount)), note: 'Total collected' },
+    { label: 'Outstanding', value: fmt(sumBy(filteredCustomerLedger, c => c.outstanding)), note: 'Total receivables due' },
+    { label: 'Customers', value: String(data.customers.length), note: `${filteredCustomerLedger.filter(c => c.invoiceCount > 0).length} billed in the period` },
+    { label: 'Total Invoices', value: String(customerInvoicesFiltered.length), note: 'Invoices issued' },
     { label: 'Open Invoices', value: String(customerInvoicesFiltered.filter(inv => getInvoiceOutstandingDue(inv) > 0).length), note: 'Invoices with balance' },
   ]
   const suppliersSummary  = [{ label: 'Suppliers', value: String(data.suppliers.length), note: 'Vendor records' }, { label: 'Purchases', value: fmt(sumBy(supplierPurchasesFiltered, p => p.total_amount)), note: `${supplierPurchasesFiltered.length} purchase records` }, { label: 'Paid', value: fmt(sumBy(supplierPurchasesFiltered, p => p.total_paid)), note: 'Total paid to suppliers' }, { label: 'Due', value: fmt(sumBy(filteredSupplierLedger, s => s.outstanding)), note: 'Outstanding payables' }]
@@ -4287,8 +4306,8 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
       emphasisIndex: 3,
       searchText: [fmtInv(inv.id), fmtD(inv.invoice_date), inv.invoice_date, inv.customer_name, fmt(inv.total_amount), fmt(getInvoicePaidAmount(inv)), fmt(balance)].join(' '),
       cells: [
-        <strong key="inv" className="sales-inv-no">{fmtInv(inv.id)}</strong>,
         fmtD(inv.invoice_date),
+        <strong key="inv" className="sales-inv-no">{fmtInv(inv.id)}</strong>,
         inv.customer_name || '—',
         fmt(inv.total_amount),
         <span key="paid" className="sales-paid">{fmt(getInvoicePaidAmount(inv))}</span>,
@@ -4315,8 +4334,8 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
       emphasisIndex: 6,
       searchText: [b.batch_number, fmtD(b.production_date), b.notes].join(' '),
       cells: [
-        <strong key="no" className="batch-no">{b.batch_number || `#${b.id}`}</strong>,
         fmtD(b.production_date),
+        <strong key="no" className="batch-no">{b.batch_number || `#${b.id}`}</strong>,
         <span key="l" className="batch-litres">{`${fmtQ(Math.round(litres * 10) / 10)} L`}</span>,
         <span key="v" className="sales-paid">{fmt(getBatchOutputValue(b))}</span>,
         fmt(b.total_raw_material_cost),
@@ -4373,7 +4392,11 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
         : []),
     ],
   }))
-  const materialRows = lowStockRows.map(m => {
+  const rmGroupCounts = lowStockRows.reduce((acc, m) => { const g = rawMaterialGroup(m); acc[g] = (acc[g] || 0) + 1; return acc }, { all: lowStockRows.length })
+  const materialRows = lowStockRows
+    .filter(m => rmGroupFilter === 'all' || rawMaterialGroup(m) === rmGroupFilter)
+    .sort((a, b) => String(a.category || '').localeCompare(String(b.category || '')) || String(a.name || '').localeCompare(String(b.name || '')))
+    .map(m => {
     const isLow = toNumber(m.reorder_level) > 0 && m.available <= toNumber(m.reorder_level)
     const isOut = m.available <= 0
     const stockColor = isOut ? '#dc2626' : isLow ? '#d97706' : '#16a34a'
@@ -4382,8 +4405,8 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
       key: m.id,
       emphasisIndex: 6,
       cells: [
-        m.name,
         m.category || '—',
+        m.name,
         m.unit || '—',
         fmtQ(m.opening_stock),
         fmtQ(m.stock_in),
@@ -4440,8 +4463,11 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
     unitCostBySize.set(key, agg)
   }))
   const finishedGoods = inventoryLedger.map(item => {
-    const agg = unitCostBySize.get(normalizeSizeKey(item.size))
-    const unitCost = agg && agg.qty > 0 ? agg.amount / agg.qty : 0
+    // Unit production price comes from the Production Price pricing rule, so price
+    // updates show straight away; sizes without one fall back to the batch average cost.
+    const sizeKey = normalizeSizeKey(item.size)
+    const agg = unitCostBySize.get(sizeKey)
+    const unitCost = productionPriceBySize.has(sizeKey) ? productionPriceBySize.get(sizeKey) : (agg && agg.qty > 0 ? agg.amount / agg.qty : 0)
     const available = toNumber(item.available)
     const minLevel = toNumber(item.productionLevel)
     return { item, unitCost, available, minLevel, value: Math.max(0, available) * unitCost, produceNow: available <= minLevel }
@@ -5168,7 +5194,7 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
     if (activeSection === 'sales_hub') return (
       <>
         <DateFilterControl range={salesDateFilter} onOpen={openDateFilter} onClear={() => clearDateFilter('sales_hub')} onPresetSelect={preset => applyQuickDatePreset('sales_hub', preset)} activePreset={sectionDatePresets.sales_hub || ''} inlineTitle="Sales Hub" hideInlineTitle={isStandaloneView} onExport={format => runPageExport(format, 'Sales Hub', async exportTableDataset => {
-          await exportTableDataset('Sales_List', ['Invoice #', 'Date', 'Customer', 'Total Billed', 'Paid', 'Balance Due'], salesRows)
+          await exportTableDataset('Sales_List', ['Date', 'Invoice #', 'Customer', 'Total Billed', 'Paid', 'Balance Due'], salesRows)
         })} />
         <WorkspaceToolbar
           className="workspace-toolbar-sales"
@@ -5226,8 +5252,8 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
           <TableCard
             title="Sales List"
             subtitle="Mirrors Sales, Sales_Dtls, and Invoice workbook rows."
-            columns={['Invoice #', 'Date', 'Customer', 'Total Billed', 'Paid', 'Balance Due', 'Actions']}
-            colWidths={['minmax(96px, 0.8fr)', 'minmax(104px, 0.9fr)', 'minmax(140px, 1.5fr)', 'minmax(108px, 1fr)', 'minmax(108px, 1fr)', 'minmax(108px, 1fr)', 'minmax(200px, 1.3fr)']}
+            columns={['Date', 'Invoice #', 'Customer', 'Total Billed', 'Paid', 'Balance Due', 'Actions']}
+            colWidths={['minmax(104px, 0.9fr)', 'minmax(96px, 0.8fr)', 'minmax(140px, 1.5fr)', 'minmax(108px, 1fr)', 'minmax(108px, 1fr)', 'minmax(108px, 1fr)', 'minmax(200px, 1.3fr)']}
             rows={salesRows}
             mobileVariant="sales-list"
             search={searchTerms.sales_hub}
@@ -5254,7 +5280,7 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
             await exportTableDataset('Pricing_Rules', ['Finished Good Size', 'Size', 'Pricing Category', 'Price'], pricingRows)
             return
           }
-          await exportTableDataset('Production_Batches', ['Batch #', 'Date', 'Litres', 'Output Value', 'Raw Materials', 'Overheads', 'Total Cost', 'Surplus'], batchRows)
+          await exportTableDataset('Production_Batches', ['Date', 'Batch #', 'Litres', 'Output Value', 'Raw Materials', 'Overheads', 'Total Cost', 'Surplus'], batchRows)
         })} />
         <WorkspaceToolbar
           className="workspace-toolbar-production"
@@ -5287,8 +5313,8 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
           <TableCard
             title="Production Batches"
             subtitle="Track batch production and finished stock."
-            columns={canManageProductionTransactions ? ['Batch #', 'Date', 'Litres', 'Output Value', 'Raw Materials', 'Overheads', 'Total Cost', 'Surplus', 'Actions'] : ['Batch #', 'Date', 'Litres', 'Output Value', 'Raw Materials', 'Overheads', 'Total Cost', 'Surplus']}
-            colWidths={['minmax(72px, 0.6fr)', 'minmax(100px, 0.9fr)', 'minmax(84px, 0.8fr)', 'minmax(100px, 1fr)', 'minmax(100px, 1fr)', 'minmax(88px, 0.9fr)', 'minmax(100px, 1fr)', 'minmax(110px, 1fr)', 'minmax(124px, 1fr)']}
+            columns={canManageProductionTransactions ? ['Date', 'Batch #', 'Litres', 'Output Value', 'Raw Materials', 'Overheads', 'Total Cost', 'Surplus', 'Actions'] : ['Date', 'Batch #', 'Litres', 'Output Value', 'Raw Materials', 'Overheads', 'Total Cost', 'Surplus']}
+            colWidths={['minmax(100px, 0.9fr)', 'minmax(72px, 0.6fr)', 'minmax(84px, 0.8fr)', 'minmax(100px, 1fr)', 'minmax(100px, 1fr)', 'minmax(88px, 0.9fr)', 'minmax(100px, 1fr)', 'minmax(110px, 1fr)', 'minmax(124px, 1fr)']}
             searchPlaceholder="Search batches…"
             rows={batchRows}
             mobileVariant="production-batches"
@@ -5339,7 +5365,7 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
             return
           }
           if (tab === 'materials') {
-            await exportTableDataset('Raw_Materials', ['Material', 'Category', 'Unit', 'Opening', 'Stock In', 'Stock Out', 'Available', 'RM Balance Value', 'Reorder', 'Status'], materialRows)
+            await exportTableDataset('Raw_Materials', ['Category', 'Material', 'Unit', 'Opening', 'Stock In', 'Stock Out', 'Available', 'RM Balance Value', 'Reorder', 'Status'], materialRows)
             return
           }
           await exportTableDataset('Purchase_Register', ['Date', '#', 'Supplier', 'Category', 'Status', 'Paid', 'Outstanding'], purchaseRows)
@@ -5388,12 +5414,28 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
           />
         )}
         {getSectionTab('supplies_stock') === 'materials' && (
+          <div className="sales-status-chips" role="group" aria-label="Filter raw materials by group">
+            {RM_GROUP_TABS.map(tab => (
+              <button
+                key={tab.key}
+                type="button"
+                className={`sales-status-chip${rmGroupFilter === tab.key ? ' active' : ''}`}
+                aria-pressed={rmGroupFilter === tab.key}
+                onClick={() => setRmGroupFilter(tab.key)}
+              >
+                <span>{tab.label}</span>
+                <strong>{rmGroupCounts[tab.key] || 0}</strong>
+              </button>
+            ))}
+          </div>
+        )}
+        {getSectionTab('supplies_stock') === 'materials' && (
           <TableCard
             className="supplies-materials-card"
             title="Raw Materials"
             subtitle="Stock levels (RawMaterials sheet). Click a row for full details."
-            columns={canManageDataEntryEditDelete ? ['Material', 'Category', 'Unit', 'Opening', 'Stock In', 'Stock Out', 'Available', 'RM Balance Value', 'Reorder', 'Status', ''] : ['Material', 'Category', 'Unit', 'Opening', 'Stock In', 'Stock Out', 'Available', 'RM Balance Value', 'Reorder', 'Status']}
-            colWidths={canManageDataEntryEditDelete ? ['220px', '150px', '90px', '110px', '110px', '110px', '120px', '150px', '110px', '100px', '88px'] : ['220px', '150px', '90px', '110px', '110px', '110px', '120px', '150px', '110px', '100px']}
+            columns={canManageDataEntryEditDelete ? ['Category', 'Material', 'Unit', 'Opening', 'Stock In', 'Stock Out', 'Available', 'RM Balance Value', 'Reorder', 'Status', ''] : ['Category', 'Material', 'Unit', 'Opening', 'Stock In', 'Stock Out', 'Available', 'RM Balance Value', 'Reorder', 'Status']}
+            colWidths={canManageDataEntryEditDelete ? ['130px', '220px', '70px', '100px', '100px', '100px', '110px', '140px', '90px', '80px', '80px'] : ['130px', '220px', '70px', '110px', '110px', '110px', '120px', '150px', '110px', '100px']}
             rows={materialRows}
             mobileVariant="materials-list"
             search={searchTerms.supplies_materials}
@@ -5541,7 +5583,7 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
           onEdit={canManageDataEntryEditDelete ? editCashbookRow : null}
           onExport={(format, visibleRows) => runPageExport(format, 'Cashbook & Treasury', async exportTableDataset => {
             await exportTableDataset('Wallet_Balances', ['Wallet', 'Balance today'], treasuryToday.wallets.map(w => ({ id: w.key, cells: [w.label, fmt(w.balance)] })))
-            await exportTableDataset('Cashbook', ['Date', 'Reference', 'Type', 'Counterparty', 'Category', 'Wallet / Account', 'Net Flow', 'Running Balance', 'Description'], visibleRows.map(r => ({ id: r.id, cells: [fmtD(r.date), r.reference, r.type, r.counterparty, r.category, r.wallet, fmt(r.net), fmt(r.balance), r.description] })))
+            await exportTableDataset('Cashbook', ['Date', 'Reference', 'Description', 'Counterparty', 'Category', 'Wallet / Account', 'Net Flow', 'Running Balance'], visibleRows.map(r => ({ id: r.id, cells: [fmtD(r.date), r.reference, r.description, r.counterparty, r.category, r.wallet, fmt(r.net), fmt(r.balance)] })))
           })}
         />
       </>

@@ -120,10 +120,10 @@ function LedgerExplorer({ data, treasury, otherReceivables, rawMaterials, outsta
       <>
         <p className="le-note"><strong>{f.arInvoices.length}</strong> unpaid or part-paid invoices make up <strong>{money(f.ar)}</strong> in trade receivables. <button type="button" className="le-link" onClick={() => onGoTo('receivables')}>Open Customer Debts →</button></p>
         <Table
-          head={['Invoice #', 'Date', 'Customer', ['Total Billed', 'num'], ['Amount Paid', 'num'], ['Balance Due', 'num'], 'Status', '']}
+          head={['Date', 'Invoice #', 'Customer', ['Total Billed', 'num'], ['Amount Paid', 'num'], ['Balance Due', 'num'], 'Status', '']}
           rows={rows.map(inv => [
-            <strong key="n" className="is-blue">{invNo(inv.id)}</strong>,
             day(inv.invoice_date),
+            <strong key="n" className="is-blue">{invNo(inv.id)}</strong>,
             <strong key="c">{inv.customer_name}</strong>,
             [money(inv.total_amount), 'num'],
             [<span key="p" className="is-good">{money(paidOf(inv))}</span>, 'num'],
@@ -162,10 +162,10 @@ function LedgerExplorer({ data, treasury, otherReceivables, rawMaterials, outsta
       <>
         <p className="le-note"><strong>{f.batches.length}</strong> production runs make up the <strong className={f.surplus >= 0 ? 'is-good' : 'is-bad'}>{f.surplus >= 0 ? '+' : ''}{money(f.surplus)}</strong> manufacturing surplus.</p>
         <Table
-          head={['Batch #', 'Date', 'Output Mix', ['Output Value', 'num'], ['RM Cost', 'num'], ['Overheads', 'num'], ['Total Cost', 'num'], ['Surplus', 'num']]}
+          head={['Date', 'Batch #', 'Output Mix', ['Output Value', 'num'], ['RM Cost', 'num'], ['Overheads', 'num'], ['Total Cost', 'num'], ['Surplus', 'num']]}
           rows={rows.map(({ b, value, overhead, surplus, litres, mix }) => [
-            <strong key="n" className="is-blue">{b.batch_number || `#${b.id}`}</strong>,
             day(b.production_date),
+            <strong key="n" className="is-blue">{b.batch_number || `#${b.id}`}</strong>,
             <span key="m" className="le-muted">{mix || 'Batch run'} ({litres.toFixed(1)} L)</span>,
             [<span key="v" className="is-good">{money(value)}</span>, 'num'],
             [money(b.total_raw_material_cost), 'num'],
