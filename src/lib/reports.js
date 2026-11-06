@@ -75,7 +75,7 @@ export const REPORTS = [
         const items = rows.filter(r => r.account_class === g)
         if (!items.length) return
         out.push({ section: g })
-        items.forEach(r => out.push([r.account_id || '', r.sub_accounts || r.description || '', money(tbMovement(r))]))
+        items.forEach(r => out.push([r.account_id || '', r.description || r.sub_accounts || '', money(tbMovement(r))]))
         totals[g] = items.reduce((t, r) => t + tbMovement(r), 0)
         out.push({ subtotal: [`Total ${g.toLowerCase()}`, '', money(totals[g])] })
       })
@@ -103,7 +103,7 @@ export const REPORTS = [
       classes.forEach(c => {
         const items = rows.filter(r => (r.account_class || 'Other') === c)
         out.push({ section: c })
-        items.forEach(r => out.push([r.account_id || '', r.sub_accounts || r.description || '', money(r.available)]))
+        items.forEach(r => out.push([r.account_id || '', r.description || r.sub_accounts || '', money(r.available)]))
         sums[c] = items.reduce((t, r) => t + num(r.available), 0)
         out.push({ subtotal: [`Total ${c.toLowerCase()}`, '', money(sums[c])] })
       })
