@@ -40,7 +40,7 @@ const PAGE_SIZE = 25
 
 // Unified cashbook: wallet balances on top (each filters the table), then every
 // money movement in one table with type chips, search and an Edit action.
-function TreasuryPanel({ treasury, rows = [], onEdit = null, onTransfer, onAddEntry, canTransfer = true, initialWallet = '', onExport }) {
+function TreasuryPanel({ treasury, rows = [], onEdit = null, onTransfer, onAddEntry, canTransfer = true, initialWallet = '', onExport, periodLabel = '' }) {
   const [wallet, setWallet] = useState(initialWallet)
   const [type, setType] = useState('')
   const [query, setQuery] = useState('')
@@ -59,14 +59,15 @@ function TreasuryPanel({ treasury, rows = [], onEdit = null, onTransfer, onAddEn
         return { ...r, inflow, outflow, net: inflow - outflow }
       })
     const out = new Array(list.length)
-    let running = 0
+    // With a period chosen, the balance starts from what was there before it.
+    let running = periodLabel ? (wallet ? treasury.wallets.find(w => w.key === wallet)?.opening || 0 : treasury.openingTotal || 0) : 0
     for (let i = list.length - 1; i >= 0; i -= 1) {
       const r = list[i]
       if (r.walletKey || r.walletToKey) running += (Number(r.inflow) || 0) - (Number(r.outflow) || 0)
       out[i] = { ...r, balance: running }
     }
     return out
-  }, [rows, wallet])
+  }, [rows, wallet, periodLabel, treasury])
 
   const typeCounts = useMemo(() => {
     const counts = {}
@@ -88,6 +89,8 @@ function TreasuryPanel({ treasury, rows = [], onEdit = null, onTransfer, onAddEn
   const shown = visible.slice(0, limit)
   const walletName = treasury.wallets.find(w => w.key === wallet)?.label || ''
   const resetPaging = () => setLimit(PAGE_SIZE)
+  // Cards follow the period: balance at the end of it (today when no period is chosen).
+  const shownBalance = w => (periodLabel ? w.closing : w.balance)
 
   return (
     <section className="tr-panel" aria-label="Cashbook and treasury">
@@ -95,13 +98,14 @@ function TreasuryPanel({ treasury, rows = [], onEdit = null, onTransfer, onAddEn
         {treasury.wallets.map(w => {
           const active = w.key === wallet
           return (
-            <div key={w.key} className={`tr-wallet${active ? ' is-open' : ''}${w.balance < 0 ? ' is-negative' : ''}`}>
+            <div key={w.key} className={`tr-wallet${active ? ' is-open' : ''}${shownBalance(w) < 0 ? ' is-negative' : ''}`}>
               <span className="tr-wallet-top">
                 <span className="tr-wallet-icon"><WalletGlyph walletKey={w.key} /></span>
                 <span className="tr-wallet-name">{w.label}</span>
               </span>
-              <strong className="tr-wallet-balance">{money(w.balance)}</strong>
-              {w.balance < 0 ? <span className="tr-wallet-warn">! Below zero — check entries</span> : null}
+              <strong className="tr-wallet-balance">{money(shownBalance(w))}</strong>
+              {periodLabel ? <span className="tr-wallet-flow"><span>In <b className="tr-in">{money(w.periodIn)}</b></span><span>Out <b className="tr-out">{money(w.periodOut)}</b></span></span> : null}
+              {shownBalance(w) < 0 ? <span className="tr-wallet-warn">! Below zero — check entries</span> : null}
               <button
                 type="button"
                 className="tr-wallet-filter"
@@ -115,8 +119,12 @@ function TreasuryPanel({ treasury, rows = [], onEdit = null, onTransfer, onAddEn
         })}
         <div className="tr-wallet tr-wallet-total">
           <span className="tr-wallet-name">Total cash &amp; bank</span>
-          <strong className="tr-wallet-balance">{money(treasury.total)}</strong>
-          <span className="tr-wallet-flow"><span>Across {treasury.wallets.length} wallets</span></span>
+          <strong className="tr-wallet-balance">{money(periodLabel ? treasury.closingTotal : treasury.total)}</strong>
+          <span className="tr-wallet-flow">
+            {periodLabel
+              ? <span>Balance at end of {periodLabel} · in {money(treasury.periodInTotal)} · out {money(treasury.periodOutTotal)}</span>
+              : <span>Across {treasury.wallets.length} wallets</span>}
+          </span>
         </div>
       </div>
 

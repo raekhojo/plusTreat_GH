@@ -128,10 +128,16 @@ export function buildTreasury({ payments = [], accountTransactions = [], purchas
     let running = 0
     const statement = rows.map(r => { running += r.inflow - r.outflow; return { ...r, balance: running } }).reverse()
     const inPeriod = rows.filter(r => inRange(r.date, range))
+    // Balances around the chosen period: before it starts and at its end.
+    const day = r => String(r.date || '').slice(0, 10)
+    const opening = range?.start ? rows.filter(r => day(r) && day(r) < range.start).reduce((t, r) => t + r.inflow - r.outflow, 0) : 0
+    const closing = range?.end ? rows.filter(r => !day(r) || day(r) <= range.end).reduce((t, r) => t + r.inflow - r.outflow, 0) : running
     return {
       key: w.key,
       label: w.label,
       balance: running,
+      opening,
+      closing,
       periodIn: inPeriod.reduce((t, r) => t + r.inflow, 0),
       periodOut: inPeriod.reduce((t, r) => t + r.outflow, 0),
       count: rows.length,
@@ -147,6 +153,10 @@ export function buildTreasury({ payments = [], accountTransactions = [], purchas
   return {
     wallets,
     total: wallets.reduce((t, w) => t + w.balance, 0),
+    openingTotal: wallets.reduce((t, w) => t + w.opening, 0),
+    closingTotal: wallets.reduce((t, w) => t + w.closing, 0),
+    periodInTotal: wallets.reduce((t, w) => t + w.periodIn, 0),
+    periodOutTotal: wallets.reduce((t, w) => t + w.periodOut, 0),
     transfers,
   }
 }

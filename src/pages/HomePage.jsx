@@ -17,6 +17,7 @@ import ReportsCenter from '../components/reports/ReportsCenter'
 import FinancialStatements from '../components/reports/FinancialStatements'
 import LedgerExplorer from '../components/reports/LedgerExplorer'
 import AuditMonitor from '../components/reports/AuditMonitor'
+import { inRange as inDateRange } from '../lib/period'
 import AiCopilot from '../components/ai/AiCopilot'
 import DocumentSettings from '../components/settings/DocumentSettings'
 import StockCount from '../components/reports/StockCount'
@@ -39,7 +40,7 @@ import {
   updateRawMaterial, deleteRawMaterial,
   createStaffProfile, updateStaffProfile,
   updateProductionBatch, updateProductionOutput,
-  DATA_LOADERS, getTrialBalanceDetail,
+  DATA_LOADERS, getTrialBalanceDetail, getTrialBalanceReport,
 } from '../lib/api'
 
 // ─── Section config ───────────────────────────────────────────────────────────
@@ -2307,6 +2308,7 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
   // Which ledger the Financials & Audit explorer shows (statement lines drill into it).
   const [auditView, setAuditView] = useState({ tab: 'opex', cat: 'all' })
   const [rmGroupFilter, setRmGroupFilter] = useState('all')
+  const [periodTrialBalance, setPeriodTrialBalance] = useState(null)
   const [lastSyncedAt, setLastSyncedAt] = useState(null)
 
   const [saleForm,         setSaleForm]         = useState(() => mkSaleForm(loggedInStaffId))
@@ -2821,6 +2823,7 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
     })
   }, [treasuryInput, data.purchases])
   const cashbookRows = useMemo(() => filterByDateRange(cashbookAll, r => r.date, treasuryDateFilter), [cashbookAll, treasuryDateFilter])
+  const treasuryForPeriod = useMemo(() => buildTreasury(treasuryInput, hasDateRange(treasuryDateFilter) ? treasuryDateFilter : null), [treasuryInput, treasuryDateFilter])
   const reportsContext = useMemo(() => ({
     invoices: data.invoices,
     payments: data.payments,
@@ -2941,6 +2944,44 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
       .sort((a, b) => (toNumber(b.available) - toNumber(a.available)) || (toNumber(b.stockIn) - toNumber(a.stockIn)) || String(a.size).localeCompare(String(b.size)))
       .map((item, idx) => ({ ...item, id: `INV-${String(idx + 1).padStart(4, '0')}` }))
   }, [data.pricingRules, data.productionBatches, data.invoices, data.products])
+  // Stock seen through a date range: on hand when it starts, in and out during it,
+  // and on hand at its end. Without a range these are the lifetime figures.
+  const dayOf = v => String(v || '').slice(0, 10)
+  const finishedGoodsForRange = useCallback(range => {
+    if (!hasDateRange(range)) return inventoryLedger
+    const before = (d, limit) => limit && d && d < limit
+    const after = (d, limit) => limit && d && d > limit
+    return inventoryLedger.map(item => {
+      const prod = item.productionHistory.map(o => ({ d: dayOf(o.production_date), q: toNumber(o.quantity) }))
+      const sold = item.salesHistory.map(l => ({ d: dayOf(l.invoice_date), q: toNumber(l.quantity) }))
+      const opening = sumBy(prod.filter(o => before(o.d, range.start)), o => o.q) - sumBy(sold.filter(o => before(o.d, range.start)), o => o.q)
+      const stockIn = sumBy(prod.filter(o => !before(o.d, range.start) && !after(o.d, range.end)), o => o.q)
+      const stockOut = sumBy(sold.filter(o => !before(o.d, range.start) && !after(o.d, range.end)), o => o.q)
+      const available = opening + stockIn - stockOut
+      return { ...item, opening, stockIn, stockOut, available, stockBalance: item.price * available, prodRequired: item.productionLevel > 0 && available <= item.productionLevel }
+    })
+  }, [inventoryLedger])
+  const rawMaterialMoves = useMemo(() => {
+    const moves = new Map()
+    const add = (id, move) => { const k = String(id); if (!moves.has(k)) moves.set(k, []); moves.get(k).push(move) }
+    data.purchases.forEach(p => (p.items || []).forEach(i => add(i.raw_material, { d: dayOf(p.purchase_date), q: toNumber(i.total_units ?? toNumber(i.quantity) * (toNumber(i.unit_per_item) || 1)) })))
+    data.productionBatches.forEach(b => (b.material_usages || []).forEach(u => add(u.raw_material, { d: dayOf(b.production_date), q: -toNumber(u.quantity_used) })))
+    return moves
+  }, [data.purchases, data.productionBatches])
+  const rawMaterialsForRange = useCallback(range => {
+    if (!hasDateRange(range)) return lowStockRows
+    return lowStockRows.map(m => {
+      const moves = rawMaterialMoves.get(String(m.id)) || []
+      // Work back from today's balance so manual stock adjustments stay in the opening figure.
+      const sinceStart = range.start ? sumBy(moves.filter(x => x.d && x.d >= range.start), x => x.q) : sumBy(moves, x => x.q)
+      const opening = range.start ? m.available - sinceStart : toNumber(m.opening_stock)
+      const inRange = moves.filter(x => (!range.start || (x.d && x.d >= range.start)) && (!range.end || (x.d && x.d <= range.end)))
+      const stockIn = sumBy(inRange.filter(x => x.q > 0), x => x.q)
+      const stockOut = -sumBy(inRange.filter(x => x.q < 0), x => x.q)
+      const available = opening + stockIn - stockOut
+      return { ...m, opening_stock: opening, stock_in: stockIn, stock_out: stockOut, available, stock_available: available }
+    })
+  }, [lowStockRows, rawMaterialMoves])
   // Dashboard "position today" figures (all time, not tied to the dashboard period).
   const positionStats = useMemo(() => {
     const live = data.invoices.filter(inv => !['cancelled', 'draft'].includes(String(inv.status || '').toLowerCase()))
@@ -4230,6 +4271,39 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
     return acc
   }, { bottles: 0, litres: 0 })
   const sampleSalesInvoices = filteredSalesInvoices.filter(invoice => invoice.is_sample_sale)
+  const suppliesRange = hasDateRange(suppliesDateFilter)
+  // Reporting and Financials & Audit: statements over the chosen period, positions at its end.
+  const reportingDateFilter = sectionDateFilters.reporting || EMPTY_DATE_RANGE
+  const financialsDateFilter = sectionDateFilters.financials || EMPTY_DATE_RANGE
+  const otherReceivablesLedger = buildAccountLedger('Other Receivables', data.accountTransactions)
+  // The trial balance is worked out by the backend from a period start date.
+  const reportingPeriodStart = reportingDateFilter.start || ''
+  useEffect(() => {
+    if (activeSection !== 'reporting' || !reportingPeriodStart) return undefined
+    let active = true
+    getTrialBalanceReport({ period_start: reportingPeriodStart })
+      .then(report => { if (active) setPeriodTrialBalance({ start: reportingPeriodStart, report }) })
+      .catch(() => {})
+    return () => { active = false }
+  }, [activeSection, reportingPeriodStart])
+  const activeTrialBalance = reportingPeriodStart && periodTrialBalance?.start === reportingPeriodStart ? periodTrialBalance.report : data.trialBalanceReport
+  const statementInputs = range => {
+    const active = hasDateRange(range)
+    const treasury = active ? buildTreasury(treasuryInput, range) : treasuryToday
+    const otherAtEnd = active && range.end ? (otherReceivablesLedger.statement.find(r => dayOf(r.date) && dayOf(r.date) <= range.end)?.balance || 0) : otherReceivablesLedger.balance
+    return {
+      range: active ? range : null,
+      treasury,
+      treasuryTotal: active ? treasury.closingTotal : treasury.total,
+      otherReceivablesBalance: otherAtEnd,
+      inventoryLedger: finishedGoodsForRange(range),
+      rawMaterials: rawMaterialsForRange(range),
+    }
+  }
+  const suppliesRawMaterials = rawMaterialsForRange(suppliesDateFilter)
+  const suppliesFinishedGoods = finishedGoodsForRange(suppliesDateFilter)
+  const productionFinishedGoods = finishedGoodsForRange(productionDateFilter)
+  const periodEndNote = range => (hasDateRange(range) && range.end ? `At ${fmtD(range.end)}` : 'On hand today')
   const salesSummary      = [
     { label: 'Total Billed', value: fmt(sumBy(filteredSalesInvoices, inv => inv.total_amount)), note: `${filteredSalesInvoices.length} invoices` },
     { label: 'Total Paid', value: fmt(sumBy(filteredSalesPayments, p => p.amount)), note: `${filteredSalesPayments.length} receipts` },
@@ -4242,14 +4316,18 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
     { label: 'RM Cost', value: fmt(sumBy(productionBatchesFiltered, b => b.total_raw_material_cost)), note: 'Material usage' },
     { label: 'Production Cost', value: fmt(sumBy(productionBatchesFiltered, b => getBatchOutputValue(b))), note: 'Finished goods value produced' },
     { label: 'Production Gain', value: fmt(sumBy(productionBatchesFiltered, b => getBatchProductionGain(b))), note: 'Output value less total cost' },
-    { label: 'Stock Units', value: fmtQ(sumBy(data.products, p => p.stock_quantity)), note: 'Finished goods on hand' },
-    { label: 'Finished Goods Balance', value: fmt(sumBy(inventoryLedger, item => item.stockBalance)), note: 'Current finished goods value' },
+    { label: 'Stock Units', value: fmtQ(sumBy(productionFinishedGoods, item => Math.max(0, toNumber(item.available)))), note: `Finished goods · ${periodEndNote(productionDateFilter)}` },
+    { label: 'Finished Goods Balance', value: fmt(sumBy(productionFinishedGoods, item => item.stockBalance)), note: `Finished goods value · ${periodEndNote(productionDateFilter)}` },
   ]
   const suppliesSummary   = [
-    { label: 'Suppliers', value: String(data.suppliers.length), note: 'Suppliers on file' },
-    { label: 'RM Balance Qty', value: fmtQ(sumBy(data.rawMaterials, material => material.stock_available)), note: 'Total raw material stock on hand' },
-    { label: 'RM Balance Value', value: fmt(sumBy(data.rawMaterials, material => toNumber(material.stock_available) * toNumber(material.unit_price))), note: 'Current stock value on hand' },
-    { label: 'Raw Materials', value: String(data.rawMaterials.length), note: 'Materials tracked' },
+    suppliesRange
+      ? { label: 'Suppliers', value: String(new Set(purchasesFiltered.map(p => String(p.supplier))).size), note: `Bought from in the period · ${data.suppliers.length} on file` }
+      : { label: 'Suppliers', value: String(data.suppliers.length), note: 'Suppliers on file' },
+    { label: 'RM Balance Qty', value: fmtQ(sumBy(suppliesRawMaterials, m => m.available)), note: `Raw material stock · ${periodEndNote(suppliesDateFilter)}` },
+    { label: 'RM Balance Value', value: fmt(sumBy(suppliesRawMaterials, m => toNumber(m.available) * toNumber(m.unit_price))), note: `Stock value · ${periodEndNote(suppliesDateFilter)}` },
+    suppliesRange
+      ? { label: 'Raw Materials', value: String(new Set(purchasesFiltered.flatMap(p => (p.items || []).map(i => String(i.raw_material)))).size), note: `Bought in the period · ${data.rawMaterials.length} tracked` }
+      : { label: 'Raw Materials', value: String(data.rawMaterials.length), note: 'Materials tracked' },
     { label: 'Purchases', value: fmt(sumBy(purchasesFiltered, p => p.total_amount)), note: `${purchasesFiltered.length} records` },
     { label: 'Supplier Due', value: fmt(sumBy(purchasesFiltered, p => getPurchaseOutstanding(p))), note: 'Open balances' },
   ]
@@ -4257,11 +4335,13 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
     { label: 'Total Invoiced', value: fmt(sumBy(customerInvoicesFiltered, inv => inv.total_amount)), note: 'Billed in the period' },
     { label: 'Receipts', value: fmt(sumBy(customerPaymentsFiltered, p => p.amount)), note: 'Total collected' },
     { label: 'Outstanding', value: fmt(sumBy(filteredCustomerLedger, c => c.outstanding)), note: 'Total receivables due' },
-    { label: 'Customers', value: String(data.customers.length), note: `${filteredCustomerLedger.filter(c => c.invoiceCount > 0).length} billed in the period` },
+    hasDateRange(customersDateFilter)
+      ? { label: 'Customers', value: String(filteredCustomerLedger.filter(c => c.invoiceCount > 0).length), note: `Billed in the period · ${data.customers.length} on file` }
+      : { label: 'Customers', value: String(data.customers.length), note: `${filteredCustomerLedger.filter(c => c.invoiceCount > 0).length} already billed` },
     { label: 'Total Invoices', value: String(customerInvoicesFiltered.length), note: 'Invoices issued' },
     { label: 'Open Invoices', value: String(customerInvoicesFiltered.filter(inv => getInvoiceOutstandingDue(inv) > 0).length), note: 'Invoices with balance' },
   ]
-  const suppliersSummary  = [{ label: 'Suppliers', value: String(data.suppliers.length), note: 'Vendor records' }, { label: 'Purchases', value: fmt(sumBy(supplierPurchasesFiltered, p => p.total_amount)), note: `${supplierPurchasesFiltered.length} purchase records` }, { label: 'Paid', value: fmt(sumBy(supplierPurchasesFiltered, p => p.total_paid)), note: 'Total paid to suppliers' }, { label: 'Due', value: fmt(sumBy(filteredSupplierLedger, s => s.outstanding)), note: 'Outstanding payables' }]
+  const suppliersSummary  = [hasDateRange(suppliersDateFilter) ? { label: 'Suppliers', value: String(new Set(supplierPurchasesFiltered.map(p => String(p.supplier))).size), note: `Bought from in the period · ${data.suppliers.length} on file` } : { label: 'Suppliers', value: String(data.suppliers.length), note: 'Vendor records' }, { label: 'Purchases', value: fmt(sumBy(supplierPurchasesFiltered, p => p.total_amount)), note: `${supplierPurchasesFiltered.length} purchase records` }, { label: 'Paid', value: fmt(sumBy(supplierPurchasesFiltered, p => p.total_paid)), note: 'Total paid to suppliers' }, { label: 'Due', value: fmt(sumBy(filteredSupplierLedger, s => s.outstanding)), note: 'Outstanding payables' }]
   const accountsIncomeTotal = sumBy(accountInvoicesFiltered, invoice => invoice.total_amount) + sumBy(accountTransactionsFiltered.filter(e => e.entry_type === 'income'), e => e.amount)
   const accountsSummary   = [{ label: 'Entries', value: String(accountTransactionsFiltered.length), note: 'Entries recorded' }, { label: 'Income', value: fmt(accountsIncomeTotal), note: `${accountInvoicesFiltered.length} sales + other income` }, { label: 'Expenses', value: fmt(sumBy(accountTransactionsFiltered.filter(e => e.entry_type === 'expense'), e => e.amount)), note: 'Expense entries' }, { label: 'Pricing Rules', value: String(filteredPricingRules.length), note: 'Price list entries' }]
   const mobilePrimarySections = availableSections
@@ -4392,8 +4472,8 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
         : []),
     ],
   }))
-  const rmGroupCounts = lowStockRows.reduce((acc, m) => { const g = rawMaterialGroup(m); acc[g] = (acc[g] || 0) + 1; return acc }, { all: lowStockRows.length })
-  const materialRows = lowStockRows
+  const rmGroupCounts = suppliesRawMaterials.reduce((acc, m) => { const g = rawMaterialGroup(m); acc[g] = (acc[g] || 0) + 1; return acc }, { all: suppliesRawMaterials.length })
+  const materialRows = suppliesRawMaterials
     .filter(m => rmGroupFilter === 'all' || rawMaterialGroup(m) === rmGroupFilter)
     .sort((a, b) => String(a.category || '').localeCompare(String(b.category || '')) || String(a.name || '').localeCompare(String(b.name || '')))
     .map(m => {
@@ -4462,7 +4542,7 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
     agg.amount += toNumber(o.amount) || qty * toNumber(o.unit_cost)
     unitCostBySize.set(key, agg)
   }))
-  const finishedGoods = inventoryLedger.map(item => {
+  const finishedGoods = suppliesFinishedGoods.map(item => {
     // Unit production price comes from the Production Price pricing rule, so price
     // updates show straight away; sizes without one fall back to the batch average cost.
     const sizeKey = normalizeSizeKey(item.size)
@@ -4899,8 +4979,8 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
 
 
 
-  const trialBalanceRows = data.trialBalanceReport?.rows?.length
-    ? data.trialBalanceReport.rows
+  const trialBalanceRows = activeTrialBalance?.rows?.length
+    ? activeTrialBalance.rows
       .filter(row => Math.abs(toNumber(row.opening)) > 0.000001 || Math.abs(toNumber(row.acct_in)) > 0.000001 || Math.abs(toNumber(row.acct_out)) > 0.000001)
       .map(row => ({
       key: row.account_id,
@@ -4941,8 +5021,8 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
         }
       })
 
-  const compactTrialBalanceRows = data.trialBalanceReport?.rows?.length
-    ? data.trialBalanceReport.rows
+  const compactTrialBalanceRows = activeTrialBalance?.rows?.length
+    ? activeTrialBalance.rows
       .filter(row => Math.abs(toNumber(row.opening)) > 0.000001 || Math.abs(toNumber(row.acct_in)) > 0.000001 || Math.abs(toNumber(row.acct_out)) > 0.000001)
       .map(row => ({
         key: row.account_id,
@@ -4962,15 +5042,15 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
     : trialBalanceRows
 
   async function openTrialBalanceDetail(accountId) {
-    const row = (data.trialBalanceReport?.rows || []).find(item => String(item.account_id) === String(accountId))
+    const row = (activeTrialBalance?.rows || []).find(item => String(item.account_id) === String(accountId))
     const description = row?.description || accountId
     setTrialBalanceDetail({ accountId, description, rows: null, total_in: 0, total_out: 0 })
     setTrialBalanceDetailLoading(true)
     try {
       const detail = await getTrialBalanceDetail({
         account_id: accountId,
-        period_start: data.trialBalanceReport?.period_start || TRIAL_BALANCE_PERIOD_START,
-        expense_start: data.trialBalanceReport?.expense_start || TRIAL_BALANCE_EXPENSE_START,
+        period_start: activeTrialBalance?.period_start || TRIAL_BALANCE_PERIOD_START,
+        expense_start: activeTrialBalance?.expense_start || TRIAL_BALANCE_EXPENSE_START,
       })
       setTrialBalanceDetail({
         accountId,
@@ -5404,7 +5484,7 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
           <TableCard
             title="Finished Goods Inventory"
             subtitle={<>Total Stock: <strong>{fmtQ(finishedTotals.units)} Units</strong> ({fmt(finishedTotals.value)}) · Click a row for Stock In &amp; Stock Out records.</>}
-            columns={['Size', 'Total Produced (Lifetime)', 'Total Sold (Lifetime)', 'Live Stock', 'Unit Prod. Price', 'Total Value', 'Min Level', 'Status', 'Stock Movements']}
+            columns={['Size', suppliesRange ? 'Produced (Period)' : 'Total Produced (Lifetime)', suppliesRange ? 'Sold (Period)' : 'Total Sold (Lifetime)', suppliesRange ? 'Stock at End' : 'Live Stock', 'Unit Prod. Price', 'Total Value', 'Min Level', 'Status', 'Stock Movements']}
             colWidths={['120px', '170px', '160px', '120px', '140px', '140px', '110px', '130px', '140px']}
             rows={inventoryRows}
             mobileVariant="inventory-list"
@@ -5576,7 +5656,8 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
         <TreasuryPanel
           key={treasuryFocusWallet || 'treasury'}
           initialWallet={treasuryFocusWallet}
-          treasury={treasuryToday}
+          treasury={treasuryForPeriod}
+          periodLabel={hasDateRange(treasuryDateFilter) ? summarizeDateRange(treasuryDateFilter) : ''}
           rows={cashbookRows}
           onTransfer={() => openTransferModal()}
           onAddEntry={() => openModal('account')}
@@ -5640,14 +5721,18 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
       </>
     )
 
-    if (activeSection === 'financials') return (
+    if (activeSection === 'financials') {
+      const period = statementInputs(financialsDateFilter)
+      return (
       <>
+        <DateFilterControl range={financialsDateFilter} onOpen={openDateFilter} onClear={() => clearDateFilter('financials')} onPresetSelect={preset => applyQuickDatePreset('financials', preset)} activePreset={sectionDatePresets.financials || ''} inlineTitle="Financials & Audit" hideInlineTitle />
           <div id="ledgerExplorer" style={{ scrollMarginTop: '16px' }}>
           <LedgerExplorer
+            range={period.range}
             data={data}
-            treasury={treasuryToday}
-            otherReceivables={buildAccountLedger('Other Receivables', data.accountTransactions)}
-            rawMaterials={lowStockRows}
+            treasury={period.treasury}
+            otherReceivables={otherReceivablesLedger}
+            rawMaterials={period.rawMaterials}
             outstandingOf={getInvoiceOutstandingDue}
             paidOf={getInvoicePaidAmount}
             invNo={fmtInv}
@@ -5660,13 +5745,14 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
             }}
           />
           </div>
-        <AuditMonitor treasury={treasuryToday} batches={data.productionBatches} inventoryLedger={inventoryLedger} rawMaterials={lowStockRows} />
+        <AuditMonitor treasury={treasuryToday} batches={period.range ? data.productionBatches.filter(b => inDateRange(b.production_date, period.range)) : data.productionBatches} inventoryLedger={inventoryLedger} rawMaterials={lowStockRows} />
         <FinancialStatements
+          range={period.range}
           data={data}
-          treasuryTotal={treasuryToday.total}
-          otherReceivablesBalance={buildAccountLedger('Other Receivables', data.accountTransactions).balance}
-          inventoryLedger={inventoryLedger}
-          rawMaterials={lowStockRows}
+          treasuryTotal={period.treasuryTotal}
+          otherReceivablesBalance={period.otherReceivablesBalance}
+          inventoryLedger={period.inventoryLedger}
+          rawMaterials={period.rawMaterials}
           outstandingOf={getInvoiceOutstandingDue}
           purchaseOutstandingOf={getPurchaseOutstanding}
           onDrill={target => {
@@ -5679,10 +5765,14 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
           }}
         />
       </>
-    )
+      )
+    }
 
-    if (activeSection === 'reporting') return (
+    if (activeSection === 'reporting') {
+      const period = statementInputs(reportingDateFilter)
+      return (
       <>
+        <DateFilterControl range={reportingDateFilter} onOpen={openDateFilter} onClear={() => clearDateFilter('reporting')} onPresetSelect={preset => applyQuickDatePreset('reporting', preset)} activePreset={sectionDatePresets.reporting || ''} inlineTitle="Reporting" hideInlineTitle />
         <section className="workspace-inline-tabs" role="tablist" aria-label="Reporting tabs">
           {SECTION_TABS.reporting.map(tab => (
             <button
@@ -5699,11 +5789,12 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
         </section>
         {getSectionTab('reporting') === 'income' || getSectionTab('reporting') === 'balance' ? <FinancialStatements
           view={getSectionTab('reporting') === 'balance' ? 'balance' : 'income'}
+          range={period.range}
           data={data}
-          treasuryTotal={treasuryToday.total}
-          otherReceivablesBalance={buildAccountLedger('Other Receivables', data.accountTransactions).balance}
-          inventoryLedger={inventoryLedger}
-          rawMaterials={lowStockRows}
+          treasuryTotal={period.treasuryTotal}
+          otherReceivablesBalance={period.otherReceivablesBalance}
+          inventoryLedger={period.inventoryLedger}
+          rawMaterials={period.rawMaterials}
           outstandingOf={getInvoiceOutstandingDue}
           purchaseOutstandingOf={getPurchaseOutstanding}
           onDrill={target => {
@@ -5729,7 +5820,8 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
           defaultRowsPerPage={20}
         />}
       </>
-    )
+      )
+    }
 
     return (
       <>

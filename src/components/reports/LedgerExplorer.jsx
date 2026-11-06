@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react'
+import { hasRange, inRange, invoiceDueAt, invoicePaidAt } from '../../lib/period'
 import './LedgerExplorer.css'
 
 // Financial Ledger & Transaction Details Explorer, after the Plus Yoghurt ERP
@@ -24,7 +25,7 @@ function unitCostBySize(batches) {
   return out
 }
 
-function LedgerExplorer({ data, treasury, otherReceivables, rawMaterials, outstandingOf, paidOf, invNo, view, onView, onViewInvoice, onGoTo }) {
+function LedgerExplorer({ data, treasury, otherReceivables, rawMaterials, outstandingOf, paidOf, invNo, view, onView, onViewInvoice, onGoTo, range = null }) {
   const [search, setSearch] = useState('')
   const tab = view.tab
   const opexCat = view.cat || 'all'
@@ -32,7 +33,7 @@ function LedgerExplorer({ data, treasury, otherReceivables, rawMaterials, outsta
   const f = useMemo(() => {
     const cost = unitCostBySize(data.productionBatches)
     const bySize = new Map()
-    data.invoices.filter(inv => !inv.is_sample_sale).flatMap(inv => inv.lines || []).forEach(l => {
+    data.invoices.filter(inv => !inv.is_sample_sale && inRange(inv.invoice_date, range)).flatMap(inv => inv.lines || []).forEach(l => {
       const s = bySize.get(l.product_size) || { size: l.product_size, lines: 0, qty: 0, revenue: 0, cogs: 0 }
       s.lines += 1
       s.qty += num(l.quantity)
@@ -41,7 +42,7 @@ function LedgerExplorer({ data, treasury, otherReceivables, rawMaterials, outsta
       bySize.set(l.product_size, s)
     })
     const salesBySize = [...bySize.values()].sort((a, b) => b.revenue - a.revenue)
-    const batches = data.productionBatches.map(b => {
+    const batches = data.productionBatches.filter(b => inRange(b.production_date, range)).map(b => {
       const value = num(b.total_production_value) || (b.outputs || []).reduce((t, o) => t + num(o.amount), 0)
       return {
         b,
@@ -53,11 +54,13 @@ function LedgerExplorer({ data, treasury, otherReceivables, rawMaterials, outsta
       }
     }).sort((x, y) => day(y.b.production_date).localeCompare(day(x.b.production_date)))
     const opex = data.accountTransactions
-      .filter(t => String(t.entry_type || '').toLowerCase() === 'expense')
+      .filter(t => String(t.entry_type || '').toLowerCase() === 'expense' && inRange(t.transaction_date, range))
       .sort((a, b) => day(b.transaction_date).localeCompare(day(a.transaction_date)))
     const byCat = new Map()
     opex.forEach(t => byCat.set(t.category || 'Uncategorised', (byCat.get(t.category || 'Uncategorised') || 0) + num(t.amount)))
-    const arInvoices = data.invoices.filter(inv => outstandingOf(inv) > 0.005).sort((a, b) => day(b.invoice_date).localeCompare(day(a.invoice_date)))
+    // Receivables are what was still owed at the end of the period.
+    const dueOf = inv => invoiceDueAt(inv, data.payments, range, outstandingOf)
+    const arInvoices = data.invoices.filter(inv => dueOf(inv) > 0.005).sort((a, b) => day(b.invoice_date).localeCompare(day(a.invoice_date)))
     return {
       salesBySize,
       sales: salesBySize.reduce((t, s) => t + s.revenue, 0),
@@ -68,14 +71,16 @@ function LedgerExplorer({ data, treasury, otherReceivables, rawMaterials, outsta
       opexItems: [...byCat.entries()].map(([category, total]) => ({ category, total })).sort((a, b) => b.total - a.total),
       opexTotal: opex.reduce((t, o) => t + num(o.amount), 0),
       arInvoices,
-      ar: arInvoices.reduce((t, inv) => t + outstandingOf(inv), 0),
+      ar: arInvoices.reduce((t, inv) => t + dueOf(inv), 0),
+      dueOf,
       rmValue: rawMaterials.reduce((t, m) => t + Math.max(0, num(m.available)) * num(m.unit_price), 0),
     }
-  }, [data, rawMaterials, outstandingOf])
+  }, [data, rawMaterials, outstandingOf, range])
 
   const q = search.trim().toLowerCase()
   const hit = (...fields) => !q || fields.some(v => String(v ?? '').toLowerCase().includes(q))
-  const otherRows = otherReceivables.statement || []
+  const otherRows = (otherReceivables.statement || []).filter(r => inRange(r.date, range))
+  const paidAt = inv => invoicePaidAt(inv, data.payments, range, paidOf)
   const TABS = [
     ['opex', 'Operating Expenses', f.opex.length],
     ['receivables', 'Trade Receivables', f.arInvoices.length],
@@ -126,9 +131,9 @@ function LedgerExplorer({ data, treasury, otherReceivables, rawMaterials, outsta
             <strong key="n" className="is-blue">{invNo(inv.id)}</strong>,
             <strong key="c">{inv.customer_name}</strong>,
             [money(inv.total_amount), 'num'],
-            [<span key="p" className="is-good">{money(paidOf(inv))}</span>, 'num'],
-            [<strong key="b" className="is-orange">{money(outstandingOf(inv))}</strong>, 'num'],
-            paidOf(inv) > 0.005 ? <span key="s" className="le-badge is-warn">Part paid</span> : <span key="s" className="le-badge is-bad">Unpaid</span>,
+            [<span key="p" className="is-good">{money(paidAt(inv))}</span>, 'num'],
+            [<strong key="b" className="is-orange">{money(f.dueOf(inv))}</strong>, 'num'],
+            paidAt(inv) > 0.005 ? <span key="s" className="le-badge is-warn">Part paid</span> : <span key="s" className="le-badge is-bad">Unpaid</span>,
             <button key="v" type="button" className="le-btn" onClick={() => onViewInvoice(inv)}>Invoice</button>,
           ])}
           keys={rows.map(inv => inv.id)}
@@ -225,14 +230,14 @@ function LedgerExplorer({ data, treasury, otherReceivables, rawMaterials, outsta
         head={['Wallet', 'Transactions', ['Total Inflow (+)', 'num'], ['Total Outflow (−)', 'num'], ['Net Balance', 'num'], '']}
         rows={treasury.wallets.map(w => [
           <strong key="w">{w.label}</strong>,
-          `${w.statement.length} records`,
-          [<span key="i" className="is-good">+{money(w.statement.reduce((t, r) => t + r.inflow, 0))}</span>, 'num'],
-          [<span key="o" className="is-bad">-{money(w.statement.reduce((t, r) => t + r.outflow, 0))}</span>, 'num'],
-          [<strong key="b" className={w.balance >= 0 ? 'is-good' : 'is-bad'}>{money(w.balance)}</strong>, 'num'],
+          `${hasRange(range) ? w.statement.filter(r => inRange(r.date, range)).length : w.statement.length} records`,
+          [<span key="i" className="is-good">+{money(hasRange(range) ? w.periodIn : w.statement.reduce((t, r) => t + r.inflow, 0))}</span>, 'num'],
+          [<span key="o" className="is-bad">-{money(hasRange(range) ? w.periodOut : w.statement.reduce((t, r) => t + r.outflow, 0))}</span>, 'num'],
+          [<strong key="b" className={(hasRange(range) ? w.closing : w.balance) >= 0 ? 'is-good' : 'is-bad'}>{money(hasRange(range) ? w.closing : w.balance)}</strong>, 'num'],
           <button key="v" type="button" className="le-btn" onClick={() => onGoTo('treasury', w.key)}>Cashbook</button>,
         ])}
         keys={treasury.wallets.map(w => w.key)}
-        foot={['Total liquid cash balance', <strong key="t" className="is-blue">{money(treasury.total)}</strong>]}
+        foot={['Total liquid cash balance', <strong key="t" className="is-blue">{money(hasRange(range) ? treasury.closingTotal : treasury.total)}</strong>]}
       />
     )
   }

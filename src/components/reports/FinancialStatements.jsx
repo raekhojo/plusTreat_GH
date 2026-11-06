@@ -1,5 +1,6 @@
 import { useMemo } from 'react'
 import { FiSearch } from 'react-icons/fi'
+import { hasRange, inRange, invoiceDueAt, purchaseDueAt, rangeLabel } from '../../lib/period'
 import './FinancialStatements.css'
 
 // Income Statement + Balance Sheet, built the same way as the Plus Yoghurt ERP
@@ -41,31 +42,32 @@ function Row({ label, value, tone = '', target, title, indent = false, strong = 
   )
 }
 
-function FinancialStatements({ data, treasuryTotal, otherReceivablesBalance, inventoryLedger, rawMaterials, outstandingOf, purchaseOutstandingOf, onDrill, view = 'both' }) {
+function FinancialStatements({ data, treasuryTotal, otherReceivablesBalance, inventoryLedger, rawMaterials, outstandingOf, purchaseOutstandingOf, onDrill, view = 'both', range = null }) {
   const f = useMemo(() => {
     const cost = unitCostBySize(data.productionBatches)
-    const lines = data.invoices.filter(inv => !inv.is_sample_sale).flatMap(inv => inv.lines || [])
+    // Income statement covers the period; the balance sheet is the position at its end.
+    const lines = data.invoices.filter(inv => !inv.is_sample_sale && inRange(inv.invoice_date, range)).flatMap(inv => inv.lines || [])
     const sales = lines.reduce((t, l) => t + num(l.line_total), 0)
     const cogs = lines.reduce((t, l) => t + num(l.quantity) * (cost.get(l.product_size) || 0), 0)
-    const surplus = data.productionBatches.reduce((t, b) => {
+    const surplus = data.productionBatches.filter(b => inRange(b.production_date, range)).reduce((t, b) => {
       const value = num(b.total_production_value) || (b.outputs || []).reduce((s, o) => s + num(o.amount), 0)
       return t + value - num(b.total_cost)
     }, 0)
     const opexByCat = new Map()
     data.accountTransactions
-      .filter(t => String(t.entry_type || '').toLowerCase() === 'expense')
+      .filter(t => String(t.entry_type || '').toLowerCase() === 'expense' && inRange(t.transaction_date, range))
       .forEach(t => opexByCat.set(t.category || 'Uncategorised', (opexByCat.get(t.category || 'Uncategorised') || 0) + num(t.amount)))
     const opexItems = [...opexByCat.entries()].map(([category, total]) => ({ category, total })).sort((a, b) => b.total - a.total)
     const opexTotal = opexItems.reduce((t, o) => t + o.total, 0)
 
     const fgValue = inventoryLedger.reduce((t, i) => t + Math.max(0, num(i.available)) * (cost.get(i.size) || 0), 0)
     const rmValue = rawMaterials.reduce((t, m) => t + Math.max(0, num(m.available)) * num(m.unit_price), 0)
-    const ar = data.invoices.reduce((t, inv) => t + outstandingOf(inv), 0)
+    const ar = data.invoices.reduce((t, inv) => t + invoiceDueAt(inv, data.payments, range, outstandingOf), 0)
     const tb = data.trialBalanceReport?.rows || []
     const ppe = tbValue(tb, 'PPE')
     const equipment = tbValue(tb, 'Equipment')
     const totalAssets = ppe + equipment + num(treasuryTotal) + ar + num(otherReceivablesBalance) + fgValue + rmValue
-    const ap = data.purchases.reduce((t, p) => t + purchaseOutstandingOf(p), 0)
+    const ap = data.purchases.reduce((t, p) => t + purchaseDueAt(p, data.purchasePayments || [], range, purchaseOutstandingOf), 0)
     const otherPayables = tbValue(tb, 'Other Payables')
     const capital = tbValue(tb, 'Equity')
     return {
@@ -73,14 +75,14 @@ function FinancialStatements({ data, treasuryTotal, otherReceivablesBalance, inv
       fgValue, rmValue, ar, ppe, equipment, totalAssets, ap, otherPayables, capital,
       retained: totalAssets - ap - otherPayables - capital,
     }
-  }, [data, treasuryTotal, otherReceivablesBalance, inventoryLedger, rawMaterials, outstandingOf, purchaseOutstandingOf])
+  }, [data, treasuryTotal, otherReceivablesBalance, inventoryLedger, rawMaterials, outstandingOf, purchaseOutstandingOf, range])
 
   const drill = (target, title) => <Drill target={target} title={title} onDrill={onDrill} />
 
   return (
     <div className={`fs-grid${view === 'both' ? '' : ' is-single'}`}>
       {view !== 'balance' ? <section className="fs-card" aria-label="Income statement">
-        <header className="fs-head"><h2>Income Statement</h2><span className="fs-tag">Lifetime</span></header>
+        <header className="fs-head"><h2>Income Statement</h2><span className="fs-tag">{rangeLabel(range)}</span></header>
         <div className="fs-body">
           <Row onDrill={onDrill} label="Commercial Sales Revenue" strong value={money(f.sales)} tone="good" target="sales" title="View sales" />
           <Row onDrill={onDrill} label="Direct Cost of Goods Sold (COGS)" indent value={`-${money(f.cogs)}`} tone="bad" target="sales" title="View sales" />
@@ -96,6 +98,7 @@ function FinancialStatements({ data, treasuryTotal, otherReceivablesBalance, inv
       {view !== 'income' ? <section className="fs-card" aria-label="Balance sheet">
         <header className="fs-head">
           <h2>Balance Sheet</h2>
+          <span className="fs-tag">{hasRange(range) && range.end ? `As at ${rangeLabel({ end: range.end }).replace('To ', '')}` : 'As at today'}</span>
           {onDrill ? <button type="button" className="fs-link" onClick={() => onDrill('reconciliation')}>Asset Reconciliation →</button> : null}
         </header>
         <div className="fs-body">
