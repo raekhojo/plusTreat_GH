@@ -69,12 +69,27 @@ export function buildAccountLedger(accountName, accountTransactions = []) {
   }
 }
 
+// Today's balance of each wallet as the backend trial balance reports it
+// ("available" on the wallet's Balance Sheet row), keyed by wallet.
+function backendBalances(trialBalanceRows) {
+  const out = new Map()
+  ;(trialBalanceRows || []).forEach(r => {
+    if (r.account_type !== 'Balance Sheet') return
+    const wallet = WALLETS.find(w => same(w.key, r.description))
+    if (wallet && Number.isFinite(Number(r.available))) out.set(wallet.key, Number(r.available))
+  })
+  return out
+}
+
 /**
  * Builds every wallet's statement and balance.
  * `range` ({ start, end } as YYYY-MM-DD) only scopes the period in/out figures;
  * balances are always as of today (all recorded movements).
+ * When `trialBalanceRows` are given, each wallet's balance today is the backend's
+ * figure, and its statement and period balances are shifted to end on it.
  */
-export function buildTreasury({ payments = [], accountTransactions = [], purchasePayments = [] }, range = null) {
+export function buildTreasury({ payments = [], accountTransactions = [], purchasePayments = [] }, range = null, trialBalanceRows = null) {
+  const backend = backendBalances(trialBalanceRows)
   const entriesByWallet = new Map(WALLETS.map(w => [w.key, []]))
   const push = (walletName, entry) => {
     const wallet = WALLETS.find(w => same(w.key, walletName))
@@ -125,13 +140,17 @@ export function buildTreasury({ payments = [], accountTransactions = [], purchas
     const rows = entriesByWallet.get(w.key)
       .slice()
       .sort((a, b) => String(a.date || '').localeCompare(String(b.date || '')) || String(a.id).localeCompare(String(b.id)))
-    let running = 0
+    // Difference between the backend's balance and the one worked out here
+    // (records the app cannot see); it sits before the first movement.
+    const localBalance = rows.reduce((t, r) => t + r.inflow - r.outflow, 0)
+    const offset = backend.has(w.key) ? backend.get(w.key) - localBalance : 0
+    let running = offset
     const statement = rows.map(r => { running += r.inflow - r.outflow; return { ...r, balance: running } }).reverse()
     const inPeriod = rows.filter(r => inRange(r.date, range))
     // Balances around the chosen period: before it starts and at its end.
     const day = r => String(r.date || '').slice(0, 10)
-    const opening = range?.start ? rows.filter(r => day(r) && day(r) < range.start).reduce((t, r) => t + r.inflow - r.outflow, 0) : 0
-    const closing = range?.end ? rows.filter(r => !day(r) || day(r) <= range.end).reduce((t, r) => t + r.inflow - r.outflow, 0) : running
+    const opening = offset + (range?.start ? rows.filter(r => day(r) && day(r) < range.start).reduce((t, r) => t + r.inflow - r.outflow, 0) : 0)
+    const closing = range?.end ? offset + rows.filter(r => !day(r) || day(r) <= range.end).reduce((t, r) => t + r.inflow - r.outflow, 0) : running
     return {
       key: w.key,
       label: w.label,

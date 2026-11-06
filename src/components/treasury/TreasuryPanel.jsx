@@ -59,15 +59,16 @@ function TreasuryPanel({ treasury, rows = [], onEdit = null, onTransfer, onAddEn
         return { ...r, inflow, outflow, net: inflow - outflow }
       })
     const out = new Array(list.length)
-    // With a period chosen, the balance starts from what was there before it.
-    let running = periodLabel ? (wallet ? treasury.wallets.find(w => w.key === wallet)?.opening || 0 : treasury.openingTotal || 0) : 0
+    // The balance starts from what was there before the first row shown, so it
+    // ends on the wallet's balance (the backend's figure).
+    let running = wallet ? treasury.wallets.find(w => w.key === wallet)?.opening || 0 : treasury.openingTotal || 0
     for (let i = list.length - 1; i >= 0; i -= 1) {
       const r = list[i]
       if (r.walletKey || r.walletToKey) running += (Number(r.inflow) || 0) - (Number(r.outflow) || 0)
       out[i] = { ...r, balance: running }
     }
     return out
-  }, [rows, wallet, periodLabel, treasury])
+  }, [rows, wallet, treasury])
 
   const typeCounts = useMemo(() => {
     const counts = {}

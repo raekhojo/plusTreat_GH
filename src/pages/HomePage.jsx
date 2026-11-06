@@ -80,16 +80,16 @@ const INITIAL_DATA = {
 const CORE_DATA = ['products', 'pricingRules', 'pricingCategories', 'customerCategories', 'itemCategories', 'staffProfiles', 'customers', 'suppliers']
 const ALL_DATA = [...CORE_DATA, 'invoices', 'payments', 'purchases', 'purchasePayments', 'productionBatches', 'rawMaterials', 'accountTransactions', 'trialBalanceReport']
 const SECTION_DATA = {
-  dashboard: ['invoices', 'payments', 'productionBatches', 'rawMaterials', 'accountTransactions', 'purchasePayments'],
+  dashboard: ['invoices', 'payments', 'productionBatches', 'rawMaterials', 'accountTransactions', 'purchasePayments', 'trialBalanceReport'],
   sales_hub: ['invoices', 'payments', 'productionBatches'],
   production_ops: ['productionBatches', 'rawMaterials', 'invoices'],
   supplies_stock: ['purchases', 'purchasePayments', 'rawMaterials', 'productionBatches', 'invoices'],
   customers: ['invoices', 'payments', 'accountTransactions'],
   receivables: ['invoices', 'payments', 'accountTransactions'],
   suppliers: ['purchases', 'purchasePayments'],
-  treasury: ['payments', 'accountTransactions', 'purchasePayments', 'purchases', 'invoices'],
-  accounts_pricing: ['payments', 'accountTransactions', 'purchasePayments', 'purchases', 'invoices'],
-  reconciliation: ['invoices', 'payments', 'accountTransactions', 'purchasePayments', 'productionBatches', 'rawMaterials'],
+  treasury: ['payments', 'accountTransactions', 'purchasePayments', 'purchases', 'invoices', 'trialBalanceReport'],
+  accounts_pricing: ['payments', 'accountTransactions', 'purchasePayments', 'purchases', 'invoices', 'trialBalanceReport'],
+  reconciliation: ['invoices', 'payments', 'accountTransactions', 'purchasePayments', 'productionBatches', 'rawMaterials', 'trialBalanceReport'],
   settings: [],
   user_mgmt: [],
 }
@@ -2811,7 +2811,9 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
       purchasePayments: data.purchasePayments.map(pp => ({ ...pp, supplier_name: supplierByPurchase.get(String(pp.purchase)) || '' })),
     }
   }, [data.accountTransactions, data.payments, data.purchasePayments, data.purchases])
-  const treasuryToday = useMemo(() => buildTreasury(treasuryInput, null), [treasuryInput])
+  // Wallet balances today come from the backend trial balance.
+  const walletBalanceRows = data.trialBalanceReport?.rows
+  const treasuryToday = useMemo(() => buildTreasury(treasuryInput, null, walletBalanceRows), [treasuryInput, walletBalanceRows])
   // Wallet whose statement opens when Treasury is reached from a dashboard "View" button.
   const [treasuryFocusWallet, setTreasuryFocusWallet] = useState('')
   const treasuryDateFilter = sectionDateFilters.treasury || EMPTY_DATE_RANGE
@@ -2823,7 +2825,7 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
     })
   }, [treasuryInput, data.purchases])
   const cashbookRows = useMemo(() => filterByDateRange(cashbookAll, r => r.date, treasuryDateFilter), [cashbookAll, treasuryDateFilter])
-  const treasuryForPeriod = useMemo(() => buildTreasury(treasuryInput, hasDateRange(treasuryDateFilter) ? treasuryDateFilter : null), [treasuryInput, treasuryDateFilter])
+  const treasuryForPeriod = useMemo(() => buildTreasury(treasuryInput, hasDateRange(treasuryDateFilter) ? treasuryDateFilter : null, walletBalanceRows), [treasuryInput, treasuryDateFilter, walletBalanceRows])
   const reportsContext = useMemo(() => ({
     invoices: data.invoices,
     payments: data.payments,
@@ -4289,7 +4291,7 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
   const activeTrialBalance = reportingPeriodStart && periodTrialBalance?.start === reportingPeriodStart ? periodTrialBalance.report : data.trialBalanceReport
   const statementInputs = range => {
     const active = hasDateRange(range)
-    const treasury = active ? buildTreasury(treasuryInput, range) : treasuryToday
+    const treasury = active ? buildTreasury(treasuryInput, range, walletBalanceRows) : treasuryToday
     const otherAtEnd = active && range.end ? (otherReceivablesLedger.statement.find(r => dayOf(r.date) && dayOf(r.date) <= range.end)?.balance || 0) : otherReceivablesLedger.balance
     return {
       range: active ? range : null,
