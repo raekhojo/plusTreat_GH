@@ -161,14 +161,6 @@ function normalizePlainText(value) {
     .replace(/[ \t]+/g, ' ')
     .trim()
 }
-function escapeHtml(value) {
-  return String(value ?? '')
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;')
-}
 function sanitizeDecimalInput(value, maxDecimalPlaces) {
   const text = String(value ?? '').replace(/[^\d.]/g, '')
   if (!text) return ''
@@ -195,11 +187,6 @@ function toFixedDecimalString(value, decimalPlaces, maxDigits, label = 'Value') 
 }
 function sumBy(rows, fn) { return rows.reduce((s, r) => s + toNumber(fn(r)), 0) }
 function clampRows(rows, n = 5) { return rows.slice(0, n) }
-function isThisYear(v) {
-  if (!v) return false
-  const d = new Date(v)
-  return !Number.isNaN(d.getTime()) && d.getFullYear() === new Date().getFullYear()
-}
 
 function fmt(v)   { return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'GHS', maximumFractionDigits: 2 }).format(toNumber(v)) }
 function fmtQ(v)  { return new Intl.NumberFormat('en-US', { maximumFractionDigits: 3 }).format(toNumber(v)) }
@@ -417,44 +404,6 @@ function fmtD(v)  {
   if (!v) return EMPTY_TEXT
   const d = new Date(v)
   return Number.isNaN(d.getTime()) ? String(v) : new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric' }).format(d)
-}
-function truncateText(value, maxLength = 12) {
-  const text = String(value || '').trim()
-  if (!text) return EMPTY_TEXT
-  if (text.length <= maxLength) return text
-  return `${text.slice(0, maxLength).trimEnd()}...`
-}
-function formatDateRange(values) {
-  const unique = [...new Set((values || []).filter(Boolean))]
-  if (!unique.length) return EMPTY_TEXT
-  unique.sort((a, b) => new Date(a).getTime() - new Date(b).getTime())
-  if (unique.length === 1) return fmtD(unique[0])
-  return `${fmtD(unique[0])} - ${fmtD(unique[unique.length - 1])}`
-}
-function collapseDateRange(values) {
-  const unique = [...new Set((values || []).filter(Boolean))]
-  if (!unique.length) return EMPTY_TEXT
-  unique.sort((a, b) => new Date(a).getTime() - new Date(b).getTime())
-
-  const start = new Date(unique[0])
-  const end = new Date(unique[unique.length - 1])
-  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return formatDateRange(unique)
-  if (unique.length === 1 || start.getTime() === end.getTime()) return fmtD(unique[0])
-
-  const sameYear = start.getFullYear() === end.getFullYear()
-  const sameMonth = sameYear && start.getMonth() === end.getMonth()
-  const shortMonth = new Intl.DateTimeFormat('en-US', { month: 'short' })
-
-  if (sameMonth) return `${shortMonth.format(start)} ${start.getDate()}-${end.getDate()}, ${start.getFullYear()}`
-  if (sameYear) return `${shortMonth.format(start)} ${start.getDate()}-${shortMonth.format(end)} ${end.getDate()}, ${start.getFullYear()}`
-  return `${shortMonth.format(start)} ${start.getDate()}, ${start.getFullYear()}-${shortMonth.format(end)} ${end.getDate()}, ${end.getFullYear()}`
-}
-function collapseDateText(value) {
-  const text = String(value || '').trim()
-  if (!text || text === EMPTY_TEXT) return EMPTY_TEXT
-  if (!text.includes(' - ')) return fmtD(text)
-  const [start, end] = text.split(' - ').map(part => part.trim())
-  return collapseDateRange([start, end])
 }
 function resolveSupplierMaterials(supplier, rawMaterials = []) {
   const supplierId = String(supplier?.id || '')
@@ -941,117 +890,9 @@ function SummaryGrid({ items, className = '', primary = 4 }) {
   )
 }
 
-function buildBalanceSheetSnippetRows(rows = []) {
-  const normalizedRows = rows
-    .filter(row => String(row?.account_type || '').trim().toLowerCase() === 'balance sheet')
-    .map(row => ({
-      accountClass: String(row?.account_class || '').trim().toLowerCase(),
-      available: toNumber(row?.available),
-    }))
 
-  const totalAssets = sumBy(normalizedRows.filter(row => row.accountClass === 'assets'), row => row.available)
-  const totalLiabilities = sumBy(normalizedRows.filter(row => row.accountClass === 'liability'), row => row.available)
-  const totalEquity = totalAssets + totalLiabilities
 
-  return [
-    { id: 'assets', title: 'Assets', meta: 'What the business owns', value: fmt(totalAssets) },
-    { id: 'liabilities', title: 'Liabilities', meta: 'What the business owes', value: fmt(totalLiabilities) },
-    { id: 'equity', title: 'Equity', meta: 'Assets plus liabilities', value: fmt(totalEquity) },
-  ]
-}
 
-function buildAssetsSnippetRows(rows = []) {
-  const normalizedRows = rows
-    .filter(row =>
-      String(row?.account_type || '').trim().toLowerCase() === 'balance sheet'
-      && String(row?.account_class || '').trim().toLowerCase() === 'assets'
-    )
-    .map(row => ({
-      subAccounts: String(row?.sub_accounts || '').trim().toLowerCase(),
-      description: String(row?.description || '').trim().toLowerCase(),
-      available: toNumber(row?.available),
-    }))
-
-  const totalNonCurrentAssets = sumBy(
-    normalizedRows.filter(row => row.subAccounts === 'non current assets'),
-    row => row.available
-  )
-  const totalCashAndCashEquivalent = sumBy(
-    normalizedRows.filter(row => row.subAccounts === 'cash and cash equivalent'),
-    row => row.available
-  )
-  const totalOtherReceivables = sumBy(
-    normalizedRows.filter(row => row.description === 'trade receivables' || row.description === 'other receivables'),
-    row => row.available
-  )
-  const totalFinishedGoodsInventory = sumBy(
-    normalizedRows.filter(row => row.description === 'finished goods'),
-    row => row.available
-  )
-  const totalAssets = sumBy(normalizedRows, row => row.available)
-
-  return [
-    { id: 'non-current-assets', title: 'Non Current Assets', meta: 'From reporting', value: fmt(totalNonCurrentAssets) },
-    { id: 'cash-and-cash-equivalent', title: 'Cash and Cash Equivalent', meta: 'From reporting', value: fmt(totalCashAndCashEquivalent) },
-    { id: 'other-receivables', title: 'Recievables', meta: 'Trade receivables plus other receivables', value: fmt(totalOtherReceivables) },
-    { id: 'finished-goods-inventory', title: 'Finished Goods Inventory', meta: 'Inventory asset from reporting', value: fmt(totalFinishedGoodsInventory) },
-    { id: 'total-assets', title: 'Total Assets', meta: 'All asset rows from reporting', value: fmt(totalAssets) },
-  ]
-}
-
-function buildLiabilitySnippetRows(rows = []) {
-  const normalizedRows = rows
-    .filter(row =>
-      String(row?.account_type || '').trim().toLowerCase() === 'balance sheet'
-      && String(row?.account_class || '').trim().toLowerCase() === 'liability'
-    )
-    .map(row => ({
-      description: String(row?.description || '').trim().toLowerCase(),
-      available: toNumber(row?.available),
-    }))
-
-  const totalPayables = sumBy(
-    normalizedRows.filter(row => row.description === 'payables'),
-    row => row.available
-  )
-  const totalLiabilities = sumBy(normalizedRows, row => row.available)
-
-  return [
-    { id: 'payables', title: 'Payables', meta: 'Liability account from reporting', value: fmt(totalPayables) },
-    { id: 'total-liabilities', title: 'Total Liabilities', meta: 'All liability rows from reporting', value: fmt(totalLiabilities) },
-  ]
-}
-
-function buildEquitySnippetRows(rows = []) {
-  const balanceSheetRows = rows
-    .filter(row => String(row?.account_type || '').trim().toLowerCase() === 'balance sheet')
-    .map(row => ({
-      accountClass: String(row?.account_class || '').trim().toLowerCase(),
-      subAccounts: String(row?.sub_accounts || '').trim().toLowerCase(),
-      available: toNumber(row?.available),
-    }))
-
-  const totalAssets = sumBy(
-    balanceSheetRows.filter(row => row.accountClass === 'assets'),
-    row => row.available
-  )
-  const totalLiabilities = sumBy(
-    balanceSheetRows.filter(row => row.accountClass === 'liability'),
-    row => row.available
-  )
-  const equityRows = balanceSheetRows.filter(row => row.accountClass === 'equity')
-
-  const totalNetWorth = sumBy(
-    equityRows,
-    row => row.available
-  )
-  const totalEquity = totalAssets + totalLiabilities
-
-  return [
-    { id: 'net-worth', title: 'Net Worth', meta: 'All equity rows from reporting', value: fmt(totalNetWorth) },
-    { id: 'total-equity', title: 'Total Equity', meta: 'Assets plus liabilities from trial balance', value: fmt(totalEquity) },
-  ]
-}
 
 function SkeletonLine({ className = '' }) {
   return <span className={`dashboard-skeleton-line ${className}`.trim()} aria-hidden="true" />
@@ -2498,10 +2339,7 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
   }, [activeSection, availableSections])
 
   useEffect(() => {
-    if (selectedBatch) {
-      const fresh = data.productionBatches.find(b => b.id === selectedBatch.id)
-      if (fresh) setSelectedBatch(fresh)
-    }
+    setSelectedBatch(prev => (prev ? data.productionBatches.find(b => b.id === prev.id) || prev : prev))
   }, [data.productionBatches])
 
   // ── Derived maps ──────────────────────────────────────────────────────────
@@ -2553,7 +2391,7 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
   }
   const invoiceOptions = useMemo(() => data.invoices
     .filter(inv => getInvoiceOutstanding(inv) > 0 || (receiptForm._editId && String(inv.id) === String(receiptForm.invoice)))
-    .map(inv => ({ id: inv.id, label: `${fmtInv(inv.id)} — ${inv.customer_name || 'Customer'}`, outstanding: getInvoiceOutstanding(inv) })), [data.invoices])
+    .map(inv => ({ id: inv.id, label: `${fmtInv(inv.id)} — ${inv.customer_name || 'Customer'}`, outstanding: getInvoiceOutstanding(inv) })), [data.invoices, receiptForm._editId, receiptForm.invoice])
   const openPurchases  = useMemo(() => data.purchases.filter(p => p.status === 'open' || p.status === 'partially_paid'), [data.purchases])
   const openInvoiceOptions = useMemo(
     () => data.invoices
@@ -2607,21 +2445,6 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
       .map(customer => ({ value: String(customer.id), label: customer.name, meta: customer.phone || customer.customer_category_name || '' }))
       .sort((a, b) => a.label.localeCompare(b.label)),
     [data.customers]
-  )
-  const salesStaffSelectOptions = useMemo(
-    () => data.staffProfiles
-      .filter(profile => profile.user?.is_active !== false)
-      .filter(profile => profile.is_sales_staff !== false)
-      .map(profile => {
-        const fullName = `${profile.user?.first_name || ''} ${profile.user?.last_name || ''}`.trim()
-        return {
-          value: String(profile.id),
-          label: fullName || profile.user?.username || 'Staff',
-          meta: fmtRole(profile.role || 'sales'),
-        }
-      })
-      .sort((a, b) => a.label.localeCompare(b.label)),
-    [data.staffProfiles]
   )
   const invoiceSelectOptions = useMemo(() => {
     const options = openInvoiceOptions.map(invoice => ({
@@ -2786,10 +2609,6 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
   const suppliersDateFilter = sectionDateFilters.suppliers || EMPTY_DATE_RANGE
   const accountsDateFilter = sectionDateFilters.accounts_pricing || EMPTY_DATE_RANGE
 
-  const dashboardInvoices = useMemo(() => filterByDateRange(data.invoices, inv => inv.invoice_date, dashboardDateFilter), [data.invoices, dashboardDateFilter])
-  const dashboardPayments = useMemo(() => filterByDateRange(data.payments, p => p.payment_date, dashboardDateFilter), [data.payments, dashboardDateFilter])
-  const dashboardBatches = useMemo(() => filterByDateRange(data.productionBatches, b => b.production_date, dashboardDateFilter), [data.productionBatches, dashboardDateFilter])
-  const dashboardAccounts = useMemo(() => filterByDateRange(data.accountTransactions, e => e.transaction_date, dashboardDateFilter), [data.accountTransactions, dashboardDateFilter])
 
 
   const salesInvoices = useMemo(() => filterByDateRange(data.invoices, inv => inv.invoice_date, salesDateFilter), [data.invoices, salesDateFilter])
@@ -3008,420 +2827,6 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
     [inventoryLedger]
   )
 
-  const dashboardContent = useMemo(() => {
-    const reportingRowsForDashboard = (data.trialBalanceReport?.rows || [])
-      .filter(row => (
-        Math.abs(toNumber(row.opening)) > 0.000001
-        || Math.abs(toNumber(row.acct_in)) > 0.000001
-        || Math.abs(toNumber(row.acct_out)) > 0.000001
-        || Math.abs(toNumber(row.available)) > 0.000001
-      ))
-      .map(row => ({
-        accountType: row.account_type,
-        accountClass: row.account_class,
-        movement: toNumber(row.acct_in) - toNumber(row.acct_out),
-      }))
-
-    const dashboardTotalIncome = sumBy(
-      reportingRowsForDashboard.filter(row => row.accountType === 'Income Statement' && row.accountClass === 'Income'),
-      row => row.movement
-    )
-    const dashboardTotalDirectCost = sumBy(
-      reportingRowsForDashboard.filter(row => row.accountType === 'Income Statement' && row.accountClass === 'Direct Cost'),
-      row => row.movement
-    )
-    const dashboardTotalExpenses = sumBy(
-      reportingRowsForDashboard.filter(row => row.accountType === 'Income Statement' && row.accountClass === 'Expenses'),
-      row => row.movement
-    )
-    const dashboardGrossProfitOrLoss = dashboardTotalIncome + dashboardTotalDirectCost
-    const dashboardNetProfitOrLoss = dashboardGrossProfitOrLoss + dashboardTotalExpenses
-
-    const ytdInvForCharts = dashboardInvoices.filter(inv => isThisYear(inv.invoice_date))
-    const ytdBatchForCharts = dashboardBatches.filter(b => isThisYear(b.production_date))
-    const ytdAcctForCharts = dashboardAccounts.filter(e => isThisYear(e.transaction_date))
-    const totalSalesForCharts = sumBy(ytdInvForCharts, inv => inv.total_amount)
-    const totalCostForCharts = sumBy(ytdBatchForCharts, b => b.total_cost)
-    const receiptsTotalForCharts = sumBy(dashboardPayments, p => p.amount)
-    const expenseTotalForCharts = sumBy(ytdAcctForCharts.filter(e => e.entry_type === 'expense'), e => e.amount)
-    const grossProfitForCharts = totalSalesForCharts - totalCostForCharts
-    const avgInvoiceValueForCharts = ytdInvForCharts.length ? totalSalesForCharts / ytdInvForCharts.length : 0
-    const collectionRateForCharts = ratioPct(receiptsTotalForCharts, Math.max(totalSalesForCharts, receiptsTotalForCharts))
-    const grossMarginPctForCharts = ratioPct(grossProfitForCharts, totalSalesForCharts)
-    const lowStockCountForCharts = lowStockRows.filter(m => toNumber(m.available) <= toNumber(m.reorder_level || 0)).length
-    const stockRiskPctForCharts = ratioPct(lowStockCountForCharts, Math.max(data.rawMaterials.length, 1))
-
-    const monthlyTrendForCharts = Array.from({ length: 6 }, (_, index) => {
-      const monthDate = new Date()
-      monthDate.setDate(1)
-      monthDate.setMonth(monthDate.getMonth() - (5 - index))
-      const month = monthDate.getMonth()
-      const year = monthDate.getFullYear()
-
-      const monthSales = sumBy(dashboardInvoices.filter(inv => {
-        const invoiceDate = new Date(inv.invoice_date)
-        return !Number.isNaN(invoiceDate.getTime()) && invoiceDate.getMonth() === month && invoiceDate.getFullYear() === year
-      }), inv => inv.total_amount)
-
-      const monthReceipts = sumBy(dashboardPayments.filter(payment => {
-        const paymentDate = new Date(payment.payment_date)
-        return !Number.isNaN(paymentDate.getTime()) && paymentDate.getMonth() === month && paymentDate.getFullYear() === year
-      }), payment => payment.amount)
-
-      return {
-        label: monthDate.toLocaleString('en-US', { month: 'short' }),
-        sales: monthSales,
-        receipts: monthReceipts,
-      }
-    })
-
-    const invoiceStatusSegmentsForCharts = [
-      {
-        label: 'Collected',
-        value: sumBy(dashboardInvoices.filter(inv => getInvoiceOutstandingDue(inv) <= 0), inv => inv.total_amount),
-        meta: `${dashboardInvoices.filter(inv => getInvoiceOutstandingDue(inv) <= 0).length} invoices settled`,
-        color: '#2492da',
-      },
-      {
-        label: 'Partially Paid',
-        value: sumBy(dashboardInvoices.filter(inv => {
-          const paidAmount = getInvoicePaidAmount(inv)
-          return getInvoiceOutstandingDue(inv) > 0 && paidAmount > 0
-        }), inv => getInvoiceOutstandingDue(inv)),
-        meta: `${dashboardInvoices.filter(inv => {
-          const paidAmount = getInvoicePaidAmount(inv)
-          return getInvoiceOutstandingDue(inv) > 0 && paidAmount > 0
-        }).length} invoices still collecting`,
-        color: '#f2b13a',
-      },
-      {
-        label: 'Unpaid',
-        value: sumBy(dashboardInvoices.filter(inv => {
-          const paidAmount = getInvoicePaidAmount(inv)
-          return getInvoiceOutstandingDue(inv) > 0 && paidAmount <= 0
-        }), inv => getInvoiceOutstandingDue(inv)),
-        meta: `${dashboardInvoices.filter(inv => {
-          const paidAmount = getInvoicePaidAmount(inv)
-          return getInvoiceOutstandingDue(inv) > 0 && paidAmount <= 0
-        }).length} invoices untouched`,
-        color: '#ef4444',
-      },
-    ]
-
-    const paymentMethodSegmentsForCharts = Object.entries(
-      dashboardPayments.reduce((acc, payment) => {
-        const key = fmtStatus(payment.method || 'other')
-        acc[key] = (acc[key] || 0) + toNumber(payment.amount)
-        return acc
-      }, {})
-    )
-      .map(([label, value]) => ({
-        label,
-        value,
-        meta: `${fmt(value)} collected`,
-      }))
-      .sort((a, b) => b.value - a.value)
-      .map((segment, index) => ({
-        ...segment,
-        color: ['#2492da', '#f2b13a', '#14b8a6', '#7c3aed', '#ef4444'][index % 5],
-      }))
-
-    const dashboardSignalsForCharts = [
-      {
-        label: 'Collection Rate',
-        value: `${collectionRateForCharts.toFixed(0)}%`,
-        meta: 'Receipts collected versus sales booked',
-        percent: collectionRateForCharts,
-        color: 'linear-gradient(90deg, #2492da, #48b1ec)',
-      },
-      {
-        label: 'Gross Margin',
-        value: `${grossMarginPctForCharts.toFixed(0)}%`,
-        meta: 'Sales left after production cost',
-        percent: grossMarginPctForCharts,
-        color: 'linear-gradient(90deg, #f2b13a, #c7851d)',
-      },
-      {
-        label: 'Average Invoice',
-        value: fmt(avgInvoiceValueForCharts),
-        meta: `${ytdInvForCharts.length} YTD invoices averaged`,
-        percent: ratioPct(avgInvoiceValueForCharts, Math.max(...ytdInvForCharts.map(inv => toNumber(inv.total_amount)), avgInvoiceValueForCharts, 1)),
-        color: 'linear-gradient(90deg, #14b8a6, #0f766e)',
-      },
-      {
-        label: 'Raw Material Risk',
-        value: `${lowStockCountForCharts} low stock`,
-        meta: 'Materials at or below reorder level',
-        percent: stockRiskPctForCharts,
-        color: 'linear-gradient(90deg, #ef4444, #b91c1c)',
-      },
-    ]
-
-    if (data.dashboardOverview) {
-      const overview = data.dashboardOverview
-      const kpis = overview.kpis || {}
-      const balanceSheet = buildBalanceSheetSnippetRows(data.trialBalanceReport?.rows || [])
-      const assetsSummary = buildAssetsSnippetRows(data.trialBalanceReport?.rows || [])
-      const liabilitySummary = buildLiabilitySnippetRows(data.trialBalanceReport?.rows || [])
-      const equitySummary = buildEquitySnippetRows(data.trialBalanceReport?.rows || [])
-      return {
-        metrics: [
-          { label: 'Total Sales (YTD)', value: fmt(kpis.total_sales_ytd), note: `${overview.period?.start_date || 'YTD'} to ${overview.period?.end_date || 'today'}` },
-          { label: 'Outstanding Receivables', value: fmt(kpis.outstanding_receivables), note: `${(overview.open_invoices || []).length} open invoices` },
-          { label: 'Production Batches (YTD)', value: fmtQ(kpis.batches), note: 'Batches recorded in selected period' },
-          { label: 'Production Cost (YTD)', value: fmt(kpis.total_cost), note: 'Sum of batch costs' },
-          { label: 'Profit / Loss (YTD)', value: fmt(kpis.profit_loss), note: 'Sales minus production cost' },
-        ],
-        monthlyTrend: monthlyTrendForCharts,
-        invoiceStatusSegments: invoiceStatusSegmentsForCharts,
-        paymentMethodSegments: paymentMethodSegmentsForCharts,
-        dashboardSignals: dashboardSignalsForCharts,
-        topCustomers: (overview.top_customers_by_value || []).map((row, index) => ({
-          id: index,
-          title: row.customer__name || 'Customer',
-          meta: 'Total sales',
-          value: fmt(row.total_sales),
-        })),
-        topProducts: (overview.top_products_sold || []).map((row, index) => ({
-          id: index,
-          title: row.pricing_rule__size || row.description || 'Product',
-          meta: `${fmtQ(row.total_qty)} sold`,
-          value: fmt(row.total_amount),
-        })),
-        rawMaterials: (overview.raw_materials_status || []).map((row, index) => ({
-          id: index,
-          title: row.name || 'Raw Material',
-          meta: 'Available quantity',
-          value: fmtQ(row.qty_available),
-        })),
-        finishedGoods: (overview.finished_goods_status || []).map((row, index) => ({
-          id: index,
-          title: row.pricing_rule__size || row.item || 'Finished Good',
-          meta: `${fmtQ(row.qty_sold)} sold`,
-          value: fmtQ(row.qty_left),
-        })),
-        plStatement: [
-          { id: 'income', title: 'Income', meta: 'All income accounts in reporting', value: fmt(dashboardTotalIncome) },
-          { id: 'direct-cost', title: 'Direct Cost', meta: 'All direct cost accounts in reporting', value: fmt(dashboardTotalDirectCost) },
-          { id: 'gross', title: 'Gross Profit / Loss', meta: 'Income plus direct cost', value: fmt(dashboardGrossProfitOrLoss) },
-          { id: 'expenses', title: 'Expenses', meta: 'All expense accounts in reporting', value: fmt(dashboardTotalExpenses) },
-          { id: 'net', title: 'Net Profit / Loss', meta: 'Gross profit plus expenses', value: fmt(dashboardNetProfitOrLoss) },
-        ],
-        balanceSheet,
-        assetsSummary,
-        liabilitySummary,
-        equitySummary,
-        receivables: (overview.top_receivables || []).map((row, index) => ({
-          id: index,
-          title: row.customer__name || 'Customer',
-          meta: 'Amount outstanding',
-          value: fmt(row.amount_outstanding),
-        })),
-        openInvoices: (overview.open_invoices || []).map((row, index) => ({
-          id: row.id || index,
-          title: row.invoice_number || fmtInv(row.id),
-          meta: row.customer__name || 'Customer',
-          value: fmt(row.amount_outstanding),
-        })),
-      }
-    }
-
-    const ytdInv   = dashboardInvoices.filter(inv => isThisYear(inv.invoice_date))
-    const ytdBatch = dashboardBatches.filter(b => isThisYear(b.production_date))
-    const ytdAcct  = dashboardAccounts.filter(e => isThisYear(e.transaction_date))
-
-    const totalSales       = sumBy(ytdInv, inv => inv.total_amount)
-    const outstanding      = sumBy(dashboardInvoices, inv => getInvoiceOutstandingDue(inv))
-    const totalCost        = sumBy(ytdBatch, b => b.total_cost)
-    const receiptsTotal    = sumBy(dashboardPayments, p => p.amount)
-    const expenseTotal     = sumBy(ytdAcct.filter(e => e.entry_type === 'expense'), e => e.amount)
-    const grossProfit      = totalSales - totalCost
-    const netProfit        = grossProfit - expenseTotal
-    const openInvoices     = dashboardInvoices.filter(inv => getInvoiceOutstandingDue(inv) > 0)
-    const avgInvoiceValue  = ytdInv.length ? totalSales / ytdInv.length : 0
-    const collectionRate   = ratioPct(receiptsTotal, Math.max(totalSales, receiptsTotal))
-    const grossMarginPct   = ratioPct(grossProfit, totalSales)
-    const lowStockCount    = lowStockRows.filter(m => toNumber(m.available) <= toNumber(m.reorder_level || 0)).length
-    const stockRiskPct     = ratioPct(lowStockCount, Math.max(data.rawMaterials.length, 1))
-    const balanceSheet = buildBalanceSheetSnippetRows(data.trialBalanceReport?.rows || [])
-    const assetsSummary = buildAssetsSnippetRows(data.trialBalanceReport?.rows || [])
-    const liabilitySummary = buildLiabilitySnippetRows(data.trialBalanceReport?.rows || [])
-    const equitySummary = buildEquitySnippetRows(data.trialBalanceReport?.rows || [])
-
-    const custSales = data.customers.map(c => {
-      const invs = dashboardInvoices.filter(inv => String(inv.customer) === String(c.id))
-      return { id: c.id, title: c.name, meta: `${invs.length} invoices`, salesValue: sumBy(invs, inv => inv.total_amount), outstanding: sumBy(invs, inv => getInvoiceOutstandingDue(inv)) }
-    }).sort((a, b) => b.salesValue - a.salesValue)
-
-    const prodMap = new Map()
-    dashboardInvoices.forEach(inv => (inv.lines || []).forEach(line => {
-      const title = String(line.product_size || line.pricing_category || 'Product').trim()
-      const k = normalizeSizeKey(title) || String(line.pricing_rule || line.id)
-      const cur = prodMap.get(k) || { id: k, title: title || 'Product', quantity: 0, amount: 0 }
-      cur.quantity += toNumber(line.quantity)
-      cur.amount   += toNumber(line.line_total)
-      prodMap.set(k, cur)
-    }))
-    const prodSales = [...prodMap.values()].sort((a, b) => b.amount - a.amount)
-
-    const finishedGoodsBySize = new Map()
-    data.products.forEach(product => {
-      const sizeName = String(product.name || '').trim()
-      const sizeKey = normalizeSizeKey(sizeName)
-      if (!sizeKey) return
-      const existing = finishedGoodsBySize.get(sizeKey) || {
-        id: sizeKey,
-        title: sizeName || 'Product',
-        left: 0,
-      }
-      existing.left += toNumber(product.stock_quantity)
-      finishedGoodsBySize.set(sizeKey, existing)
-    })
-    const finishedGoods = [...finishedGoodsBySize.values()]
-      .map(item => {
-        const sold = prodMap.get(item.id)
-        return { ...item, meta: `${fmtQ(sold?.quantity || 0)} sold` }
-      })
-      .sort((a, b) => b.left - a.left)
-
-    const monthlyTrend = Array.from({ length: 6 }, (_, index) => {
-      const monthDate = new Date()
-      monthDate.setDate(1)
-      monthDate.setMonth(monthDate.getMonth() - (5 - index))
-      const month = monthDate.getMonth()
-      const year = monthDate.getFullYear()
-
-      const monthSales = sumBy(dashboardInvoices.filter(inv => {
-        const invoiceDate = new Date(inv.invoice_date)
-        return !Number.isNaN(invoiceDate.getTime()) && invoiceDate.getMonth() === month && invoiceDate.getFullYear() === year
-      }), inv => inv.total_amount)
-
-      const monthReceipts = sumBy(dashboardPayments.filter(payment => {
-        const paymentDate = new Date(payment.payment_date)
-        return !Number.isNaN(paymentDate.getTime()) && paymentDate.getMonth() === month && paymentDate.getFullYear() === year
-      }), payment => payment.amount)
-
-      return {
-        label: monthDate.toLocaleString('en-US', { month: 'short' }),
-        sales: monthSales,
-        receipts: monthReceipts,
-      }
-    })
-
-    const invoiceStatusSegments = [
-      {
-        label: 'Collected',
-        value: sumBy(dashboardInvoices.filter(inv => getInvoiceOutstandingDue(inv) <= 0), inv => inv.total_amount),
-        meta: `${dashboardInvoices.filter(inv => getInvoiceOutstandingDue(inv) <= 0).length} invoices settled`,
-        color: '#2492da',
-      },
-      {
-        label: 'Partially Paid',
-        value: sumBy(dashboardInvoices.filter(inv => {
-          const paidAmount = getInvoicePaidAmount(inv)
-          return getInvoiceOutstandingDue(inv) > 0 && paidAmount > 0
-        }), inv => getInvoiceOutstandingDue(inv)),
-        meta: `${dashboardInvoices.filter(inv => {
-          const paidAmount = getInvoicePaidAmount(inv)
-          return getInvoiceOutstandingDue(inv) > 0 && paidAmount > 0
-        }).length} invoices still collecting`,
-        color: '#f2b13a',
-      },
-      {
-        label: 'Unpaid',
-        value: sumBy(dashboardInvoices.filter(inv => {
-          const paidAmount = getInvoicePaidAmount(inv)
-          return getInvoiceOutstandingDue(inv) > 0 && paidAmount <= 0
-        }), inv => getInvoiceOutstandingDue(inv)),
-        meta: `${dashboardInvoices.filter(inv => {
-          const paidAmount = getInvoicePaidAmount(inv)
-          return getInvoiceOutstandingDue(inv) > 0 && paidAmount <= 0
-        }).length} invoices untouched`,
-        color: '#ef4444',
-      },
-    ]
-
-    const paymentMethodSegments = Object.entries(
-      dashboardPayments.reduce((acc, payment) => {
-        const key = fmtStatus(payment.method || 'other')
-        acc[key] = (acc[key] || 0) + toNumber(payment.amount)
-        return acc
-      }, {})
-    )
-      .map(([label, value]) => ({
-        label,
-        value,
-        meta: `${fmt(value)} collected`,
-      }))
-      .sort((a, b) => b.value - a.value)
-      .map((segment, index) => ({
-        ...segment,
-        color: ['#2492da', '#f2b13a', '#14b8a6', '#7c3aed', '#ef4444'][index % 5],
-      }))
-
-    const dashboardSignals = [
-      {
-        label: 'Collection Rate',
-        value: `${collectionRate.toFixed(0)}%`,
-        meta: 'Receipts collected versus sales booked',
-        percent: collectionRate,
-        color: 'linear-gradient(90deg, #2492da, #48b1ec)',
-      },
-      {
-        label: 'Gross Margin',
-        value: `${grossMarginPct.toFixed(0)}%`,
-        meta: 'Sales left after production cost',
-        percent: grossMarginPct,
-        color: 'linear-gradient(90deg, #f2b13a, #c7851d)',
-      },
-      {
-        label: 'Average Invoice',
-        value: fmt(avgInvoiceValue),
-        meta: `${ytdInv.length} YTD invoices averaged`,
-        percent: ratioPct(avgInvoiceValue, Math.max(...ytdInv.map(inv => toNumber(inv.total_amount)), avgInvoiceValue, 1)),
-        color: 'linear-gradient(90deg, #14b8a6, #0f766e)',
-      },
-      {
-        label: 'Raw Material Risk',
-        value: `${lowStockCount} low stock`,
-        meta: 'Materials at or below reorder level',
-        percent: stockRiskPct,
-        color: 'linear-gradient(90deg, #ef4444, #b91c1c)',
-      },
-    ]
-
-    return {
-      metrics: [
-        { label: 'Total Sales (YTD)',         value: fmt(totalSales),    note: `${ytdInv.length} invoices this year` },
-        { label: 'Outstanding Receivables',   value: fmt(outstanding),   note: `${dashboardInvoices.filter(inv => getInvoiceOutstandingDue(inv) > 0).length} open invoices` },
-        { label: 'Production Batches (YTD)',  value: fmtQ(ytdBatch.length), note: 'Batches recorded this year' },
-        { label: 'Production Cost (YTD)',     value: fmt(totalCost),     note: 'Sum of batch costs' },
-        { label: 'Gross Profit (YTD)',        value: fmt(grossProfit),   note: 'Sales minus production cost' },
-        { label: 'Average Invoice (YTD)',     value: fmt(avgInvoiceValue), note: 'Average value per YTD invoice' },
-      ],
-      monthlyTrend,
-      invoiceStatusSegments,
-      paymentMethodSegments,
-      dashboardSignals,
-      topCustomers:   clampRows(custSales).map(c => ({ id: c.id,    title: c.title, meta: c.meta, value: fmt(c.salesValue) })),
-      topProducts:    clampRows(prodSales).map(p => ({ id: p.id,    title: p.title, meta: `${fmtQ(p.quantity)} sold`, value: fmt(p.amount) })),
-      rawMaterials:   clampRows(lowStockRows).map(m => ({ id: m.id, title: m.name,  meta: `Reorder at ${fmtQ(m.reorder_level)} ${m.unit || ''}`.trim(), value: fmtQ(m.available) })),
-      finishedGoods:  clampRows(finishedGoods).map(p => ({ id: p.id, title: p.title, meta: p.meta, value: fmtQ(p.left) })),
-      plStatement: [
-        { id: 'income', title: 'Income', meta: 'All income accounts in reporting', value: fmt(dashboardTotalIncome) },
-        { id: 'direct-cost', title: 'Direct Cost', meta: 'All direct cost accounts in reporting', value: fmt(dashboardTotalDirectCost) },
-        { id: 'gross', title: 'Gross Profit / Loss', meta: 'Income plus direct cost', value: fmt(dashboardGrossProfitOrLoss) },
-        { id: 'expenses', title: 'Expenses', meta: 'All expense accounts in reporting', value: fmt(dashboardTotalExpenses) },
-        { id: 'net', title: 'Net Profit / Loss', meta: 'Gross profit plus expenses', value: fmt(dashboardNetProfitOrLoss) },
-      ],
-      balanceSheet,
-      assetsSummary,
-      liabilitySummary,
-      equitySummary,
-      receivables:    clampRows(custSales.filter(c => c.outstanding > 0)).map(c => ({ id: c.id, title: c.title, meta: 'Amount outstanding', value: fmt(c.outstanding) })),
-      openInvoices:   clampRows(openInvoices).map(inv => ({ id: inv.id, title: fmtInv(inv.id), meta: inv.customer_name || 'Customer', value: fmt(getInvoiceOutstandingDue(inv)) })),
-    }
-  }, [dashboardAccounts, dashboardBatches, dashboardInvoices, dashboardPayments, data.customers, data.dashboardOverview, data.products, data.rawMaterials.length, data.trialBalanceReport?.rows, lowStockRows])
 
   // ── Modal helpers ─────────────────────────────────────────────────────────
 
@@ -4350,17 +3755,6 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
     .filter(section => ['dashboard', 'sales_hub', 'production_ops', 'customers'].includes(section.key))
     .map(section => section.key)
   const mobileExtraSections = availableSections.filter(section => !mobilePrimarySections.includes(section.key))
-  const mobileHeroStatsBySection = {
-    dashboard: dashboardContent.metrics.slice(0, 2),
-    sales_hub: salesSummary.slice(0, 2),
-    production_ops: productionSummary.slice(0, 2),
-    supplies_stock: suppliesSummary.slice(0, 2),
-    customers: customersSummary.slice(0, 2),
-    suppliers: suppliersSummary.slice(0, 2),
-    accounts_pricing: accountsSummary.slice(0, 2),
-    reporting: [],
-  }
-  const mobileHeroStats = mobileHeroStatsBySection[activeSection] || dashboardContent.metrics.slice(0, 2)
   const avatarText = (user?.name || 'PT')
     .split(' ')
     .map((part) => part[0])
@@ -4652,8 +4046,6 @@ function HomePage({ initialSection = 'dashboard', allowedSections = null, standa
     },
   ]), [data.pricingRules])
 
-  const acctByType = (type) => data.accountTransactions.filter(e => e.entry_type === type)
-  const acctSum = (type) => sumBy(acctByType(type), e => e.amount)
 
   const toTs = (v) => {
     if (!v) return NaN
